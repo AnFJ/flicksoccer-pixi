@@ -10,9 +10,9 @@ export default class Ball {
     
     // 1. 物理刚体
     this.body = Matter.Bodies.circle(x, y, this.radius, {
-      frictionAir: 0.015,  
-      restitution: 0.9,    
-      density: 0.001,      
+      frictionAir: GameConfig.physics.ballFrictionAir, // 使用配置中的阻尼
+      restitution: GameConfig.physics.ballRestitution, // 使用配置中的弹性
+      density: GameConfig.physics.ballDensity,         // 使用配置中的密度
       label: 'Ball',
       collisionFilter: {
         category: CollisionCategory.BALL,

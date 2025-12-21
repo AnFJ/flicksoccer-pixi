@@ -10,25 +10,36 @@ export const GameConfig = {
     fieldWidth: 1824,       // 球场长度
     fieldHeight: 926,       // 球场高度
     goalWidth: 107,         // 球门深度 (X轴方向)
-    goalOpening: 201,       // 球门开口大小 (Y轴方向/宽度)
+    goalOpening: 301,       // 球门开口大小 (Y轴方向/宽度)
     strikerDiameter: 100,   // 棋子直径
     ballDiameter: 41,       // 足球直径
     wallThickness: 100      // 墙壁厚度 (隐形墙)
   },
 
-  // 物理配置
+  // 物理配置 (手感调整核心区域)
   physics: {
     gravity: { x: 0, y: 0 }, // 俯视视角无重力
-    frictionAir: 0.02,       // 模拟草地摩擦力
-    restitution: 0.8,        // 碰撞弹性
+    
+    // --- 棋子(Striker)物理参数 ---
+    frictionAir: 0.04,       // [阻尼] 棋子空气摩擦力 (数值越大减速越快，建议 0.01~0.05)
+    restitution: 0.8,        // [弹性] 棋子碰撞反弹系数 (0~1)
+    
+    // --- 足球(Ball)物理参数 ---
+    ballFrictionAir: 0.02,  // [阻尼] 足球空气摩擦力 (通常比棋子滑得稍微远一点，所以数值稍小)
+    ballRestitution: 0.9,    // [弹性] 足球更弹
+    ballDensity: 0.0025,      // [密度] 决定质量，质量越小越容易被撞飞
+
     wallThickness: 100       // 墙壁厚度
   },
 
   // 玩法规则
   gameplay: {
     maxScore: 2,             // 获胜分数
-    maxDragDistance: 250,    // 最大拖拽瞄准距离 (稍微调大以适应大屏)
-    forceMultiplier: 0.02,   // 力度系数
+    
+    // --- 瞄准力度参数 ---
+    maxDragDistance: 180,    // [力度上限] 瞄准条拉长的最大像素距离
+    forceMultiplier: 0.005,   // [力度系数] 像素距离转换为物理力的倍率 (如果你觉得球踢不动，把这个调大，比如 0.025 或 0.03)
+    
     turnTimeLimit: 30        // 每回合秒数 (可选)
   },
 
