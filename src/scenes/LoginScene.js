@@ -19,7 +19,7 @@ export default class LoginScene extends BaseScene {
     const title = new PIXI.Text({
         text: '弹指足球',
         style: {
-            fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: ['#FFD700', '#FF8C00'],
+            fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: 0xFFD700,
             stroke: { color: '#FFFFFF', width: 6 }, dropShadow: true, dropShadowDistance: 6
         }
     });

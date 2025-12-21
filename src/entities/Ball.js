@@ -5,14 +5,14 @@ import { GameConfig } from '../config.js';
 
 export default class Ball {
   constructor(x, y) {
-    // 足球直径 41 (半径 20.5)
-    this.radius = 20.5;
+    // 读取配置中的直径
+    this.radius = GameConfig.dimensions.ballDiameter / 2;
     
     // 1. 物理刚体
     this.body = Matter.Bodies.circle(x, y, this.radius, {
-      frictionAir: 0.015,  // 足球阻力比棋子略小，滚动更远
-      restitution: 0.9,    // 弹性较高
-      density: 0.001,      // 密度适中
+      frictionAir: 0.015,  
+      restitution: 0.9,    
+      density: 0.001,      
       label: 'Ball',
       collisionFilter: {
         category: CollisionCategory.BALL,
@@ -24,7 +24,6 @@ export default class Ball {
     // 2. Pixi 视图
     this.view = new PIXI.Container();
     
-    // 绘制足球图案 (简单的黑白设计)
     const g = new PIXI.Graphics();
     
     // 白色底
@@ -32,9 +31,17 @@ export default class Ball {
     g.fill(0xFFFFFF);
     g.stroke({ width: 2, color: 0x000000 });
 
-    // 中间画个五边形模拟足球纹理
-    g.moveTo(0, -10);
-    g.poly([5, -5, 8, 5, 0, 10, -8, 5, -5, -5], true);
+    // 足球纹理
+    g.moveTo(0, -this.radius * 0.5);
+    // 画个简易五边形
+    const r = this.radius * 0.4;
+    g.poly([
+        r * Math.cos(0), r * Math.sin(0),
+        r * Math.cos(72 * Math.PI/180), r * Math.sin(72 * Math.PI/180),
+        r * Math.cos(144 * Math.PI/180), r * Math.sin(144 * Math.PI/180),
+        r * Math.cos(216 * Math.PI/180), r * Math.sin(216 * Math.PI/180),
+        r * Math.cos(288 * Math.PI/180), r * Math.sin(288 * Math.PI/180)
+    ], true);
     g.fill(0x000000);
 
     this.view.addChild(g);

@@ -1,6 +1,7 @@
 import * as PIXI from 'pixi.js';
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
+import LoginScene from './scenes/LoginScene.js';
 import { GameConfig } from './config.js';
 
 const app = new PIXI.Application();
@@ -17,6 +18,8 @@ async function initGame() {
       canvasTarget = undefined;
     }
 
+    // 初始化 Pixi 应用
+    // 使用配置中的设计分辨率 2400 x 1080
     await app.init({
       canvas: canvasTarget, 
       width: GameConfig.designWidth,
@@ -32,9 +35,8 @@ async function initGame() {
       resizeWebCanvas();
       window.addEventListener('resize', resizeWebCanvas);
     } else {
-        // 小游戏环境下，强制适配
-        const { windowWidth, windowHeight } = isMiniGame && wx.getSystemInfoSync ? wx.getSystemInfoSync() : { windowWidth: GameConfig.designWidth, windowHeight: GameConfig.designHeight };
-        // 这里可以添加额外的小游戏适配逻辑，通常 adapter 会处理好全屏 Canvas
+      // 小游戏环境通常由 adapter 处理缩放，
+      // 但如果需要手动干预，可以在这里基于 wx.getSystemInfoSync() 进行缩放
     }
 
     SceneManager.init(app);
@@ -43,7 +45,8 @@ async function initGame() {
       SceneManager.update(ticker.deltaTime);
     });
 
-    await SceneManager.changeScene(GameScene); // 默认进入 LoginScene 流程，这里方便测试直接进 GameScene 或者改为 LoginScene
+    // 默认进入登录场景
+    await SceneManager.changeScene(LoginScene);
     
     console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'})`);
 
@@ -52,6 +55,13 @@ async function initGame() {
   }
 }
 
+/**
+ * H5 端的 Canvas 适配逻辑
+ * 策略：Fit Height (高度适配)
+ * 无论屏幕宽高比如何，优先填满屏幕高度，宽度按比例缩放。
+ * 如果屏幕比设计稿更宽，左右会看到更多内容（或黑边，取决于容器）。
+ * 如果屏幕比设计稿更窄，两边会被裁切（但我们已经把核心 UI 居中，应该没问题）。
+ */
 function resizeWebCanvas() {
   const canvas = app.canvas;
   if (!canvas) return;
@@ -59,23 +69,19 @@ function resizeWebCanvas() {
   const wWidth = window.innerWidth;
   const wHeight = window.innerHeight;
 
-  // 横屏适配逻辑：高度适配，宽度按比例缩放
-  // 我们希望高度填满屏幕，宽度随之变化
+  // 计算缩放比例：屏幕高度 / 设计稿高度 (1080)
   const scale = wHeight / GameConfig.designHeight;
   
+  // 设置 Canvas 的 CSS 尺寸
+  // 宽度按比例计算，高度填满屏幕
   canvas.style.width = `${GameConfig.designWidth * scale}px`;
-  canvas.style.height = `${wHeight}px`; // 填满高度
+  canvas.style.height = `${wHeight}px`; 
   
-  // 如果宽度超出了屏幕（比如设计是 16:9，屏幕是 4:3），则允许左右裁剪？或者保持 contain？
-  // 用户需求是 "高度适配，长度居中"，通常意味着我们优先保证高度充满。
-  // 如果屏幕比设计更宽（21:9），左右会有黑边（或者显示更多背景）。
-  // 如果屏幕比设计更窄（4:3 IPad），左右会显示不全。
-  // 为了预览体验，这里使用 contain 策略保证全显示
-  const scaleX = wWidth / GameConfig.designWidth;
-  const scaleY = wHeight / GameConfig.designHeight;
-  const finalScale = Math.min(scaleX, scaleY);
-  canvas.style.width = `${GameConfig.designWidth * finalScale}px`;
-  canvas.style.height = `${GameConfig.designHeight * finalScale}px`;
+  // 居中显示
+  // canvas.style.position = 'absolute';
+  // canvas.style.left = '50%';
+  // canvas.style.top = '50%';
+  // canvas.style.transform = 'translate(-50%, -50%)';
 }
 
 initGame();

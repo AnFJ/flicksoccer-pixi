@@ -1,33 +1,43 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 
-export default defineConfig({
-  build: {
-    // 输出目录
-    outDir: 'dist',
-    // 库模式构建，因为小游戏不需要 index.html
-    lib: {
-      entry: path.resolve(__dirname, 'src/main.js'),
-      name: 'Game',
-      fileName: 'game', // 输出为 game.js
-      formats: ['cjs']  // 小游戏通常支持 CommonJS 格式较好，或者 IIFE
+export default defineConfig(({ mode }) => {
+  // 判断是否为 H5 构建模式
+  const isH5 = mode === 'h5';
+
+  return {
+    // 如果是 H5 构建，根目录就是当前目录（为了找到 index.html）
+    root: './',
+    base: './', // 相对路径，确保 H5 在任何目录下都能运行
+    build: {
+      // H5 输出到 dist-h5，小游戏输出到 dist
+      outDir: isH5 ? '../game_dist/flicksoccer' : 'dist',
+      // 小游戏每次构建清空 dist，H5 同理
+      emptyOutDir: true,
+      
+      // H5 模式下不需要 lib 配置，Vite 会自动以 index.html 为入口打包
+      // 小游戏模式下需要 lib 配置，打包成单个 JS 文件
+      lib: isH5 ? false : {
+        entry: path.resolve(__dirname, 'src/main.js'),
+        name: 'Game',
+        fileName: 'game', 
+        formats: ['cjs'] // 小游戏用 CommonJS
+      },
+      
+      rollupOptions: {
+        external: [],
+        output: {
+          globals: {}
+        }
+      },
+      // 修改这里：使用 esbuild 进行压缩，无需安装 terser，且构建速度更快
+      minify: 'esbuild',
+      sourcemap: false
     },
-    rollupOptions: {
-      // 确保外部化处理那些你不想打包进库的依赖
-      // 对于小游戏，我们通常把 pixi 和 matter 都打包进去
-      external: [],
-      output: {
-        // 全局变量定义，防止某些库报错
-        globals: {}
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src')
       }
-    },
-    // 压缩代码，减小体积
-    minify: 'terser',
-    sourcemap: false
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src')
     }
-  }
+  };
 });

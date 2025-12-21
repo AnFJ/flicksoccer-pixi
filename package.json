@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:h5": "vite build --mode h5",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -53,12 +53,11 @@ export default class GameScene extends BaseScene {
     this.physics.init();
     this.rules = new GameRules(this.physics);
     
-    // 2. 初始化 AI
-    // 左侧 (TeamId.LEFT) 为 AI, 右侧 (TeamId.RIGHT) 为玩家
+    // 2. 初始化 AI (默认为左侧)
     this.ai = new AIController(this.physics, TeamId.LEFT); 
 
     // 3. 场景搭建
-    this.createField();
+    this.createLayout();
     this.setupFormation();
     this.createUI();
 
@@ -72,92 +71,133 @@ export default class GameScene extends BaseScene {
   }
 
   /**
-   * 绘制球场 (横向)
+   * 创建布局：顶部栏 + 球场
    */
-  createField() {
-    const { designWidth, designHeight } = GameConfig;
-    // 球场尺寸: 宽 1824, 高 926
-    const fieldW = 1824; 
-    const fieldH = 926; 
+  createLayout() {
+    const { designWidth, designHeight, dimensions } = GameConfig;
     
-    // 计算居中位置
-    const startX = (designWidth - fieldW) / 2;
-    const startY = (designHeight - fieldH) / 2; 
+    // --- 1. 顶部区域 (玩家信息栏) ---
+    // 高度固定 100px
+    const topBarBg = new PIXI.Graphics();
+    topBarBg.rect(0, 0, designWidth, dimensions.topBarHeight);
+    topBarBg.fill(0x1a1a1a); 
+    // 下边框
+    topBarBg.moveTo(0, dimensions.topBarHeight);
+    topBarBg.lineTo(designWidth, dimensions.topBarHeight);
+    topBarBg.stroke({ width: 2, color: 0x444444 });
+    this.container.addChild(topBarBg);
 
-    this.fieldRect = { x: startX, y: startY, w: fieldW, h: fieldH };
+    // --- 2. 球场区域 ---
+    // 球场位于顶部栏下方。为了美观，我们在剩余空间(1080-100 = 980)中垂直居中球场(926)
+    // 剩余高度
+    const remainingHeight = designHeight - dimensions.topBarHeight;
+    // 垂直边距
+    const marginY = (remainingHeight - dimensions.fieldHeight) / 2;
+    
+    // 球场起始坐标 (左上角)
+    // X轴居中
+    const fieldStartX = (designWidth - dimensions.fieldWidth) / 2;
+    const fieldStartY = dimensions.topBarHeight + marginY;
 
-    // --- 绘制视觉层 ---
+    this.fieldRect = { 
+        x: fieldStartX, 
+        y: fieldStartY, 
+        w: dimensions.fieldWidth, 
+        h: dimensions.fieldHeight 
+    };
+
+    this.createFieldGraphics(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    this.createPhysicsWalls(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    this.createGoals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+  }
+
+  createFieldGraphics(x, y, w, h) {
     const ground = new PIXI.Graphics();
     
     // 草地背景
-    ground.rect(startX, startY, fieldW, fieldH);
+    ground.rect(x, y, w, h);
     ground.fill(0x27ae60);
     
-    // 草地条纹 (装饰)
-    const stripeWidth = fieldW / 10;
+    // 装饰性条纹 (10条)
+    const stripeWidth = w / 10;
     for(let i=0; i<10; i+=2) {
-        ground.rect(startX + i * stripeWidth, startY, stripeWidth, fieldH);
+        ground.rect(x + i * stripeWidth, y, stripeWidth, h);
         ground.fill({ color: 0x000000, alpha: 0.05 });
     }
 
-    // 边框
-    ground.rect(startX, startY, fieldW, fieldH);
+    // 边框 (白线)
+    ground.rect(x, y, w, h);
     ground.stroke({ width: 5, color: 0xffffff });
 
-    // 中线 (垂直)
-    ground.moveTo(startX + fieldW / 2, startY);
-    ground.lineTo(startX + fieldW / 2, startY + fieldH);
+    // 中线
+    ground.moveTo(x + w / 2, y);
+    ground.lineTo(x + w / 2, y + h);
     ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
     
-    // 中圈
-    ground.circle(startX + fieldW/2, startY + fieldH/2, 150);
+    // 中圈 (半径150)
+    ground.circle(x + w/2, y + h/2, 150);
     ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
     
-    // 禁区 (左)
-    ground.rect(startX, startY + fieldH/2 - 250, 250, 500);
+    // 禁区 (宽250, 高500 - 这里的比例可以根据球场高度自适应，暂时保持视觉比例)
+    const boxW = 250;
+    const boxH = 500;
+    // 左禁区
+    ground.rect(x, y + h/2 - boxH/2, boxW, boxH);
+    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+    // 右禁区
+    ground.rect(x + w - boxW, y + h/2 - boxH/2, boxW, boxH);
     ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
 
-    // 禁区 (右)
-    ground.rect(startX + fieldW - 250, startY + fieldH/2 - 250, 250, 500);
-    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+    this.container.addChildAt(ground, 0); // 最底层
+  }
 
-    this.container.addChildAt(ground, 0);
+  createPhysicsWalls(x, y, w, h) {
+    const t = GameConfig.dimensions.wallThickness; // 墙壁厚度
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
+    const goalOpening = GameConfig.dimensions.goalOpening;
 
-    // --- 物理墙壁 ---
-    const t = GameConfig.physics.wallThickness;
-    const centerX = startX + fieldW / 2;
-    const centerY = startY + fieldH / 2;
+    // 计算侧墙长度 (球场高度减去球门开口，再除以2)
+    const sideWallLen = (h - goalOpening) / 2;
 
     const walls = [
-      // 上墙
-      Matter.Bodies.rectangle(centerX, startY - t/2, fieldW, t, { isStatic: true, label: 'WallTop' }),
-      // 下墙
-      Matter.Bodies.rectangle(centerX, startY + fieldH + t/2, fieldW, t, { isStatic: true, label: 'WallBottom' }),
-      // 左墙 (上半段)
-      Matter.Bodies.rectangle(startX - t/2, startY + fieldH/2 - 200 - fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallLeftTop' }),
-      // 左墙 (下半段)
-      Matter.Bodies.rectangle(startX - t/2, startY + fieldH/2 + 200 + fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallLeftBottom' }),
-      // 右墙 (上半段)
-      Matter.Bodies.rectangle(startX + fieldW + t/2, startY + fieldH/2 - 200 - fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallRightTop' }),
-      // 右墙 (下半段)
-      Matter.Bodies.rectangle(startX + fieldW + t/2, startY + fieldH/2 + 200 + fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallRightBottom' })
+      // 上墙 (完整)
+      Matter.Bodies.rectangle(centerX, y - t/2, w + t*2, t, { isStatic: true, label: 'WallTop' }),
+      // 下墙 (完整)
+      Matter.Bodies.rectangle(centerX, y + h + t/2, w + t*2, t, { isStatic: true, label: 'WallBottom' }),
+      
+      // 左上墙
+      Matter.Bodies.rectangle(x - t/2, y + sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallLeftTop' }),
+      // 左下墙
+      Matter.Bodies.rectangle(x - t/2, y + h - sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallLeftBottom' }),
+      
+      // 右上墙
+      Matter.Bodies.rectangle(x + w + t/2, y + sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallRightTop' }),
+      // 右下墙
+      Matter.Bodies.rectangle(x + w + t/2, y + h - sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallRightBottom' })
     ];
 
-    walls.forEach(w => {
-        w.collisionFilter = { category: CollisionCategory.WALL, mask: CollisionCategory.DEFAULT | CollisionCategory.BALL | CollisionCategory.STRIKER };
-        w.render.visible = false;
+    walls.forEach(body => {
+        body.collisionFilter = { category: CollisionCategory.WALL, mask: CollisionCategory.DEFAULT | CollisionCategory.BALL | CollisionCategory.STRIKER };
+        body.render.visible = false;
+        // 增加弹性，让球反弹更自然
+        body.restitution = 1.0; 
     });
     this.physics.add(walls);
+  }
 
-    // --- 球门 ---
-    // 球门深度 201 (题目), 宽度 107 (题目太小，改为 300 以适应游戏性) -> 配合横屏改为 高300, 宽80
-    const goalW = 80;
-    const goalH = 300;
+  createGoals(x, y, w, h) {
+    const { goalWidth, goalOpening } = GameConfig.dimensions;
+    const centerY = y + h / 2;
+
+    // 左球门 (Left Team Goal)
+    // 位置：球场左边缘外侧
+    // 宽度：config.goalWidth (X轴深度)
+    // 高度：config.goalOpening (Y轴开口)
+    const goalLeft = new Goal(x - goalWidth/2, centerY, goalWidth, goalOpening, TeamId.LEFT);
     
-    // 左球门 (属于 Left Team 防守)
-    const goalLeft = new Goal(startX - goalW/2, centerY, goalW, goalH, TeamId.LEFT);
-    // 右球门 (属于 Right Team 防守)
-    const goalRight = new Goal(startX + fieldW + goalW/2, centerY, goalW, goalH, TeamId.RIGHT);
+    // 右球门 (Right Team Goal)
+    const goalRight = new Goal(x + w + goalWidth/2, centerY, goalWidth, goalOpening, TeamId.RIGHT);
     
     this.goals.push(goalLeft, goalRight);
     this.container.addChild(goalLeft.view, goalRight.view);
@@ -165,9 +205,6 @@ export default class GameScene extends BaseScene {
     this.physics.add(goalRight.body);
   }
 
-  /**
-   * 布置阵型 5v5 (左右对抗)
-   */
   setupFormation() {
     this.clearEntities();
 
@@ -179,18 +216,22 @@ export default class GameScene extends BaseScene {
     this.ball = new Ball(centerX, centerY);
     this.addEntity(this.ball);
 
-    const r = 40; 
+    // 棋子半径 (直径/2)
+    const r = GameConfig.dimensions.strikerDiameter / 2;
 
-    // 左侧阵型 (Red) - 坐标相对于 CenterX, CenterY
+    // --- 阵型坐标 (相对于中心点) ---
+    // 5个棋子: 1个守门员, 2后卫, 2前锋
+    
+    // 左侧阵型 (红方)
     const leftFormation = [
-      { x: -w * 0.45, y: 0 },         // 守门员
-      { x: -w * 0.3, y: -h * 0.2 },   // 后卫上
-      { x: -w * 0.3, y: h * 0.2 },    // 后卫下
-      { x: -w * 0.1, y: -h * 0.15 },  // 前锋上
-      { x: -w * 0.1, y: h * 0.15 },   // 前锋下
+      { x: -w * 0.45, y: 0 },          // 守门员 (靠近球门)
+      { x: -w * 0.30, y: -h * 0.15 },  // 后卫上
+      { x: -w * 0.30, y: h * 0.15 },   // 后卫下
+      { x: -w * 0.12, y: -h * 0.20 },  // 前锋上
+      { x: -w * 0.12, y: h * 0.20 },   // 前锋下
     ];
 
-    // 右侧阵型 (Blue) - 镜像
+    // 右侧阵型 (蓝方) - 镜像X坐标
     const rightFormation = leftFormation.map(pos => ({ x: -pos.x, y: pos.y }));
 
     // 生成左侧实体
@@ -227,50 +268,45 @@ export default class GameScene extends BaseScene {
   }
 
   createUI() {
-    const { designWidth, designHeight } = GameConfig;
-    
-    // 顶部背景条
-    const topBar = new PIXI.Graphics();
-    topBar.rect(0, 0, designWidth, 100);
-    topBar.fill({ color: 0x000000, alpha: 0.5 });
-    this.container.addChild(topBar);
+    const { designWidth, dimensions } = GameConfig;
+    const centerY = dimensions.topBarHeight / 2;
 
     // 比分板 (顶部居中)
     this.scoreText = new PIXI.Text({
         text: '0 : 0',
-        style: { fontFamily: 'Arial', fontSize: 60, fill: 0xffffff, fontWeight: 'bold' }
+        style: { fontFamily: 'Arial', fontSize: 50, fill: 0xffffff, fontWeight: 'bold' }
     });
     this.scoreText.anchor.set(0.5);
-    this.scoreText.position.set(designWidth / 2, 50);
+    this.scoreText.position.set(designWidth / 2, centerY);
     this.container.addChild(this.scoreText);
 
-    // 回合提示 (比分下方)
+    // 回合提示 (比分板下方一点，或者在比分板左右)
     this.turnText = new PIXI.Text({
         text: '等待开球...',
-        style: { fontFamily: 'Arial', fontSize: 30, fill: 0x3498db }
+        style: { fontFamily: 'Arial', fontSize: 24, fill: 0x3498db }
     });
     this.turnText.anchor.set(0.5);
-    this.turnText.position.set(designWidth / 2, 120);
+    this.turnText.position.set(designWidth / 2, centerY + 35);
     this.container.addChild(this.turnText);
 
     // 玩家头像区域 (左上角)
-    this.createAvatar(40, 10, TeamId.LEFT, "AI Player");
+    this.createAvatar(60, centerY, TeamId.LEFT, "AI Player");
     
     // 玩家头像区域 (右上角)
-    this.createAvatar(designWidth - 140, 10, TeamId.RIGHT, "Player");
+    this.createAvatar(designWidth - 60, centerY, TeamId.RIGHT, "Player");
 
     this.container.addChild(this.aimGraphics);
 
-    // 退出按钮 (左下角)
+    // 退出按钮 (放在右下角，不遮挡球场)
     const exitBtn = new PIXI.Container();
     const btnBg = new PIXI.Graphics();
-    btnBg.roundRect(0, 0, 120, 50, 10);
-    btnBg.fill(0x95a5a6);
-    const btnText = new PIXI.Text({ text: '退出', style: { fontSize: 24, fill: 0xffffff }});
+    btnBg.roundRect(0, 0, 100, 40, 10);
+    btnBg.fill(0x7f8c8d);
+    const btnText = new PIXI.Text({ text: '退出', style: { fontSize: 20, fill: 0xffffff }});
     btnText.anchor.set(0.5);
-    btnText.position.set(60, 25);
+    btnText.position.set(50, 20);
     exitBtn.addChild(btnBg, btnText);
-    exitBtn.position.set(20, designHeight - 70);
+    exitBtn.position.set(designWidth - 120, GameConfig.designHeight - 60);
     exitBtn.eventMode = 'static';
     exitBtn.cursor = 'pointer';
     exitBtn.on('pointerdown', () => SceneManager.changeScene(MenuScene));
@@ -278,26 +314,24 @@ export default class GameScene extends BaseScene {
   }
 
   createAvatar(x, y, teamId, name) {
+      const isLeft = teamId === TeamId.LEFT;
       const container = new PIXI.Container();
       container.position.set(x, y);
       
+      // 简化版头像
       const bg = new PIXI.Graphics();
-      bg.roundRect(0, 0, 100, 80, 10);
+      bg.circle(0, 0, 35);
       bg.fill(0x333333);
-      
-      // 颜色标识
-      const colorStrip = new PIXI.Graphics();
-      colorStrip.rect(0, 75, 100, 5);
-      colorStrip.fill(teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db);
+      bg.stroke({ width: 3, color: isLeft ? 0xe74c3c : 0x3498db });
 
       const nameText = new PIXI.Text({
           text: name,
-          style: { fontSize: 18, fill: 0xaaaaaa }
+          style: { fontSize: 20, fill: 0xaaaaaa }
       });
-      nameText.anchor.set(0.5);
-      nameText.position.set(50, 40);
+      nameText.anchor.set(isLeft ? 0 : 1, 0.5);
+      nameText.position.set(isLeft ? 50 : -50, 0);
 
-      container.addChild(bg, colorStrip, nameText);
+      container.addChild(bg, nameText);
       this.container.addChild(container);
   }
 
