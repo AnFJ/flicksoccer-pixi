@@ -28,8 +28,8 @@ export default class GameScene extends BaseScene {
     this.goals = [];
 
     // 游戏状态
-    this.currentTurn = TeamId.RIGHT; // 默认右方(下方)先手
-    this.isMoving = false; // 物理世界是否在运动中
+    this.currentTurn = TeamId.RIGHT; // 默认右方先手
+    this.isMoving = false; 
     this.isGameOver = false;
 
     // 交互
@@ -53,9 +53,8 @@ export default class GameScene extends BaseScene {
     this.physics.init();
     this.rules = new GameRules(this.physics);
     
-    // 2. 初始化 AI (如果是单人模式，假设 TeamId.LEFT 是 AI)
-    // 这里简单硬编码：Player (Right/Bottom) vs AI (Left/Top)
-    // 如果是双人，则 ai = null
+    // 2. 初始化 AI
+    // 左侧 (TeamId.LEFT) 为 AI, 右侧 (TeamId.RIGHT) 为玩家
     this.ai = new AIController(this.physics, TeamId.LEFT); 
 
     // 3. 场景搭建
@@ -67,74 +66,109 @@ export default class GameScene extends BaseScene {
     this.setupEvents();
     this.setupInteraction();
 
-    // 5. 开始游戏循环检查
+    // 5. 初始状态
     this.isGameOver = false;
     this.updateUI();
   }
 
   /**
-   * 绘制球场
+   * 绘制球场 (横向)
    */
   createField() {
     const { designWidth, designHeight } = GameConfig;
-    const fieldW = 926; // 题目给定高度，实际上可能是宽，因为是竖屏
-    const fieldH = 1824; // 题目给定长度，竖屏下对应高
+    // 球场尺寸: 宽 1824, 高 926
+    const fieldW = 1824; 
+    const fieldH = 926; 
     
     // 计算居中位置
     const startX = (designWidth - fieldW) / 2;
-    const startY = (designHeight - fieldH) / 2 + 100; // 稍微靠下留出顶部 UI
+    const startY = (designHeight - fieldH) / 2; 
 
     this.fieldRect = { x: startX, y: startY, w: fieldW, h: fieldH };
 
-    // 绘制草地
+    // --- 绘制视觉层 ---
     const ground = new PIXI.Graphics();
+    
+    // 草地背景
     ground.rect(startX, startY, fieldW, fieldH);
     ground.fill(0x27ae60);
-    // 绘制中线
-    ground.moveTo(startX, startY + fieldH / 2);
-    ground.lineTo(startX + fieldW, startY + fieldH / 2);
+    
+    // 草地条纹 (装饰)
+    const stripeWidth = fieldW / 10;
+    for(let i=0; i<10; i+=2) {
+        ground.rect(startX + i * stripeWidth, startY, stripeWidth, fieldH);
+        ground.fill({ color: 0x000000, alpha: 0.05 });
+    }
+
+    // 边框
+    ground.rect(startX, startY, fieldW, fieldH);
+    ground.stroke({ width: 5, color: 0xffffff });
+
+    // 中线 (垂直)
+    ground.moveTo(startX + fieldW / 2, startY);
+    ground.lineTo(startX + fieldW / 2, startY + fieldH);
     ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
-    // 绘制中圈
+    
+    // 中圈
     ground.circle(startX + fieldW/2, startY + fieldH/2, 150);
     ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
     
-    this.container.addChildAt(ground, 0); // 放在最底层
+    // 禁区 (左)
+    ground.rect(startX, startY + fieldH/2 - 250, 250, 500);
+    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
 
-    // 创建物理墙壁
+    // 禁区 (右)
+    ground.rect(startX + fieldW - 250, startY + fieldH/2 - 250, 250, 500);
+    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+
+    this.container.addChildAt(ground, 0);
+
+    // --- 物理墙壁 ---
     const t = GameConfig.physics.wallThickness;
+    const centerX = startX + fieldW / 2;
+    const centerY = startY + fieldH / 2;
+
     const walls = [
-      Matter.Bodies.rectangle(designWidth/2, startY - t/2, fieldW, t, { isStatic: true, label: 'WallTop', render: { visible: false } }),
-      Matter.Bodies.rectangle(designWidth/2, startY + fieldH + t/2, fieldW, t, { isStatic: true, label: 'WallBottom', render: { visible: false } }),
-      Matter.Bodies.rectangle(startX - t/2, startY + fieldH/2, t, fieldH, { isStatic: true, label: 'WallLeft', render: { visible: false } }),
-      Matter.Bodies.rectangle(startX + fieldW + t/2, startY + fieldH/2, t, fieldH, { isStatic: true, label: 'WallRight', render: { visible: false } })
+      // 上墙
+      Matter.Bodies.rectangle(centerX, startY - t/2, fieldW, t, { isStatic: true, label: 'WallTop' }),
+      // 下墙
+      Matter.Bodies.rectangle(centerX, startY + fieldH + t/2, fieldW, t, { isStatic: true, label: 'WallBottom' }),
+      // 左墙 (上半段)
+      Matter.Bodies.rectangle(startX - t/2, startY + fieldH/2 - 200 - fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallLeftTop' }),
+      // 左墙 (下半段)
+      Matter.Bodies.rectangle(startX - t/2, startY + fieldH/2 + 200 + fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallLeftBottom' }),
+      // 右墙 (上半段)
+      Matter.Bodies.rectangle(startX + fieldW + t/2, startY + fieldH/2 - 200 - fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallRightTop' }),
+      // 右墙 (下半段)
+      Matter.Bodies.rectangle(startX + fieldW + t/2, startY + fieldH/2 + 200 + fieldH/4, t, fieldH/2 - 100, { isStatic: true, label: 'WallRightBottom' })
     ];
-    // 给墙壁添加碰撞过滤器
+
     walls.forEach(w => {
         w.collisionFilter = { category: CollisionCategory.WALL, mask: CollisionCategory.DEFAULT | CollisionCategory.BALL | CollisionCategory.STRIKER };
+        w.render.visible = false;
     });
     this.physics.add(walls);
 
-    // 创建球门 (上下各一个)
-    // 题目给定尺寸: 宽 107 (略小，可能是像素单位问题，这里适当放大以利于游戏体验) -> 调整为 300
-    const goalW = 300;
-    const goalH = 80;
+    // --- 球门 ---
+    // 球门深度 201 (题目), 宽度 107 (题目太小，改为 300 以适应游戏性) -> 配合横屏改为 高300, 宽80
+    const goalW = 80;
+    const goalH = 300;
     
-    // 上方球门 (Left Team Defends, 也就是 Left Team 的球门)
-    const goalTop = new Goal(designWidth/2, startY + 40, goalW, goalH, TeamId.LEFT);
-    // 下方球门 (Right Team Defends)
-    const goalBottom = new Goal(designWidth/2, startY + fieldH - 40, goalW, goalH, TeamId.RIGHT);
+    // 左球门 (属于 Left Team 防守)
+    const goalLeft = new Goal(startX - goalW/2, centerY, goalW, goalH, TeamId.LEFT);
+    // 右球门 (属于 Right Team 防守)
+    const goalRight = new Goal(startX + fieldW + goalW/2, centerY, goalW, goalH, TeamId.RIGHT);
     
-    this.goals.push(goalTop, goalBottom);
-    this.container.addChild(goalTop.view, goalBottom.view);
-    this.physics.add(goalTop.body);
-    this.physics.add(goalBottom.body);
+    this.goals.push(goalLeft, goalRight);
+    this.container.addChild(goalLeft.view, goalRight.view);
+    this.physics.add(goalLeft.body);
+    this.physics.add(goalRight.body);
   }
 
   /**
-   * 布置阵型 5v5
+   * 布置阵型 5v5 (左右对抗)
    */
   setupFormation() {
-    // 清理旧实体
     this.clearEntities();
 
     const { x, y, w, h } = this.fieldRect;
@@ -145,30 +179,29 @@ export default class GameScene extends BaseScene {
     this.ball = new Ball(centerX, centerY);
     this.addEntity(this.ball);
 
-    // 棋子半径
-    const r = 40; // 题目说直径100，对于屏幕可能过大，这里调整为半径40
+    const r = 40; 
 
-    // 阵型配置 (相对中心的偏移量)
-    // 上方 (Left Team, Red)
-    const topFormation = [
-      { x: 0, y: -h * 0.4 }, // 守门员
-      { x: -w * 0.25, y: -h * 0.25 }, // 后卫左
-      { x: w * 0.25, y: -h * 0.25 },  // 后卫右
-      { x: -w * 0.15, y: -h * 0.1 },  // 前锋左
-      { x: w * 0.15, y: -h * 0.1 },   // 前锋右
+    // 左侧阵型 (Red) - 坐标相对于 CenterX, CenterY
+    const leftFormation = [
+      { x: -w * 0.45, y: 0 },         // 守门员
+      { x: -w * 0.3, y: -h * 0.2 },   // 后卫上
+      { x: -w * 0.3, y: h * 0.2 },    // 后卫下
+      { x: -w * 0.1, y: -h * 0.15 },  // 前锋上
+      { x: -w * 0.1, y: h * 0.15 },   // 前锋下
     ];
 
-    // 下方 (Right Team, Blue) - 镜像
-    const bottomFormation = topFormation.map(pos => ({ x: pos.x, y: -pos.y }));
+    // 右侧阵型 (Blue) - 镜像
+    const rightFormation = leftFormation.map(pos => ({ x: -pos.x, y: pos.y }));
 
-    // 生成实体
-    topFormation.forEach(pos => {
+    // 生成左侧实体
+    leftFormation.forEach(pos => {
       const s = new Striker(centerX + pos.x, centerY + pos.y, r, TeamId.LEFT);
       this.strikers.push(s);
       this.addEntity(s);
     });
 
-    bottomFormation.forEach(pos => {
+    // 生成右侧实体
+    rightFormation.forEach(pos => {
       const s = new Striker(centerX + pos.x, centerY + pos.y, r, TeamId.RIGHT);
       this.strikers.push(s);
       this.addEntity(s);
@@ -194,53 +227,90 @@ export default class GameScene extends BaseScene {
   }
 
   createUI() {
-    const { designWidth } = GameConfig;
+    const { designWidth, designHeight } = GameConfig;
     
-    // 比分板
+    // 顶部背景条
+    const topBar = new PIXI.Graphics();
+    topBar.rect(0, 0, designWidth, 100);
+    topBar.fill({ color: 0x000000, alpha: 0.5 });
+    this.container.addChild(topBar);
+
+    // 比分板 (顶部居中)
     this.scoreText = new PIXI.Text({
         text: '0 : 0',
-        style: { fontFamily: 'Arial', fontSize: 80, fill: 0xffffff, fontWeight: 'bold' }
+        style: { fontFamily: 'Arial', fontSize: 60, fill: 0xffffff, fontWeight: 'bold' }
     });
     this.scoreText.anchor.set(0.5);
-    this.scoreText.position.set(designWidth / 2, 80);
+    this.scoreText.position.set(designWidth / 2, 50);
     this.container.addChild(this.scoreText);
 
-    // 回合提示
+    // 回合提示 (比分下方)
     this.turnText = new PIXI.Text({
-        text: '蓝方回合',
-        style: { fontFamily: 'Arial', fontSize: 40, fill: 0x3498db }
+        text: '等待开球...',
+        style: { fontFamily: 'Arial', fontSize: 30, fill: 0x3498db }
     });
     this.turnText.anchor.set(0.5);
-    this.turnText.position.set(designWidth / 2, 160);
+    this.turnText.position.set(designWidth / 2, 120);
     this.container.addChild(this.turnText);
+
+    // 玩家头像区域 (左上角)
+    this.createAvatar(40, 10, TeamId.LEFT, "AI Player");
+    
+    // 玩家头像区域 (右上角)
+    this.createAvatar(designWidth - 140, 10, TeamId.RIGHT, "Player");
 
     this.container.addChild(this.aimGraphics);
 
-    // 退出按钮
-    const exitBtn = new PIXI.Text({
-        text: '退出',
-        style: { fontFamily: 'Arial', fontSize: 30, fill: 0xffffff }
-    });
+    // 退出按钮 (左下角)
+    const exitBtn = new PIXI.Container();
+    const btnBg = new PIXI.Graphics();
+    btnBg.roundRect(0, 0, 120, 50, 10);
+    btnBg.fill(0x95a5a6);
+    const btnText = new PIXI.Text({ text: '退出', style: { fontSize: 24, fill: 0xffffff }});
+    btnText.anchor.set(0.5);
+    btnText.position.set(60, 25);
+    exitBtn.addChild(btnBg, btnText);
+    exitBtn.position.set(20, designHeight - 70);
     exitBtn.eventMode = 'static';
+    exitBtn.cursor = 'pointer';
     exitBtn.on('pointerdown', () => SceneManager.changeScene(MenuScene));
-    exitBtn.position.set(40, 40);
     this.container.addChild(exitBtn);
   }
 
+  createAvatar(x, y, teamId, name) {
+      const container = new PIXI.Container();
+      container.position.set(x, y);
+      
+      const bg = new PIXI.Graphics();
+      bg.roundRect(0, 0, 100, 80, 10);
+      bg.fill(0x333333);
+      
+      // 颜色标识
+      const colorStrip = new PIXI.Graphics();
+      colorStrip.rect(0, 75, 100, 5);
+      colorStrip.fill(teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db);
+
+      const nameText = new PIXI.Text({
+          text: name,
+          style: { fontSize: 18, fill: 0xaaaaaa }
+      });
+      nameText.anchor.set(0.5);
+      nameText.position.set(50, 40);
+
+      container.addChild(bg, colorStrip, nameText);
+      this.container.addChild(container);
+  }
+
   setupEvents() {
-    // 监听进球
     EventBus.on(Events.GOAL_SCORED, (data) => {
         AudioManager.playSFX('goal');
         this.scoreText.text = `${data.newScore[TeamId.LEFT]} : ${data.newScore[TeamId.RIGHT]}`;
         Platform.vibrateShort();
-        
-        // 进球后稍微延迟重置位置
         setTimeout(() => {
             if (!this.isGameOver) this.setupFormation();
         }, 2000);
     }, this);
 
-    // 监听游戏结束
     EventBus.on(Events.GAME_OVER, (data) => {
         this.isGameOver = true;
         AudioManager.playSFX('win');
@@ -251,7 +321,6 @@ export default class GameScene extends BaseScene {
   }
 
   setupInteraction() {
-    // 开启交互
     this.container.eventMode = 'static'; 
     this.container.on('pointerdown', this.onPointerDown.bind(this));
     this.container.on('pointermove', this.onPointerMove.bind(this));
@@ -260,10 +329,7 @@ export default class GameScene extends BaseScene {
   }
 
   onPointerDown(e) {
-    // 只有在静止状态且轮到玩家回合才能操作
     if (this.isMoving || this.isGameOver) return;
-    
-    // 如果是 AI 回合，玩家不能操作 (假设 AI 是 LEFT)
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
     const local = this.container.toLocal(e.global);
@@ -273,7 +339,6 @@ export default class GameScene extends BaseScene {
       const body = bodies[0];
       const entity = body.entity;
 
-      // 只能操作己方棋子
       if (entity instanceof Striker && entity.teamId === this.currentTurn) {
         this.selectedBody = body;
         this.isDragging = true;
@@ -286,34 +351,26 @@ export default class GameScene extends BaseScene {
     if (!this.isDragging || !this.selectedBody) return;
 
     const local = this.container.toLocal(e.global);
-    
-    // 绘制瞄准线
     this.aimGraphics.clear();
     
-    // 瞄准方向是反向的
     const startX = this.selectedBody.position.x;
     const startY = this.selectedBody.position.y;
     
     const dx = this.dragStartPos.x - local.x;
     const dy = this.dragStartPos.y - local.y;
     
-    // 限制长度
     const currentLen = Math.sqrt(dx*dx + dy*dy);
     const maxLen = GameConfig.gameplay.maxDragDistance;
     let scale = 1;
-    if (currentLen > maxLen) {
-        scale = maxLen / currentLen;
-    }
+    if (currentLen > maxLen) scale = maxLen / currentLen;
 
     const aimX = startX + dx * scale;
     const aimY = startY + dy * scale;
 
-    // 画线
     this.aimGraphics.moveTo(startX, startY);
     this.aimGraphics.lineTo(aimX, aimY);
     this.aimGraphics.stroke({ width: 6, color: 0xffffff, cap: 'round' });
 
-    // 画力度圈
     this.aimGraphics.circle(startX, startY, 60);
     this.aimGraphics.stroke({ width: 2, color: 0xffffff, alpha: 0.5 });
   }
@@ -325,13 +382,10 @@ export default class GameScene extends BaseScene {
       const dx = this.dragStartPos.x - local.x;
       const dy = this.dragStartPos.y - local.y;
       
-      // 限制最大力度
       const currentLen = Math.sqrt(dx*dx + dy*dy);
       const maxLen = GameConfig.gameplay.maxDragDistance;
       let scale = 1;
-      if (currentLen > maxLen) {
-          scale = maxLen / currentLen;
-      }
+      if (currentLen > maxLen) scale = maxLen / currentLen;
       
       const forceMultiplier = GameConfig.gameplay.forceMultiplier;
       const force = {
@@ -339,7 +393,6 @@ export default class GameScene extends BaseScene {
         y: dy * scale * forceMultiplier
       };
 
-      // 只有力度足够大才发射
       if (currentLen > 10) {
         Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
         this.onTurnActionComplete();
@@ -357,40 +410,36 @@ export default class GameScene extends BaseScene {
 
   onTurnActionComplete() {
     this.isMoving = true;
-    AudioManager.playSFX('collision'); // 播放一下击球音效模拟
+    AudioManager.playSFX('collision');
   }
 
   update(delta) {
     super.update(delta);
     
-    // 1. 物理更新
-    this.physics.update(16.66); // 16ms approx
+    // 物理步长
+    this.physics.update(16.66);
 
-    // 2. 渲染同步
+    // 渲染同步
     this.strikers.forEach(s => s.update());
     if (this.ball) this.ball.update();
 
-    // 3. 检查回合状态
+    // 回合检查
     this.checkTurnState();
 
-    // 4. AI 逻辑
+    // AI
     if (!this.isMoving && !this.isGameOver && this.ai && this.currentTurn === this.ai.teamId) {
         this.processAITurn();
     }
   }
 
   checkTurnState() {
-    const isSleeping = this.physics.isSleeping();
-
-    if (this.isMoving && isSleeping) {
-        // 所有的球都停下来了，回合结束
+    if (this.isMoving && this.physics.isSleeping()) {
         this.isMoving = false;
         this.switchTurn();
     }
   }
 
   switchTurn() {
-    // 切换回合
     this.currentTurn = this.currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
     this.updateUI();
   }
@@ -404,7 +453,6 @@ export default class GameScene extends BaseScene {
   }
 
   processAITurn() {
-    // AI 思考需要一点延迟，模拟人类
     if (!this.aiTimer) {
         this.aiTimer = setTimeout(() => {
             const decision = this.ai.think(this.strikers.filter(s => s.teamId === this.ai.teamId), this.ball);
@@ -412,7 +460,6 @@ export default class GameScene extends BaseScene {
                 Matter.Body.applyForce(decision.striker.body, decision.striker.body.position, decision.force);
                 this.onTurnActionComplete();
             } else {
-                // AI 没法走？强制切换防止卡死
                 this.switchTurn();
             }
             this.aiTimer = null;

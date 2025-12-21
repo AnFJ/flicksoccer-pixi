@@ -1,8 +1,8 @@
 // 游戏全局配置
 export const GameConfig = {
-  // 屏幕参考尺寸 (设计稿分辨率)
-  designWidth: 1080,
-  designHeight: 2400,
+  // 屏幕参考尺寸 (横屏设计稿)
+  designWidth: 1920,
+  designHeight: 1080,
   
   // 物理配置
   physics: {

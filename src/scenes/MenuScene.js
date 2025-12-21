@@ -13,88 +13,51 @@ export default class MenuScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
-    // 背景
     const bg = new PIXI.Graphics();
     bg.rect(0, 0, designWidth, designHeight);
     bg.fill(0x2c3e50);
     this.container.addChild(bg);
 
-    // 用户信息栏
-    this.createUserInfo(user);
+    // 用户信息 (顶部右侧)
+    this.createUserInfo(user, designWidth);
 
-    // 按钮组
-    const startY = designHeight * 0.4;
-    const gap = 150;
-
-    // 1. 单人模式
-    const pveBtn = new Button({
-      text: '单人挑战 (AI)',
-      width: 500,
-      height: 100,
-      color: 0x3498db,
-      onClick: () => {
-        // 传递参数：单人模式
-        SceneManager.changeScene(GameScene);
-      }
+    // 标题
+    const title = new PIXI.Text({
+        text: '弹指足球',
+        style: { fontFamily: 'Arial', fontSize: 100, fill: 0xFFD700, stroke: { color: 0xffffff, width: 4 } }
     });
-    pveBtn.position.set(designWidth / 2 - 250, startY);
-    this.container.addChild(pveBtn);
+    title.anchor.set(0.5);
+    title.position.set(designWidth / 4, designHeight / 2);
+    this.container.addChild(title);
 
-    // 2. 本地双人
-    const pvpLocalBtn = new Button({
-      text: '本地双人',
-      width: 500,
-      height: 100,
-      color: 0x9b59b6,
-      onClick: () => {
-        // 传递参数：本地双人 (这里简单起见共用 GameScene，实际可以通过构造函数传参区分模式)
-        // 目前 GameScene 默认实现了双人逻辑，AI逻辑在 GameScene 中开启
-        SceneManager.changeScene(GameScene); 
-      }
-    });
-    pvpLocalBtn.position.set(designWidth / 2 - 250, startY + gap);
-    this.container.addChild(pvpLocalBtn);
+    // 按钮组 (右侧垂直排列)
+    const btnX = designWidth * 0.7;
+    const startY = designHeight * 0.35;
+    const gap = 120;
 
-    // 3. 网络对战
-    const pvpOnlineBtn = new Button({
-      text: '网络对战',
-      width: 500,
-      height: 100,
-      color: 0xe67e22,
-      onClick: () => {
-        SceneManager.changeScene(LobbyScene);
-      }
-    });
-    pvpOnlineBtn.position.set(designWidth / 2 - 250, startY + gap * 2);
-    this.container.addChild(pvpOnlineBtn);
+    const pveBtn = new Button({ text: '单人挑战 (AI)', width: 400, height: 90, color: 0x3498db, onClick: () => SceneManager.changeScene(GameScene) });
+    pveBtn.position.set(btnX - 200, startY);
+    
+    const pvpLocalBtn = new Button({ text: '本地双人', width: 400, height: 90, color: 0x9b59b6, onClick: () => SceneManager.changeScene(GameScene) });
+    pvpLocalBtn.position.set(btnX - 200, startY + gap);
+
+    const pvpOnlineBtn = new Button({ text: '网络对战', width: 400, height: 90, color: 0xe67e22, onClick: () => SceneManager.changeScene(LobbyScene) });
+    pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
+
+    this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
   }
 
-  createUserInfo(user) {
+  createUserInfo(user, width) {
     const infoContainer = new PIXI.Container();
     
-    // 头像框
-    const avatarCircle = new PIXI.Graphics();
-    avatarCircle.circle(0, 0, 60);
-    avatarCircle.fill(0xcccccc);
-    avatarCircle.position.set(100, 120);
-    infoContainer.addChild(avatarCircle);
-
-    // 昵称
     const nameText = new PIXI.Text({
-        text: user.nickname,
-        style: { fontFamily: 'Arial', fontSize: 40, fill: 0xffffff }
+        text: `${user.nickname} | 💰 ${user.coins}`,
+        style: { fontFamily: 'Arial', fontSize: 30, fill: 0xffffff }
     });
-    nameText.position.set(180, 80);
+    nameText.anchor.set(1, 0.5);
+    nameText.position.set(width - 40, 40);
+
     infoContainer.addChild(nameText);
-
-    // 金币
-    const coinText = new PIXI.Text({
-        text: `金币: ${user.coins}`,
-        style: { fontFamily: 'Arial', fontSize: 32, fill: 0xf1c40f }
-    });
-    coinText.position.set(180, 140);
-    infoContainer.addChild(coinText);
-
     this.container.addChild(infoContainer);
   }
 }
