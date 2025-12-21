@@ -1,0 +1,15 @@
+{
+  "miniprogramRoot": "./",
+  "projectname": "finger-soccer",
+  "description": "弹指足球",
+  "appid": "tt_appid_placeholder",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true
+  },
+  "compileType": "miniprogram"
+}

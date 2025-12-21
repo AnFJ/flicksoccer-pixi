@@ -1,0 +1,8 @@
+{
+  "name": "弹指足球 (Finger Soccer)",
+  "description": "一款基于物理碰撞的弹射足球竞技游戏，支持单人、本地双人及网络对战模式。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

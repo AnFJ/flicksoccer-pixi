@@ -1,0 +1,19 @@
+{
+  "name": "finger-soccer-game",
+  "version": "1.0.0",
+  "description": "Finger Soccer Mini Game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "matter-js": "^0.20.0",
+    "pixi.js": "^8.1.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0",
+    "@rollup/plugin-inject": "^5.0.5"
+  }
+}
