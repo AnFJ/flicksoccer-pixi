@@ -16,6 +16,15 @@ export const GameConfig = {
     wallThickness: 100      // 墙壁厚度 (隐形墙)
   },
 
+  // 视觉配置 (新增)
+  visuals: {
+    strikerThickness: 15,    // 棋子圆柱体厚度 (像素)
+    shadowOffset: 10,        // 阴影偏移
+    aimLineColorStart: 0x2ecc71, // 瞄准线起始颜色 (绿)
+    aimLineColorEnd: 0xe74c3c,   // 瞄准线结束颜色 (红)
+    dashedLineColor: 0xffffff    // 后方虚线颜色
+  },
+
   // 物理配置 (手感调整核心区域)
   physics: {
     gravity: { x: 0, y: 0 }, // 俯视视角无重力
@@ -37,8 +46,8 @@ export const GameConfig = {
     maxScore: 2,             // 获胜分数
     
     // --- 瞄准力度参数 ---
-    maxDragDistance: 180,    // [力度上限] 瞄准条拉长的最大像素距离
-    forceMultiplier: 0.005,   // [力度系数] 像素距离转换为物理力的倍率 (如果你觉得球踢不动，把这个调大，比如 0.025 或 0.03)
+    maxDragDistance: 80,    // [力度上限] 瞄准条拉长的最大像素距离
+    forceMultiplier: 0.011,   // [力度系数] 像素距离转换为物理力的倍率 (如果你觉得球踢不动，把这个调大，比如 0.025 或 0.03)
     
     turnTimeLimit: 30        // 每回合秒数 (可选)
   },

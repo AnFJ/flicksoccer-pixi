@@ -1,3 +1,4 @@
+
 import Matter from 'matter-js';
 import EventBus from '../managers/EventBus.js';
 import { Events, TeamId } from '../constants.js';
@@ -38,21 +39,36 @@ export default class GameRules {
   checkGoal(bodyA, bodyB) {
     if (this.isGoalProcessing) return;
 
-    // 检查是否有 Ball 和 Goal 的碰撞
+    // 检查是否有 Ball 和 GoalSensor 的碰撞
+    // 注意：现在 Goal 是复合刚体，碰撞事件中的 bodyA/bodyB 可能是复合体中的某个 Part
+    // 我们在 Goal.js 中给 sensor part 设置了 label: 'GoalSensor'
+    
     let ball = null;
-    let goal = null;
+    let goalSensor = null;
 
-    if (bodyA.label === 'Ball' && bodyB.label === 'Goal') {
+    if (this.isBall(bodyA) && this.isGoalSensor(bodyB)) {
       ball = bodyA;
-      goal = bodyB;
-    } else if (bodyB.label === 'Ball' && bodyA.label === 'Goal') {
+      goalSensor = bodyB;
+    } else if (this.isBall(bodyB) && this.isGoalSensor(bodyA)) {
       ball = bodyB;
-      goal = bodyA;
+      goalSensor = bodyA;
     }
 
-    if (ball && goal) {
-      this.handleGoal(goal.entity);
+    if (ball && goalSensor) {
+      // 通过 sensor.entity 获取到 Goal 实例
+      // 注意：bodyB 如果是 sensor part，它上面挂载了 entity
+      if (goalSensor.entity) {
+        this.handleGoal(goalSensor.entity);
+      }
     }
+  }
+
+  isBall(body) {
+    return body.label === 'Ball';
+  }
+
+  isGoalSensor(body) {
+    return body.label === 'GoalSensor';
   }
 
   /**
