@@ -1,3 +1,4 @@
+
 import * as PIXI from 'pixi.js';
 
 export default class BaseScene {
@@ -8,9 +9,10 @@ export default class BaseScene {
 
   /**
    * 场景进入时调用
+   * @param {Object} params - 上个场景传来的参数
    */
-  onEnter() {
-    console.log(`[BaseScene] Entering scene...`);
+  onEnter(params = {}) {
+    console.log(`[BaseScene] Entering scene... Params:`, params);
   }
 
   /**

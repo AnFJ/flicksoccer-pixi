@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       // H5 输出到 dist-h5，小游戏输出到 dist
-      outDir: isH5 ? 'dist-h5' : 'dist',
+      outDir: isH5 ? '../game_dist/flicksoccer' : 'dist',
       emptyOutDir: true,
       
       // H5 模式下不需要 lib 配置

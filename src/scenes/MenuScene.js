@@ -1,3 +1,4 @@
+
 import * as PIXI from 'pixi.js';
 import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
@@ -35,10 +36,20 @@ export default class MenuScene extends BaseScene {
     const startY = designHeight * 0.35;
     const gap = 120;
 
-    const pveBtn = new Button({ text: '单人挑战 (AI)', width: 400, height: 90, color: 0x3498db, onClick: () => SceneManager.changeScene(GameScene) });
+    // 修改：传递 mode 参数
+    const pveBtn = new Button({ 
+        text: '单人挑战 (AI)', 
+        width: 400, height: 90, color: 0x3498db, 
+        onClick: () => SceneManager.changeScene(GameScene, { mode: 'pve' }) 
+    });
     pveBtn.position.set(btnX - 200, startY);
     
-    const pvpLocalBtn = new Button({ text: '本地双人', width: 400, height: 90, color: 0x9b59b6, onClick: () => SceneManager.changeScene(GameScene) });
+    // 修改：传递 mode 参数
+    const pvpLocalBtn = new Button({ 
+        text: '本地双人', 
+        width: 400, height: 90, color: 0x9b59b6, 
+        onClick: () => SceneManager.changeScene(GameScene, { mode: 'pvp_local' }) 
+    });
     pvpLocalBtn.position.set(btnX - 200, startY + gap);
 
     const pvpOnlineBtn = new Button({ text: '网络对战', width: 400, height: 90, color: 0xe67e22, onClick: () => SceneManager.changeScene(LobbyScene) });

@@ -1,3 +1,4 @@
+
 class SceneManager {
   constructor() {
     this.app = null;
@@ -15,8 +16,9 @@ class SceneManager {
   /**
    * 切换场景
    * @param {BaseScene} SceneClass - 场景类构造函数
+   * @param {Object} params - 传递给新场景的参数
    */
-  async changeScene(SceneClass) {
+  async changeScene(SceneClass, params = {}) {
     if (this.currentScene) {
       this.currentScene.onExit();
       this.app.stage.removeChild(this.currentScene.container);
@@ -31,8 +33,8 @@ class SceneManager {
     // 添加到舞台
     this.app.stage.addChild(scene.container);
     
-    // 生命周期
-    scene.onEnter();
+    // 生命周期，传入参数
+    scene.onEnter(params);
   }
 
   /**

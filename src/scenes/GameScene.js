@@ -23,6 +23,7 @@ export default class GameScene extends BaseScene {
     this.physics = new PhysicsEngine();
     this.rules = null;
     this.ai = null;
+    this.gameMode = 'pve'; // 默认为 PVE
     
     this.strikers = [];
     this.ball = null;
@@ -56,8 +57,10 @@ export default class GameScene extends BaseScene {
     this.container.addChild(this.uiLayer);
   }
 
-  async onEnter() {
-    super.onEnter();
+  // 修改：接收 params
+  async onEnter(params = {}) {
+    super.onEnter(params);
+    this.gameMode = params.mode || 'pve';
     
     const loadingText = new PIXI.Text({ text: 'Loading Assets...', style: { fill: 0xffffff, fontSize: 30 }});
     loadingText.anchor.set(0.5);
@@ -75,7 +78,13 @@ export default class GameScene extends BaseScene {
   initGame() {
     this.physics.init();
     this.rules = new GameRules(this.physics);
-    this.ai = new AIController(this.physics, TeamId.LEFT); 
+    
+    // 修改：只有 PVE 模式才初始化 AI
+    if (this.gameMode === 'pve') {
+        this.ai = new AIController(this.physics, TeamId.LEFT); 
+    } else {
+        this.ai = null;
+    }
 
     this.createLayout();
     this.setupFormation();
@@ -173,7 +182,7 @@ export default class GameScene extends BaseScene {
         borderSprite.height = h + visualHeightPadding;
 
         // 2. 宽度适配：
-        const visualWidthPadding = 20; // 左右边框连接处的公差
+        const visualWidthPadding = 40; // 左右边框连接处的公差
         const goalTotalDepth = GameConfig.dimensions.goalWidth * 2;
         borderSprite.width = w + goalTotalDepth + visualWidthPadding;
 
@@ -335,11 +344,14 @@ export default class GameScene extends BaseScene {
     const avatarOffset = 220; 
     const avatarY = boardH / 2;
 
+    // 修改：根据模式显示名字
+    const leftName = this.gameMode === 'pve' ? "AI Player" : "Player 2";
+    
     // 左侧玩家 (AI / Red)
-    this.createAvatar(hudContainer, -avatarOffset, avatarY, TeamId.LEFT, "AI Player");
+    this.createAvatar(hudContainer, -avatarOffset, avatarY, TeamId.LEFT, leftName);
     
     // 右侧玩家 (Player / Blue)
-    this.createAvatar(hudContainer, avatarOffset, avatarY, TeamId.RIGHT, "Player");
+    this.createAvatar(hudContainer, avatarOffset, avatarY, TeamId.RIGHT, "Player 1");
 
     // 瞄准线 (UI Layer)
     this.uiLayer.addChild(this.aimGraphics);
@@ -432,6 +444,8 @@ export default class GameScene extends BaseScene {
 
   onPointerDown(e) {
     if (this.isMoving || this.isGameOver || this.isLoading) return;
+    
+    // 修改：仅在有 AI 且当前是 AI 回合时阻止操作
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
     const local = this.container.toLocal(e.global);
@@ -613,7 +627,16 @@ export default class GameScene extends BaseScene {
   updateUI() {
     if (this.turnText) {
         const isLeft = this.currentTurn === TeamId.LEFT;
-        this.turnText.text = isLeft ? "红方回合" : "蓝方回合";
+        
+        // 修改：更新文本显示逻辑，支持本地双人
+        let str = "";
+        if (isLeft) {
+            str = this.gameMode === 'pve' ? "红方回合 (AI)" : "红方回合 (Player 2)";
+        } else {
+            str = "蓝方回合 (Player 1)";
+        }
+
+        this.turnText.text = str;
         this.turnText.style.fill = isLeft ? 0xe74c3c : 0x3498db;
     }
   }
