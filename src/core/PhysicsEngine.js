@@ -1,3 +1,4 @@
+
 import Matter from 'matter-js';
 import { GameConfig } from '../config.js';
 
@@ -10,7 +11,11 @@ export default class PhysicsEngine {
   init() {
     // 创建物理引擎，关闭重力
     this.engine = Matter.Engine.create({
-      gravity: GameConfig.physics.gravity
+      gravity: GameConfig.physics.gravity,
+      // 核心修改：提高迭代次数以解决高速穿透问题
+      // 默认值通常较低(6, 4)，提高后会牺牲一点性能但碰撞更精准
+      positionIterations: 10, 
+      velocityIterations: 8
     });
 
     // 创建运行器
@@ -53,7 +58,7 @@ export default class PhysicsEngine {
    */
   isSleeping() {
     const bodies = Matter.Composite.allBodies(this.engine.world);
-    const VELOCITY_THRESHOLD = 0.1;
+    const VELOCITY_THRESHOLD = 0.15; //稍微调大一点静止阈值，避免一直停不下来
     
     // 过滤掉静态墙壁，检查所有动态物体速度
     return bodies.every(body => {

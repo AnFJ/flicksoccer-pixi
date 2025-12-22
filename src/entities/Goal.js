@@ -21,41 +21,37 @@ export default class Goal {
     
     // 门柱半径
     const postRadius = 8;
-    // 墙壁厚度
-    const wallThick = 10;
+    
+    // 墙壁厚度 (非常厚，防止穿透)
+    const wallThick = 200; 
 
-    // 1. 构建物理结构 (Parts)
+    // 创建一个 Composite 来容纳所有独立部件
+    // 这种方式比 Body.create({ parts }) 更稳定，避免了复杂形状的碰撞计算错误
+    this.body = Matter.Composite.create();
+
     const isLeft = ownerTeamId === TeamId.LEFT;
-    
-    // 根据左右球门决定开口方向
-    // 左边球门：开口朝右，墙壁在左、上、下
-    // 右边球门：开口朝左，墙壁在右、上、下
-    
-    const parts = [];
 
     // --- A. 进球感应区 (Sensor) ---
-    // 放在球门内部中心
     const sensor = Matter.Bodies.rectangle(x, y, w * 0.8, h * 0.8, {
       isStatic: true,
-      isSensor: true, // 只检测不碰撞
-      label: 'GoalSensor', // 专门的 Label 用于计分
+      isSensor: true, // 传感器模式
+      label: 'GoalSensor', 
       render: { visible: false },
       collisionFilter: {
         category: CollisionCategory.GOAL,
         mask: CollisionCategory.BALL // 只检测球
       }
     });
-    sensor.entity = this; // 绑定实体引用用于计分
-    parts.push(sensor);
+    sensor.entity = this; 
+    Matter.Composite.add(this.body, sensor);
 
     // --- B. 实体墙壁 (Net Walls) ---
-    // 墙壁用于兜住球和棋子，防止飞出屏幕
-    // 它们属于 WALL 类型
     const wallOptions = {
       isStatic: true,
       label: 'GoalNet',
       render: { visible: false },
-      restitution: 0.2, // 网兜比较软，弹性低
+      restitution: 0.1, // 低弹性，吸能
+      friction: 0.8,    
       collisionFilter: {
         category: CollisionCategory.WALL,
         mask: CollisionCategory.BALL | CollisionCategory.STRIKER
@@ -63,20 +59,39 @@ export default class Goal {
     };
 
     // 上墙 (Top)
-    parts.push(Matter.Bodies.rectangle(x, y - h/2 - wallThick/2, w, wallThick, wallOptions));
-    // 下墙 (Bottom)
-    parts.push(Matter.Bodies.rectangle(x, y + h/2 + wallThick/2, w, wallThick, wallOptions));
+    const topWall = Matter.Bodies.rectangle(x, y - h/2 - wallThick/2, w + wallThick, wallThick, wallOptions);
+    Matter.Composite.add(this.body, topWall);
     
-    // 后墙 (Back) - 左球门的后墙在左侧，右球门的后墙在右侧
-    const backWallX = isLeft ? (x - w/2 - wallThick/2) : (x + w/2 + wallThick/2);
-    parts.push(Matter.Bodies.rectangle(backWallX, y, wallThick, h + wallThick*2, wallOptions));
+    // 下墙 (Bottom)
+    const bottomWall = Matter.Bodies.rectangle(x, y + h/2 + wallThick/2, w + wallThick, wallThick, wallOptions);
+    Matter.Composite.add(this.body, bottomWall);
+    
+    // 后墙 (Back)
+    // 微调：让物理墙壁稍微向球门内部“入侵” 2px，确保物体在视觉碰到线之前就被物理挡住，避免视觉上的“穿线”
+    const visualOverlap = 2; 
+    
+    // 计算位置
+    let backWallX;
+    if (isLeft) {
+        // 左球门，开口朝右，后墙在左侧
+        // 视觉左边缘: x - w/2
+        // 物理中心: 视觉边缘 - 墙厚的一半 + 重叠修正
+        backWallX = (x - w/2) - wallThick/2 + visualOverlap;
+    } else {
+        // 右球门，开口朝左，后墙在右侧
+        // 视觉右边缘: x + w/2
+        // 物理中心: 视觉边缘 + 墙厚的一半 - 重叠修正
+        backWallX = (x + w/2) + wallThick/2 - visualOverlap;
+    }
+    
+    const backWall = Matter.Bodies.rectangle(backWallX, y, wallThick, h + wallThick*2, wallOptions);
+    Matter.Composite.add(this.body, backWall);
 
     // --- C. 门柱 (Posts) ---
-    // 位于开口处的两个角，坚硬，高反弹
     const postOptions = {
       isStatic: true,
       label: 'GoalPost',
-      restitution: 1.0, // 门柱很硬
+      restitution: 1.0, 
       render: { visible: false },
       collisionFilter: {
         category: CollisionCategory.WALL,
@@ -84,19 +99,11 @@ export default class Goal {
       }
     };
 
-    // 开口X坐标
     const openX = isLeft ? (x + w/2) : (x - w/2);
+    const post1 = Matter.Bodies.circle(openX, y - h/2, postRadius, postOptions);
+    const post2 = Matter.Bodies.circle(openX, y + h/2, postRadius, postOptions);
     
-    // 上门柱
-    parts.push(Matter.Bodies.circle(openX, y - h/2, postRadius, postOptions));
-    // 下门柱
-    parts.push(Matter.Bodies.circle(openX, y + h/2, postRadius, postOptions));
-
-    // 组合成一个刚体
-    this.body = Matter.Body.create({
-      parts: parts,
-      isStatic: true
-    });
+    Matter.Composite.add(this.body, [post1, post2]);
 
     // 2. Pixi 视图
     this.view = new PIXI.Container();
@@ -107,51 +114,40 @@ export default class Goal {
   drawVisuals(w, h, isLeft, postRadius) {
     const g = new PIXI.Graphics();
     
-    // 颜色定义
     const netColor = 0xFFFFFF;
     const postColor = 0xDDDDDD;
-    const teamColor = isLeft ? 0xe74c3c : 0x3498db; // 红/蓝
+    const teamColor = isLeft ? 0xe74c3c : 0x3498db; 
 
-    // 坐标系：基于 Container 中心 (0,0) 即球门中心
-    
-    // --- 1. 绘制网格 (Net Pattern) ---
-    g.beginPath();
-    // 绘制网格线
     const gridSpacing = 20;
-    
-    // 裁剪区域 (球门内部)
     const left = -w/2;
     const right = w/2;
     const top = -h/2;
     const bottom = h/2;
 
-    // 绘制横线
+    // 绘制网格
+    g.beginPath();
     for (let i = top; i <= bottom; i += gridSpacing) {
         g.moveTo(left, i);
         g.lineTo(right, i);
     }
-    // 绘制竖线
     for (let i = left; i <= right; i += gridSpacing) {
         g.moveTo(i, top);
         g.lineTo(i, bottom);
     }
     g.stroke({ width: 1, color: netColor, alpha: 0.3 });
 
-    // --- 2. 绘制网兜背景 (半透明) ---
+    // 背景
     g.rect(left, top, w, h);
-    g.fill({ color: teamColor, alpha: 0.1 }); // 淡淡的队伍色
+    g.fill({ color: teamColor, alpha: 0.1 });
 
-    // --- 3. 绘制门框 (U型结构) ---
-    // 很粗的白线表示门框底座
+    // 门框
     g.beginPath();
     if (isLeft) {
-        // [ shape
         g.moveTo(right, top);
         g.lineTo(left, top);
         g.lineTo(left, bottom);
         g.lineTo(right, bottom);
     } else {
-        // ] shape
         g.moveTo(left, top);
         g.lineTo(right, top);
         g.lineTo(right, bottom);
@@ -159,29 +155,24 @@ export default class Goal {
     }
     g.stroke({ width: 6, color: 0xFFFFFF });
 
-    // --- 4. 绘制门柱 (Posts) ---
+    // 门柱
     const openX = isLeft ? right : left;
-    
-    // 上门柱
     g.circle(openX, top, postRadius + 2);
     g.fill(postColor);
     g.stroke({ width: 2, color: 0x888888 });
 
-    // 下门柱
     g.circle(openX, bottom, postRadius + 2);
     g.fill(postColor);
     g.stroke({ width: 2, color: 0x888888 });
 
-    // --- 5. 绘制进球线 (Goal Line) ---
+    // 进球线
     g.beginPath();
     g.moveTo(openX, top);
     g.lineTo(openX, bottom);
-    g.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.5 }); // 半透明白线
+    g.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.5 });
 
     this.view.addChild(g);
   }
 
-  update() {
-    // 静态物体无需更新位置
-  }
+  update() {}
 }

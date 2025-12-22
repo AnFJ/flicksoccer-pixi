@@ -1,3 +1,4 @@
+
 class Platform {
   constructor() {
     this.env = this.detectEnv();
@@ -8,6 +9,38 @@ class Platform {
     if (typeof tt !== 'undefined') return 'douyin';
     if (typeof wx !== 'undefined') return 'wechat';
     return 'web';
+  }
+
+  /**
+   * 判断是否为移动端 Web 环境
+   */
+  isMobileWeb() {
+    if (this.env !== 'web') return false;
+    if (typeof navigator === 'undefined') return false;
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  }
+
+  /**
+   * 请求进入全屏 (仅 Web 有效，需在用户交互回调中调用)
+   */
+  enterFullscreen() {
+    if (this.env !== 'web') return;
+    
+    try {
+      const docEl = document.documentElement;
+      const requestFull = docEl.requestFullscreen || 
+                          docEl.webkitRequestFullscreen || 
+                          docEl.msRequestFullscreen || 
+                          docEl.mozRequestFullScreen;
+      
+      if (requestFull) {
+        requestFull.call(docEl).catch(err => {
+          console.warn('[Platform] Fullscreen request failed or rejected:', err);
+        });
+      }
+    } catch (e) {
+      console.warn('[Platform] Fullscreen API not supported');
+    }
   }
 
   /**

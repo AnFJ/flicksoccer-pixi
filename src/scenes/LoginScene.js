@@ -1,7 +1,9 @@
+
 import * as PIXI from 'pixi.js';
 import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
+import Platform from '../managers/Platform.js'; // 导入 Platform
 import MenuScene from './MenuScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
@@ -31,6 +33,11 @@ export default class LoginScene extends BaseScene {
       text: '开始游戏', width: 300, height: 100, color: 0x07c160,
       onClick: async () => {
         try {
+            // 如果是移动端 Web 环境，尝试强制全屏
+            if (Platform.isMobileWeb()) {
+                Platform.enterFullscreen();
+            }
+
             loginBtn.alpha = 0.5; 
             await AccountMgr.login();
             SceneManager.changeScene(MenuScene);
