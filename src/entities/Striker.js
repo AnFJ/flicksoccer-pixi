@@ -3,6 +3,7 @@ import * as PIXI from 'pixi.js';
 import Matter from 'matter-js';
 import { CollisionCategory, TeamId } from '../constants.js';
 import { GameConfig } from '../config.js';
+import ResourceManager from '../managers/ResourceManager.js';
 
 export default class Striker {
   constructor(x, y, radius, teamId) {
@@ -25,47 +26,61 @@ export default class Striker {
     // 2. Pixi 视图
     this.view = new PIXI.Container();
     
-    // 颜色配置
-    // 红方: 表面红色，侧边深红
-    // 蓝方: 表面蓝色，侧边深蓝
-    // 或者模仿 Soccer Stars: 侧面是统一的金属银色/灰色，表面是贴纸
-    const mainColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
-    const sideColor = 0x95a5a6; // 统一用金属灰作为底座
-    const starColor = 0xFFFFFF; // 星星颜色
+    // 尝试获取纹理
+    const textureKey = teamId === TeamId.LEFT ? 'striker_red' : 'striker_blue';
+    const texture = ResourceManager.get(textureKey);
+    const shadowTexture = ResourceManager.get('shadow');
 
-    const graphics = new PIXI.Graphics();
+    // --- 绘制阴影 ---
+    if (shadowTexture) {
+        const shadow = new PIXI.Sprite(shadowTexture);
+        shadow.anchor.set(0.5);
+        shadow.width = this.radius * 2.4;
+        shadow.height = this.radius * 2.4;
+        shadow.position.set(5, 5); // 偏移
+        shadow.alpha = 0.5;
+        this.view.addChild(shadow);
+    } else {
+        // 降级阴影
+        const g = new PIXI.Graphics();
+        g.ellipse(0, thickness + 5, this.radius * 1.1, this.radius * 1.1);
+        g.fill({ color: 0x000000, alpha: 0.3 });
+        this.view.addChild(g);
+    }
 
-    // --- 绘制阴影 (贴地) ---
-    graphics.ellipse(0, thickness + 5, this.radius * 1.1, this.radius * 1.1);
-    graphics.fill({ color: 0x000000, alpha: 0.3 });
+    // --- 绘制本体 ---
+    if (texture) {
+        // 使用图片 Sprite
+        const sprite = new PIXI.Sprite(texture);
+        sprite.anchor.set(0.5);
+        // 调整大小匹配物理半径
+        sprite.width = this.radius * 2;
+        sprite.height = this.radius * 2;
+        this.view.addChild(sprite);
+    } else {
+        // 降级：使用 Graphics 绘制 (原来的代码)
+        const mainColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
+        const sideColor = 0x95a5a6; 
+        const starColor = 0xFFFFFF; 
 
-    // --- 绘制圆柱体侧壁 (下层圆) ---
-    // 为了产生厚度感，我们在 y + thickness 的位置画一个圆，然后向上延伸
-    // 简单做法：画一个深色圆在下方
-    graphics.circle(0, thickness, this.radius);
-    graphics.fill(sideColor);
-    // 侧边高光 (让圆柱看起来有金属光泽)
-    graphics.arc(0, thickness, this.radius, 0.1, Math.PI - 0.1);
-    graphics.stroke({ width: 2, color: 0xffffff, alpha: 0.3 });
-
-    // --- 绘制顶面 (上层圆) ---
-    // 位于 (0, 0)
-    graphics.circle(0, 0, this.radius);
-    graphics.fill(mainColor);
-    
-    // 顶面边缘高光 (倒角效果)
-    graphics.circle(0, 0, this.radius - 2);
-    graphics.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.3 });
-
-    // --- 绘制中间的星星 ---
-    this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
-
-    this.view.addChild(graphics);
+        const graphics = new PIXI.Graphics();
+        // 侧壁
+        graphics.circle(0, thickness, this.radius);
+        graphics.fill(sideColor);
+        graphics.arc(0, thickness, this.radius, 0.1, Math.PI - 0.1);
+        graphics.stroke({ width: 2, color: 0xffffff, alpha: 0.3 });
+        // 顶面
+        graphics.circle(0, 0, this.radius);
+        graphics.fill(mainColor);
+        graphics.circle(0, 0, this.radius - 2);
+        graphics.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.3 });
+        // 星星
+        this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
+        
+        this.view.addChild(graphics);
+    }
   }
 
-  /**
-   * 绘制星星
-   */
   drawStar(g, cx, cy, spikes, outerRadius, innerRadius, color) {
     let rot = Math.PI / 2 * 3;
     let x = cx;
@@ -96,10 +111,6 @@ export default class Striker {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
-      
-      // 棋子旋转时，整体旋转。
-      // 虽然物理上圆柱体旋转侧面应该不动，但在俯视游戏中，
-      // 让整个纹理旋转会显得更有动感，且能看清星星在转。
       this.view.rotation = this.body.angle;
     }
   }

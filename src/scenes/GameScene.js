@@ -13,6 +13,7 @@ import Goal from '../entities/Goal.js';
 import EventBus from '../managers/EventBus.js';
 import AudioManager from '../managers/AudioManager.js';
 import Platform from '../managers/Platform.js';
+import ResourceManager from '../managers/ResourceManager.js'; // 导入资源管理器
 import { GameConfig } from '../config.js';
 import { TeamId, CollisionCategory, Events } from '../constants.js';
 
@@ -23,74 +24,72 @@ export default class GameScene extends BaseScene {
     this.rules = null;
     this.ai = null;
     
-    // 实体管理
     this.strikers = [];
     this.ball = null;
     this.goals = [];
 
-    // 游戏状态
-    this.currentTurn = TeamId.RIGHT; // 默认右方先手
+    this.currentTurn = TeamId.RIGHT; 
     this.isMoving = false; 
     this.isGameOver = false;
 
-    // 交互
     this.selectedBody = null;
     this.dragStartPos = { x: 0, y: 0 };
-    this.currentPointerPos = { x: 0, y: 0 }; // 记录当前手指位置
+    this.currentPointerPos = { x: 0, y: 0 }; 
     this.isDragging = false;
     this.aimGraphics = new PIXI.Graphics();
     
-    // UI
     this.scoreText = null;
     this.turnText = null;
+    
+    this.isLoading = true; // 加载状态
   }
 
-  onEnter() {
+  async onEnter() {
     super.onEnter();
+    
+    // 显示加载中提示
+    const loadingText = new PIXI.Text({ text: 'Loading Assets...', style: { fill: 0xffffff, fontSize: 30 }});
+    loadingText.anchor.set(0.5);
+    loadingText.position.set(GameConfig.designWidth/2, GameConfig.designHeight/2);
+    this.container.addChild(loadingText);
+
+    // 预加载资源
+    await ResourceManager.loadAll();
+    
+    // 移除加载提示
+    this.container.removeChild(loadingText);
+    this.isLoading = false;
+
     this.initGame();
   }
 
   initGame() {
-    // 1. 物理初始化
     this.physics.init();
     this.rules = new GameRules(this.physics);
-    
-    // 2. 初始化 AI (默认为左侧)
     this.ai = new AIController(this.physics, TeamId.LEFT); 
 
-    // 3. 场景搭建
     this.createLayout();
     this.setupFormation();
     this.createUI();
 
-    // 4. 事件监听
     this.setupEvents();
     this.setupInteraction();
 
-    // 5. 初始状态
     this.isGameOver = false;
     this.updateUI();
   }
 
-  /**
-   * 创建布局：顶部栏 + 球场
-   */
   createLayout() {
     const { designWidth, designHeight, dimensions } = GameConfig;
     
-    // --- 1. 顶部区域 (玩家信息栏) ---
+    // 顶部栏
     const topBarBg = new PIXI.Graphics();
     topBarBg.rect(0, 0, designWidth, dimensions.topBarHeight);
-    topBarBg.fill(0x1a1a1a); 
-    topBarBg.moveTo(0, dimensions.topBarHeight);
-    topBarBg.lineTo(designWidth, dimensions.topBarHeight);
-    topBarBg.stroke({ width: 2, color: 0x444444 });
+    topBarBg.fill(0x111111); // 深色背景
     this.container.addChild(topBarBg);
 
-    // --- 2. 球场区域 ---
     const remainingHeight = designHeight - dimensions.topBarHeight;
     const marginY = (remainingHeight - dimensions.fieldHeight) / 2;
-    
     const fieldStartX = (designWidth - dimensions.fieldWidth) / 2;
     const fieldStartY = dimensions.topBarHeight + marginY;
 
@@ -101,41 +100,98 @@ export default class GameScene extends BaseScene {
         h: dimensions.fieldHeight 
     };
 
-    this.createFieldGraphics(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    // 使用新方法创建球场视觉
+    this.createFieldVisuals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    
     this.createPhysicsWalls(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
     this.createGoals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
   }
 
-  createFieldGraphics(x, y, w, h) {
-    const ground = new PIXI.Graphics();
-    ground.rect(x, y, w, h);
-    ground.fill(0x27ae60);
-    
-    // 装饰性条纹
-    const stripeWidth = w / 10;
-    for(let i=0; i<10; i+=2) {
-        ground.rect(x + i * stripeWidth, y, stripeWidth, h);
-        ground.fill({ color: 0x000000, alpha: 0.05 });
+  createFieldVisuals(x, y, w, h) {
+    // 1. 基础草地 (使用纹理平铺)
+    const grassTexture = ResourceManager.get('grass');
+    let ground;
+
+    if (grassTexture) {
+        // 使用 TilingSprite 实现无缝平铺
+        ground = new PIXI.TilingSprite({
+            texture: grassTexture,
+            width: w,
+            height: h
+        });
+        // 调整纹理缩放，避免草看起来太大
+        ground.tileScale.set(0.5); 
+    } else {
+        // 降级方案：纯色
+        ground = new PIXI.Graphics();
+        ground.rect(0, 0, w, h);
+        ground.fill(0x27ae60);
     }
+    ground.position.set(x, y);
+    this.container.addChild(ground);
 
-    ground.rect(x, y, w, h);
-    ground.stroke({ width: 5, color: 0xffffff });
+    // 2. 绘制球场线 (画在草地之上)
+    // 使用 Graphics 绘制线框，保证清晰度
+    const lines = new PIXI.Graphics();
+    const lineColor = 0xffffff;
+    const lineAlpha = 0.6;
+    const lineWidth = 5;
 
-    ground.moveTo(x + w / 2, y);
-    ground.lineTo(x + w / 2, y + h);
-    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+    // 边框
+    lines.rect(0, 0, w, h);
+    lines.stroke({ width: lineWidth, color: lineColor, alpha: lineAlpha });
+
+    // 中线
+    lines.moveTo(w / 2, 0);
+    lines.lineTo(w / 2, h);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
     
-    ground.circle(x + w/2, y + h/2, 150);
-    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+    // 中圈
+    lines.circle(w / 2, h / 2, 150);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+    // 中点
+    lines.circle(w / 2, h / 2, 10);
+    lines.fill({ color: lineColor, alpha: lineAlpha });
     
+    // 禁区
     const boxW = 250;
     const boxH = 500;
-    ground.rect(x, y + h/2 - boxH/2, boxW, boxH);
-    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
-    ground.rect(x + w - boxW, y + h/2 - boxH/2, boxW, boxH);
-    ground.stroke({ width: 4, color: 0xffffff, alpha: 0.5 });
+    // 左禁区
+    lines.rect(0, h/2 - boxH/2, boxW, boxH);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+    // 右禁区
+    lines.rect(w - boxW, h/2 - boxH/2, boxW, boxH);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
 
-    this.container.addChildAt(ground, 0); 
+    // 角球区 (四个角落的弧线)
+    const cornerR = 40;
+    lines.arc(0, 0, cornerR, 0, Math.PI/2);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+    
+    lines.arc(0, h, cornerR, -Math.PI/2, 0);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+
+    lines.arc(w, 0, cornerR, Math.PI/2, Math.PI);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+
+    lines.arc(w, h, cornerR, Math.PI, Math.PI * 1.5);
+    lines.stroke({ width: lineWidth - 1, color: lineColor, alpha: lineAlpha });
+
+    // 将线框添加到 ground 的坐标系中或者直接叠加
+    // 简单起见，直接叠加在 container，位置偏移
+    lines.position.set(x, y);
+    this.container.addChild(lines);
+    
+    // 3. 暗角/光照效果 (Vignette)
+    // 用一个四周黑中间透明的渐变图或者简单画个矩形遮罩
+    // 这里简单用 Graphics 模拟四角变暗
+    const vignette = new PIXI.Graphics();
+    vignette.rect(0, 0, w, h);
+    vignette.fill({ color: 0x000000, alpha: 0.1 }); // 简单压暗
+    // 实际上 Pixi 没法直接画径向渐变填充，除非用 Texture 或 Shader
+    // 这里略过复杂渐变，保持简洁
+    vignette.position.set(x, y);
+    // this.container.addChild(vignette); // 可选
   }
 
   createPhysicsWalls(x, y, w, h) {
@@ -317,15 +373,13 @@ export default class GameScene extends BaseScene {
   }
 
   onPointerDown(e) {
-    if (this.isMoving || this.isGameOver) return;
+    if (this.isMoving || this.isGameOver || this.isLoading) return;
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
     const local = this.container.toLocal(e.global);
-    // 扩大一点点击范围判定
     const bodies = this.physics.queryPoint(local.x, local.y);
 
     if (bodies.length > 0) {
-      // 过滤掉墙壁等，只看 Striker
       const clickedBody = bodies.find(b => b.label === 'Striker');
       
       if (clickedBody) {
@@ -333,7 +387,6 @@ export default class GameScene extends BaseScene {
         if (entity instanceof Striker && entity.teamId === this.currentTurn) {
           this.selectedBody = clickedBody;
           this.isDragging = true;
-          // 记录初始点击位置（一般使用棋子中心作为拉动的原点）
           this.dragStartPos = { x: clickedBody.position.x, y: clickedBody.position.y };
           this.currentPointerPos = { x: local.x, y: local.y };
           this.drawAimingLine();
@@ -351,9 +404,6 @@ export default class GameScene extends BaseScene {
     this.drawAimingLine();
   }
 
-  /**
-   * 绘制瞄准线：箭头 + 后方虚线
-   */
   drawAimingLine() {
     if (!this.selectedBody) return;
 
@@ -362,54 +412,40 @@ export default class GameScene extends BaseScene {
     const startX = this.dragStartPos.x;
     const startY = this.dragStartPos.y;
     
-    // 原始手指位置
     const rawEndX = this.currentPointerPos.x;
     const rawEndY = this.currentPointerPos.y;
 
-    // 1. 计算拉动向量 (从手指指向棋子中心 = 发力方向)
     const dx = startX - rawEndX;
     const dy = startY - rawEndY;
     const rawDist = Math.sqrt(dx*dx + dy*dy);
 
-    if (rawDist < 10) return; // 距离太小不显示
+    if (rawDist < 10) return;
 
-    // 2. 核心修改：计算“限制后”的虚拟手指位置
-    // 如果拉动超过最大距离，我们把视觉终点锁死在最大半径上
     const maxDist = GameConfig.gameplay.maxDragDistance;
     const displayDist = Math.min(rawDist, maxDist);
     
-    const angle = Math.atan2(dy, dx); // 发力方向角度
+    const angle = Math.atan2(dy, dx); 
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    // 这里的 visualEndX 是从中心向后延伸 displayDist 长度的点
-    // 注意：dx/dy 是 Start - End，所以方向是指向 Start 的反方向。
-    // 为了画“拉弹弓”的效果（虚线指向手指），我们需要反向计算。
-    // 虚线终点 = Start - (DirectionVector * displayDist)
     const visualEndX = startX - cos * displayDist;
     const visualEndY = startY - sin * displayDist;
 
-    // --- 绘制后方虚线 (从棋子中心指向虚拟手指位置) ---
     this.drawDashedLine(this.aimGraphics, startX, startY, visualEndX, visualEndY, 10, 5);
 
-    // --- 绘制前方箭头 (从棋子中心指向发射方向) ---
-    // 箭头长度 = 3倍的(限制后的)拉动长度
     const arrowLen = displayDist * 3; 
     const arrowEndX = startX + cos * arrowLen;
     const arrowEndY = startY + sin * arrowLen;
 
-    // 颜色插值：根据力度从绿色变红色
     const powerRatio = displayDist / maxDist;
-    const startColor = GameConfig.visuals.aimLineColorStart; // Green
-    const endColor = GameConfig.visuals.aimLineColorEnd;     // Red
-    // 简单的颜色混合 (这里简化处理，直接用红色或绿色，或者你可以写个 mixColor 函数)
+    const startColor = GameConfig.visuals.aimLineColorStart; 
+    const endColor = GameConfig.visuals.aimLineColorEnd;     
     const color = powerRatio > 0.8 ? endColor : startColor;
 
     this.aimGraphics.moveTo(startX, startY);
     this.aimGraphics.lineTo(arrowEndX, arrowEndY);
     this.aimGraphics.stroke({ width: 6, color: color });
 
-    // 画箭头头
     const headLen = 20;
     this.aimGraphics.poly([
         arrowEndX, arrowEndY,
@@ -418,11 +454,9 @@ export default class GameScene extends BaseScene {
     ]);
     this.aimGraphics.fill(color);
 
-    // --- 绘制力度圈 (棋子周围的圆环) ---
     this.aimGraphics.circle(startX, startY, 60);
     this.aimGraphics.stroke({ width: 4, color: 0xffffff, alpha: 0.3 + powerRatio * 0.7 });
     
-    // 如果拉满，画个额外的圈提示
     if (rawDist >= maxDist) {
         this.aimGraphics.circle(startX, startY, 65);
         this.aimGraphics.stroke({ width: 2, color: 0xFF0000, alpha: 0.8 });
@@ -460,7 +494,6 @@ export default class GameScene extends BaseScene {
       const currentLen = Math.sqrt(dx*dx + dy*dy);
       const maxLen = GameConfig.gameplay.maxDragDistance;
       
-      // 力度计算：使用限制后的距离
       const effectiveDist = Math.min(currentLen, maxLen);
       
       const angle = Math.atan2(dy, dx);
@@ -495,17 +528,13 @@ export default class GameScene extends BaseScene {
   update(delta) {
     super.update(delta);
     
-    // 物理步长
     this.physics.update(16.66);
 
-    // 渲染同步
     this.strikers.forEach(s => s.update());
     if (this.ball) this.ball.update();
 
-    // 回合检查
     this.checkTurnState();
 
-    // AI
     if (!this.isMoving && !this.isGameOver && this.ai && this.currentTurn === this.ai.teamId) {
         this.processAITurn();
     }
