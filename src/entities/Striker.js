@@ -33,11 +33,11 @@ export default class Striker {
     // 2. Pixi 视图
     this.view = new PIXI.Container();
     
-    // --- 绘制稳健的阴影 (Solid Shadow) ---
-    // 使用 Graphics 多层圆绘制，不依赖 Canvas 纹理生成
+    // --- 绘制高质量柔滑阴影 ---
+    // 使用高密度 Graphics 叠加
     const shadow = this.createShadowGraphics();
-    shadow.position.set(4, 4); // 偏移
-    shadow.alpha = 0.5; 
+    shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5); 
+    shadow.alpha = 0.8; 
     
     this.view.addChild(shadow);
 
@@ -72,29 +72,30 @@ export default class Striker {
   }
 
   /**
-   * 使用 Graphics 绘制多层同心圆来模拟柔和阴影
+   * 使用 30 层同心圆叠加，消除波纹感
    */
   createShadowGraphics() {
     const g = new PIXI.Graphics();
     const r = this.radius;
     
-    // 棋子比较扁平，阴影范围稍微收敛一点 (1.2倍)
-    
-    // Layer 1
-    g.circle(0, 0, r * 1.2);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+    // 棋子比较扁平，阴影扩散范围适中
+    const steps = 30;
+    const maxR = r * 1.1; 
+    const alphaPerStep = 0.05; // 每一层很淡，叠加起来就黑了，且边缘非常柔和
 
-    // Layer 2
-    g.circle(0, 0, r * 1.1);
-    g.fill({ color: 0x000000, alpha: 0.15 });
+    for (let i = 0; i < steps; i++) {
+        const ratio = i / steps; 
+        const currentR = maxR * (1 - ratio);
+        
+        if (currentR <= 0) break;
 
-    // Layer 3
-    g.circle(0, 0, r * 1.0);
-    g.fill({ color: 0x000000, alpha: 0.2 });
+        g.circle(0, 0, currentR);
+        g.fill({ color: 0x000000, alpha: alphaPerStep });
+    }
 
-    // Layer 4 (Core)
+    // 棋子底部的接触阴影
     g.circle(0, 0, r * 0.9);
-    g.fill({ color: 0x000000, alpha: 0.3 });
+    g.fill({ color: 0x000000, alpha: 0.1 });
 
     return g;
   }

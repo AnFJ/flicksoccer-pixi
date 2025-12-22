@@ -33,12 +33,12 @@ export default class Ball {
     
     // --- 渲染顺序：阴影 -> 拖尾 -> 足球本体 ---
 
-    // A. 阴影 (使用 Graphics 多层叠加模拟渐变，确保兼容性)
+    // A. 阴影 (使用高密度 Graphics 叠加模拟平滑渐变)
     const shadow = this.createShadowGraphics();
-    // 阴影稍微偏移，模拟顶光源
-    shadow.position.set(4, 4);
-    // 整体稍微透明一点
-    shadow.alpha = 0.6; 
+    // 阴影偏移量，模拟光照方向
+    shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5);
+    // 基础透明度
+    shadow.alpha = 0.8; 
     
     this.view.addChild(shadow);
 
@@ -90,47 +90,45 @@ export default class Ball {
   }
 
   /**
-   * 使用 Graphics 绘制多层同心圆来模拟柔和阴影
-   * 这种方法不依赖 Canvas API，在所有环境都能显示
+   * 使用 Graphics 绘制高密度同心圆来模拟完美的柔和阴影
+   * 通过叠加 30 层极淡的圆，消除原本的 "同心圆波纹" 现象
    */
   createShadowGraphics() {
     const g = new PIXI.Graphics();
     const r = this.radius;
     
-    // 从外向内绘制，模拟渐变
-    // 阴影整体比球稍微大一点点 (1.3倍)
-    
-    // 第1层：最外圈，非常淡
-    g.circle(0, 0, r * 1.3);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+    // 配置参数
+    const steps = 30; // 层数越多越平滑
+    const maxR = r * 1.3; // 阴影最大扩散范围 (比球略大)
+    const alphaPerStep = 0.05; // 每层的不透明度 (越低越柔和)
 
-    // 第2层
-    g.circle(0, 0, r * 1.1);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+    // 从大到小绘制
+    for (let i = 0; i < steps; i++) {
+        const ratio = i / steps; // 0 ~ 1
+        const currentR = maxR * (1 - ratio);
+        
+        if (currentR <= 0) break;
 
-    // 第3层
-    g.circle(0, 0, r * 0.9);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+        g.circle(0, 0, currentR);
+        g.fill({ color: 0x000000, alpha: alphaPerStep });
+    }
 
-    // 第4层：核心，较黑
-    g.circle(0, 0, r * 0.7);
-    g.fill({ color: 0x000000, alpha: 0.2 });
-    
-    // 第5层：最核心接触点
-    g.circle(0, 0, r * 0.5);
-    g.fill({ color: 0x000000, alpha: 0.2 });
+    // 核心区域额外加深一点点，模拟接触阴影 (Contact Shadow)
+    g.circle(0, 0, r * 0.8);
+    g.fill({ color: 0x000000, alpha: 0.1 });
 
     return g;
   }
 
   generateTrailTexture() {
-    // 拖尾特效如果是 Web 环境依然用 Canvas，如果不行可以考虑后续换成 Graphics
-    // 这里为了保持特性先保留 Canvas 方式，如果拖尾也不显示请告知
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const w = 256;
             const h = 64;
             const canvas = document.createElement('canvas');
+            // 简单的兼容性检查，防止在 adapter 占位符环境下报错
+            if (!canvas.getContext) return PIXI.Texture.WHITE;
+            
             canvas.width = w;
             canvas.height = h;
             const ctx = canvas.getContext('2d');
@@ -149,31 +147,32 @@ export default class Ball {
                 return PIXI.Texture.from(canvas);
             }
         } catch (e) {
-            console.warn("Trail canvas generation failed", e);
+            // 忽略错误
         }
     }
-    return PIXI.Texture.WHITE; // 降级
+    return PIXI.Texture.WHITE;
   }
 
   generateProceduralPattern() {
-    // 简易纹理降级处理：如果 Canvas 失败，返回白色
     if (typeof document === 'undefined') return PIXI.Texture.WHITE;
-    const size = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return PIXI.Texture.WHITE;
-    
-    ctx.fillStyle = '#eeeeee';
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = '#222222';
-    this.drawHex(ctx, size/2, size/2, size/4);
-    this.drawHex(ctx, 0, 0, size/4);
-    this.drawHex(ctx, size, 0, size/4);
-    this.drawHex(ctx, 0, size, size/4);
-    this.drawHex(ctx, size, size, size/4);
-    return PIXI.Texture.from(canvas);
+    try {
+        const canvas = document.createElement('canvas');
+        if (!canvas.getContext) return PIXI.Texture.WHITE;
+        const size = 256;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return PIXI.Texture.WHITE;
+        ctx.fillStyle = '#eeeeee';
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = '#222222';
+        this.drawHex(ctx, size/2, size/2, size/4);
+        this.drawHex(ctx, 0, 0, size/4);
+        this.drawHex(ctx, size, 0, size/4);
+        this.drawHex(ctx, 0, size, size/4);
+        this.drawHex(ctx, size, size, size/4);
+        return PIXI.Texture.from(canvas);
+    } catch(e) { return PIXI.Texture.WHITE; }
   }
 
   drawHex(ctx, x, y, r) {
@@ -188,25 +187,27 @@ export default class Ball {
 
   generateProceduralOverlay() {
     if (typeof document === 'undefined') return PIXI.Texture.EMPTY;
-    const size = 128;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return PIXI.Texture.EMPTY;
-
-    const cx = size / 2;
-    const cy = size / 2;
-    const r = size / 2;
-    const shadowGrad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
-    shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
-    shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.1)');
-    shadowGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
-    ctx.fillStyle = shadowGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    return PIXI.Texture.from(canvas);
+    try {
+        const canvas = document.createElement('canvas');
+        if (!canvas.getContext) return PIXI.Texture.EMPTY;
+        const size = 128;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return PIXI.Texture.EMPTY;
+        const cx = size / 2;
+        const cy = size / 2;
+        const r = size / 2;
+        const shadowGrad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+        shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.1)');
+        shadowGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+        ctx.fillStyle = shadowGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        return PIXI.Texture.from(canvas);
+    } catch(e) { return PIXI.Texture.EMPTY; }
   }
 
   update() {
