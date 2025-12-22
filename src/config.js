@@ -1,8 +1,15 @@
+
 // 游戏全局配置
 export const GameConfig = {
   // 屏幕参考尺寸 (横屏设计稿 1080*2400)
   designWidth: 2400,
   designHeight: 1080,
+  
+  // 调试配置 (新增)
+  debug: {
+    showGoalZones: true,    // 设为 true 可显示球门的物理墙(红)和感应区(黄)
+    showPhysicsWalls: true  // 设为 true 可显示球场边界物理墙(青色)
+  },
   
   // 尺寸配置 (单位: px, 基于 1080p 高度)
   dimensions: {

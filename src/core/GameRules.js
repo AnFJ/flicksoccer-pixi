@@ -28,9 +28,48 @@ export default class GameRules {
         const bodyA = pairs[i].bodyA;
         const bodyB = pairs[i].bodyB;
 
+        // 1. 检查进球
         this.checkGoal(bodyA, bodyB);
+
+        // 2. 检查撞网 (模拟网兜吸能)
+        this.checkNetCollision(bodyA, bodyB);
       }
     });
+  }
+
+  /**
+   * 检查是否撞到了球网内壁 (GoalNet)
+   * 物理引擎默认会取两者最大的弹性系数，导致球会从无弹性的墙上弹飞。
+   * 这里我们手动干预，撞网时强制大幅减速。
+   */
+  checkNetCollision(bodyA, bodyB) {
+    let net = null;
+    let dynamicBody = null;
+
+    if (bodyA.label === 'GoalNet') {
+        net = bodyA;
+        dynamicBody = bodyB;
+    } else if (bodyB.label === 'GoalNet') {
+        net = bodyB;
+        dynamicBody = bodyA;
+    }
+
+    if (net && dynamicBody) {
+        // 确保撞网的是球或者棋子
+        if (dynamicBody.label === 'Ball' || dynamicBody.label === 'Striker') {
+            
+            // 吸收系数：0.2 表示保留 20% 的速度，吸收 80% 的能量
+            const dampingFactor = 0.2; 
+            
+            Matter.Body.setVelocity(dynamicBody, {
+                x: dynamicBody.velocity.x * dampingFactor,
+                y: dynamicBody.velocity.y * dampingFactor
+            });
+
+            // 同时大幅减少旋转速度，防止球在网里疯狂旋转
+            Matter.Body.setAngularVelocity(dynamicBody, dynamicBody.angularVelocity * dampingFactor);
+        }
+    }
   }
 
   /**

@@ -25,12 +25,21 @@ export default class Goal {
     // 墙壁厚度 (非常厚，防止穿透)
     const wallThick = 200; 
 
+    // --- 物理参数优化 ---
+    // 1. Y轴偏移：让网兜比门柱更"宽"，防止侧面蹭到
+    const netOffsetY = 20; 
+    
+    // 2. X轴缩进：让网兜侧壁不接触球门线，必须进门了才会碰到。
+    // 球半径约20px，缩进25px确保球在门线上绝对碰不到网兜
+    const netRetractX = 25; 
+
     // 创建一个 Composite 来容纳所有独立部件
     this.body = Matter.Composite.create();
 
     const isLeft = ownerTeamId === TeamId.LEFT;
 
     // --- A. 进球感应区 (Sensor) ---
+    // Sensor 保持原位，确保过线就算进球
     const sensor = Matter.Bodies.rectangle(x, y, w * 0.8, h * 0.8, {
       isStatic: true,
       isSensor: true, // 传感器模式
@@ -49,23 +58,42 @@ export default class Goal {
       isStatic: true,
       label: 'GoalNet',
       render: { visible: false },
-      restitution: 0.1, // 低弹性，吸能
-      friction: 0.8,    
+      restitution: 0.0, // 无弹性
+      friction: 1.0,    // 高摩擦
+      frictionStatic: 1.0,
       collisionFilter: {
         category: CollisionCategory.WALL,
         mask: CollisionCategory.BALL | CollisionCategory.STRIKER
       }
     };
 
+    // 计算侧壁的几何形状 (缩进后的)
+    let sideWallW = w - netRetractX;
+    let sideWallX;
+
+    if (isLeft) {
+        // 左门 (x是中心): GoalLine 在右侧 (x + w/2)
+        // 我们需要右边缘向左缩进，左边缘(网底)不变
+        // 中心点 = 原中心 - 缩进量的一半
+        sideWallX = x - netRetractX / 2;
+    } else {
+        // 右门 (x是中心): GoalLine 在左侧 (x - w/2)
+        // 我们需要左边缘向右缩进，右边缘(网底)不变
+        // 中心点 = 原中心 + 缩进量的一半
+        sideWallX = x + netRetractX / 2;
+    }
+
     // 上墙 (Top)
-    const topWall = Matter.Bodies.rectangle(x, y - h/2 - wallThick/2, w + wallThick, wallThick, wallOptions);
+    const topWallY = y - h/2 - wallThick/2 - netOffsetY;
+    const topWall = Matter.Bodies.rectangle(sideWallX, topWallY, sideWallW, wallThick, wallOptions);
     Matter.Composite.add(this.body, topWall);
     
     // 下墙 (Bottom)
-    const bottomWall = Matter.Bodies.rectangle(x, y + h/2 + wallThick/2, w + wallThick, wallThick, wallOptions);
+    const bottomWallY = y + h/2 + wallThick/2 + netOffsetY;
+    const bottomWall = Matter.Bodies.rectangle(sideWallX, bottomWallY, sideWallW, wallThick, wallOptions);
     Matter.Composite.add(this.body, bottomWall);
     
-    // 后墙 (Back)
+    // 后墙 (Back) - 位置不变，高度增加以衔接扩宽后的上下墙
     const visualOverlap = 2; 
     let backWallX;
     if (isLeft) {
@@ -73,14 +101,16 @@ export default class Goal {
     } else {
         backWallX = (x + w/2) + wallThick/2 - visualOverlap;
     }
-    const backWall = Matter.Bodies.rectangle(backWallX, y, wallThick, h + wallThick*2, wallOptions);
+    const backWallH = h + wallThick*2 + netOffsetY*2;
+    const backWall = Matter.Bodies.rectangle(backWallX, y, wallThick, backWallH, wallOptions);
     Matter.Composite.add(this.body, backWall);
 
     // --- C. 门柱 (Posts) ---
+    // 门柱在球门线上，位置不变
     const postOptions = {
       isStatic: true,
       label: 'GoalPost',
-      restitution: 1.0, 
+      restitution: 1.0, // 门柱高弹性
       render: { visible: false },
       collisionFilter: {
         category: CollisionCategory.WALL,
@@ -94,7 +124,32 @@ export default class Goal {
     
     Matter.Composite.add(this.body, [post1, post2]);
 
-    // 视觉由场景的前景层统一处理，此处不再创建 PIXI Container
+    // --- D. 调试视图 ---
     this.view = null;
+    if (GameConfig.debug && GameConfig.debug.showGoalZones) {
+        this.view = new PIXI.Container();
+        
+        // 1. 绘制感应区 (半透明黄色)
+        const g = new PIXI.Graphics();
+        g.rect(x - (w*0.8)/2, y - (h*0.8)/2, w*0.8, h*0.8);
+        g.fill({ color: 0xFFFF00, alpha: 0.4 });
+        
+        // 2. 绘制网兜墙壁 (半透明红色) - 更新为缩进后的尺寸
+        // 上墙
+        g.rect(sideWallX - sideWallW/2, topWallY - wallThick/2, sideWallW, wallThick);
+        // 下墙
+        g.rect(sideWallX - sideWallW/2, bottomWallY - wallThick/2, sideWallW, wallThick);
+        // 后墙
+        g.rect(backWallX - wallThick/2, y - backWallH/2, wallThick, backWallH);
+        
+        g.fill({ color: 0xFF0000, alpha: 0.3 });
+        
+        // 3. 门柱 (白色)
+        g.circle(openX, y - h/2, postRadius);
+        g.circle(openX, y + h/2, postRadius);
+        g.fill(0xFFFFFF);
+
+        this.view.addChild(g);
+    }
   }
 }

@@ -218,10 +218,31 @@ export default class GameScene extends BaseScene {
         body.restitution = 1.0; 
     });
     this.physics.add(walls);
+
+    // --- 新增 Debug 绘制逻辑：显示物理墙边界 ---
+    if (GameConfig.debug && GameConfig.debug.showPhysicsWalls) {
+        const debugG = new PIXI.Graphics();
+        
+        walls.forEach(body => {
+            const v = body.vertices;
+            // 绘制多边形
+            debugG.moveTo(v[0].x, v[0].y);
+            for (let i = 1; i < v.length; i++) {
+                debugG.lineTo(v[i].x, v[i].y);
+            }
+            debugG.lineTo(v[0].x, v[0].y); // 闭合路径
+        });
+
+        // 青色 (Cyan) 表示边界墙
+        debugG.stroke({ width: 2, color: 0x00FFFF });
+        debugG.fill({ color: 0x00FFFF, alpha: 0.3 });
+        
+        this.gameLayer.addChild(debugG);
+    }
   }
 
   createGoals(x, y, w, h) {
-    // 创建物理球门，但不添加视觉（因为视觉在 overLayer 的图片里了）
+    // 创建物理球门
     const { goalWidth, goalOpening } = GameConfig.dimensions;
     const centerY = y + h / 2;
 
@@ -232,6 +253,10 @@ export default class GameScene extends BaseScene {
     
     this.physics.add(goalLeft.body);
     this.physics.add(goalRight.body);
+
+    // 修改：如果开启了 debug 模式，Goal 会生成 view (红黄块)，将其添加到场景中方便调试
+    if (goalLeft.view) this.gameLayer.addChild(goalLeft.view);
+    if (goalRight.view) this.gameLayer.addChild(goalRight.view);
   }
 
   setupFormation() {
