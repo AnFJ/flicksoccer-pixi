@@ -20,7 +20,6 @@ export default class Ball {
       }
     };
 
-    // 如果配置了固定旋转，设置惯性为无穷大 (通常足球不需要开启这个，开启后物理旋转为0)
     if (GameConfig.physics.ballFixedRotation) {
       bodyOptions.inertia = Infinity;
     }
@@ -32,47 +31,44 @@ export default class Ball {
     // 2. 视图容器
     this.view = new PIXI.Container();
     
-    // --- 核心改动：使用 TilingSprite 实现 3D 滚动 ---
+    // --- 渲染顺序：阴影 -> 拖尾 -> 足球本体 ---
+
+    // A. 阴影 (使用 Graphics 多层叠加模拟渐变，确保兼容性)
+    const shadow = this.createShadowGraphics();
+    // 阴影稍微偏移，模拟顶光源
+    shadow.position.set(4, 4);
+    // 整体稍微透明一点
+    shadow.alpha = 0.6; 
     
-    // A. 准备纹理
+    this.view.addChild(shadow);
+
+    // B. 空气拖尾特效 (Trail Effect)
+    this.trailTexture = this.generateTrailTexture();
+    this.trail = new PIXI.Sprite(this.trailTexture);
+    
+    this.trail.anchor.set(1, 0.5); 
+    this.trail.position.set(0, 0); 
+    this.trail.alpha = 0; 
+    this.trail.height = this.radius * 1.6; 
+    
+    this.view.addChild(this.trail);
+
+    // C. 足球本体 (Ball)
     const rawBallTex = ResourceManager.get('ball_texture'); 
     const rawOverlayTex = ResourceManager.get('ball_overlay');
 
     const texture = rawBallTex || this.generateProceduralPattern();
     const overlayTexture = rawOverlayTex || this.generateProceduralOverlay();
 
-    // B. 创建阴影 (在地上的影子)
-    const shadowTex = ResourceManager.get('shadow');
-    if (shadowTex) {
-        const shadow = new PIXI.Sprite(shadowTex);
-        shadow.anchor.set(0.5);
-        shadow.width = this.radius * 2.4;
-        shadow.height = this.radius * 2.4;
-        shadow.alpha = 0.4;
-        shadow.position.set(4, 4);
-        this.view.addChild(shadow);
-    } else {
-        const g = new PIXI.Graphics();
-        g.ellipse(0, 0, this.radius * 1.0, this.radius * 1.0);
-        g.fill({ color: 0x000000, alpha: 0.3 });
-        g.position.set(4, 4);
-        this.view.addChild(g);
-    }
-
-    // C. 创建滚动球体容器
     const ballContainer = new PIXI.Container();
     this.view.addChild(ballContainer);
 
-    // D. 遮罩 (Mask) - 把矩形的纹理切成圆形
     const mask = new PIXI.Graphics();
     mask.circle(0, 0, this.radius);
     mask.fill(0xffffff);
     ballContainer.addChild(mask);
     ballContainer.mask = mask;
 
-    // E. 滚动纹理 (TilingSprite)
-    // 纹理大小设为球体直径的 2 倍以上，保证平铺效果
-    // [优化] 针对高清贴图，大幅缩小纹理比例，确保球面上能看到完整的格子
     this.textureScale = 0.18; 
     
     this.ballTexture = new PIXI.TilingSprite({
@@ -82,13 +78,10 @@ export default class Ball {
     });
     this.ballTexture.anchor.set(0.5);
     this.ballTexture.tileScale.set(this.textureScale);
-    
-    // [优化] 将纹理稍微压暗一点 (0xdddddd)，这样白色的高光层(Overlay)才能显现出来，增加立体感
     this.ballTexture.tint = 0xdddddd; 
     
     ballContainer.addChild(this.ballTexture);
 
-    // F. 光影遮罩 (Overlay) - 永远盖在最上面
     const overlay = new PIXI.Sprite(overlayTexture);
     overlay.anchor.set(0.5);
     overlay.width = this.radius * 2;
@@ -97,14 +90,81 @@ export default class Ball {
   }
 
   /**
-   * 程序化生成足球表面纹理 (备用)
+   * 使用 Graphics 绘制多层同心圆来模拟柔和阴影
+   * 这种方法不依赖 Canvas API，在所有环境都能显示
    */
+  createShadowGraphics() {
+    const g = new PIXI.Graphics();
+    const r = this.radius;
+    
+    // 从外向内绘制，模拟渐变
+    // 阴影整体比球稍微大一点点 (1.3倍)
+    
+    // 第1层：最外圈，非常淡
+    g.circle(0, 0, r * 1.3);
+    g.fill({ color: 0x000000, alpha: 0.1 });
+
+    // 第2层
+    g.circle(0, 0, r * 1.1);
+    g.fill({ color: 0x000000, alpha: 0.1 });
+
+    // 第3层
+    g.circle(0, 0, r * 0.9);
+    g.fill({ color: 0x000000, alpha: 0.1 });
+
+    // 第4层：核心，较黑
+    g.circle(0, 0, r * 0.7);
+    g.fill({ color: 0x000000, alpha: 0.2 });
+    
+    // 第5层：最核心接触点
+    g.circle(0, 0, r * 0.5);
+    g.fill({ color: 0x000000, alpha: 0.2 });
+
+    return g;
+  }
+
+  generateTrailTexture() {
+    // 拖尾特效如果是 Web 环境依然用 Canvas，如果不行可以考虑后续换成 Graphics
+    // 这里为了保持特性先保留 Canvas 方式，如果拖尾也不显示请告知
+    if (typeof document !== 'undefined' && document.createElement) {
+        try {
+            const w = 256;
+            const h = 64;
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                const grad = ctx.createLinearGradient(0, 0, w, 0);
+                grad.addColorStop(0, 'rgba(255, 255, 255, 0)');     
+                grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)'); 
+                grad.addColorStop(1, 'rgba(255, 255, 255, 0.9)');   
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.moveTo(0, h/2); 
+                ctx.bezierCurveTo(w * 0.5, h * 0.1, w * 0.8, 0, w, 0);
+                ctx.lineTo(w, h);
+                ctx.bezierCurveTo(w * 0.8, h, w * 0.5, h * 0.9, 0, h/2);
+                ctx.fill();
+                return PIXI.Texture.from(canvas);
+            }
+        } catch (e) {
+            console.warn("Trail canvas generation failed", e);
+        }
+    }
+    return PIXI.Texture.WHITE; // 降级
+  }
+
   generateProceduralPattern() {
+    // 简易纹理降级处理：如果 Canvas 失败，返回白色
+    if (typeof document === 'undefined') return PIXI.Texture.WHITE;
     const size = 256;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return PIXI.Texture.WHITE;
+    
     ctx.fillStyle = '#eeeeee';
     ctx.fillRect(0, 0, size, size);
     ctx.fillStyle = '#222222';
@@ -126,20 +186,18 @@ export default class Ball {
     ctx.fill();
   }
 
-  /**
-   * 程序化生成光影遮罩
-   */
   generateProceduralOverlay() {
+    if (typeof document === 'undefined') return PIXI.Texture.EMPTY;
     const size = 128;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return PIXI.Texture.EMPTY;
+
     const cx = size / 2;
     const cy = size / 2;
     const r = size / 2;
-
-    // 1. 边缘阴影 (增强立体感)
     const shadowGrad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
     shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
     shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.1)');
@@ -148,49 +206,39 @@ export default class Ball {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
-
-    // 2. 顶部高光 (增强材质感)
-    const hlR = r * 0.7;
-    const hlX = cx - r * 0.2;
-    const hlY = cy - r * 0.2;
-    const hlGrad = ctx.createRadialGradient(hlX, hlY, 0, hlX, hlY, hlR);
-    hlGrad.addColorStop(0, 'rgba(255,255,255,0.9)'); // 强高光
-    hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = hlGrad;
-    ctx.beginPath();
-    ctx.arc(hlX, hlY, hlR, 0, Math.PI * 2);
-    ctx.fill();
-
     return PIXI.Texture.from(canvas);
   }
 
   update() {
     if (this.body && this.view) {
-      // 1. 同步位置
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
       
-      // 2. 同步旋转
       this.ballTexture.rotation = this.body.angle;
 
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
 
+      if (speed > 0.2) { 
+          const moveAngle = Math.atan2(velocity.y, velocity.x);
+          this.trail.rotation = moveAngle;
+          const maxLen = this.radius * 8; 
+          const lenFactor = 12.0; 
+          const targetWidth = Math.min(speed * lenFactor, maxLen);
+          this.trail.width = targetWidth;
+          this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
+          this.trail.visible = true;
+      } else {
+          this.trail.visible = false;
+      }
+
       if (speed > 0.01) {
-          // 3. 计算纹理滚动
           const angle = -this.body.angle; 
           const cos = Math.cos(angle);
           const sin = Math.sin(angle);
-
-          // 将世界坐标系速度 映射到 纹理局部坐标系
           const localVx = velocity.x * cos - velocity.y * sin;
           const localVy = velocity.x * sin + velocity.y * cos;
-
-          // 滚动系数
           const moveFactor = 0.5; 
-
-          // [修复] 使用 += 而不是 -=
-          // 因为球向前滚时，顶部的表面也是向前移动的，所以纹理偏移量应该增加
           this.ballTexture.tilePosition.x += localVx * moveFactor;
           this.ballTexture.tilePosition.y += localVy * moveFactor;
       }

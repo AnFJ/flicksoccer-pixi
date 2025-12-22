@@ -11,11 +11,10 @@ export default class Striker {
     this.radius = GameConfig.dimensions.strikerDiameter / 2;
     const thickness = GameConfig.visuals.strikerThickness;
 
-    // 准备刚体配置
     const bodyOptions = {
       frictionAir: GameConfig.physics.frictionAir,
       restitution: GameConfig.physics.restitution,
-      density: GameConfig.physics.strikerDensity, // [新增] 应用密度配置
+      density: GameConfig.physics.strikerDensity, 
       label: 'Striker',
       collisionFilter: {
         category: CollisionCategory.STRIKER,
@@ -23,7 +22,6 @@ export default class Striker {
       }
     };
 
-    // 如果配置了固定旋转，设置惯性为无穷大
     if (GameConfig.physics.strikerFixedRotation) {
       bodyOptions.inertia = Infinity; 
     }
@@ -35,59 +33,70 @@ export default class Striker {
     // 2. Pixi 视图
     this.view = new PIXI.Container();
     
-    // 尝试获取纹理
-    const textureKey = teamId === TeamId.LEFT ? 'striker_red' : 'striker_blue';
-    const texture = ResourceManager.get(textureKey);
-    const shadowTexture = ResourceManager.get('shadow');
-
-    // --- 绘制阴影 ---
-    if (shadowTexture) {
-        const shadow = new PIXI.Sprite(shadowTexture);
-        shadow.anchor.set(0.5);
-        shadow.width = this.radius * 2.4;
-        shadow.height = this.radius * 2.4;
-        shadow.position.set(5, 5); // 偏移
-        shadow.alpha = 0.5;
-        this.view.addChild(shadow);
-    } else {
-        // 降级阴影
-        const g = new PIXI.Graphics();
-        g.ellipse(0, thickness + 5, this.radius * 1.1, this.radius * 1.1);
-        g.fill({ color: 0x000000, alpha: 0.3 });
-        this.view.addChild(g);
-    }
+    // --- 绘制稳健的阴影 (Solid Shadow) ---
+    // 使用 Graphics 多层圆绘制，不依赖 Canvas 纹理生成
+    const shadow = this.createShadowGraphics();
+    shadow.position.set(4, 4); // 偏移
+    shadow.alpha = 0.5; 
+    
+    this.view.addChild(shadow);
 
     // --- 绘制本体 ---
+    const textureKey = teamId === TeamId.LEFT ? 'striker_red' : 'striker_blue';
+    const texture = ResourceManager.get(textureKey);
+
     if (texture) {
-        // 使用图片 Sprite
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
-        // 调整大小匹配物理半径
         sprite.width = this.radius * 2;
         sprite.height = this.radius * 2;
         this.view.addChild(sprite);
     } else {
-        // 降级：使用 Graphics 绘制 (原来的代码)
         const mainColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
         const sideColor = 0x95a5a6; 
         const starColor = 0xFFFFFF; 
 
         const graphics = new PIXI.Graphics();
-        // 侧壁
         graphics.circle(0, thickness, this.radius);
         graphics.fill(sideColor);
         graphics.arc(0, thickness, this.radius, 0.1, Math.PI - 0.1);
         graphics.stroke({ width: 2, color: 0xffffff, alpha: 0.3 });
-        // 顶面
         graphics.circle(0, 0, this.radius);
         graphics.fill(mainColor);
         graphics.circle(0, 0, this.radius - 2);
         graphics.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.3 });
-        // 星星
         this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
         
         this.view.addChild(graphics);
     }
+  }
+
+  /**
+   * 使用 Graphics 绘制多层同心圆来模拟柔和阴影
+   */
+  createShadowGraphics() {
+    const g = new PIXI.Graphics();
+    const r = this.radius;
+    
+    // 棋子比较扁平，阴影范围稍微收敛一点 (1.2倍)
+    
+    // Layer 1
+    g.circle(0, 0, r * 1.2);
+    g.fill({ color: 0x000000, alpha: 0.1 });
+
+    // Layer 2
+    g.circle(0, 0, r * 1.1);
+    g.fill({ color: 0x000000, alpha: 0.15 });
+
+    // Layer 3
+    g.circle(0, 0, r * 1.0);
+    g.fill({ color: 0x000000, alpha: 0.2 });
+
+    // Layer 4 (Core)
+    g.circle(0, 0, r * 0.9);
+    g.fill({ color: 0x000000, alpha: 0.3 });
+
+    return g;
   }
 
   drawStar(g, cx, cy, spikes, outerRadius, innerRadius, color) {
