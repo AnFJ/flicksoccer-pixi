@@ -7,8 +7,8 @@ export const GameConfig = {
   
   // 调试配置 (新增)
   debug: {
-    showGoalZones: true,    // 设为 true 可显示球门的物理墙(红)和感应区(黄)
-    showPhysicsWalls: true  // 设为 true 可显示球场边界物理墙(青色)
+    showGoalZones: false,    // 设为 true 可显示球门的物理墙(红)和感应区(黄)
+    showPhysicsWalls: false  // 设为 true 可显示球场边界物理墙(青色)
   },
   
   // 尺寸配置 (单位: px, 基于 1080p 高度)

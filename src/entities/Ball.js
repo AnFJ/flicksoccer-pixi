@@ -9,6 +9,7 @@ export default class Ball {
   constructor(x, y) {
     this.radius = GameConfig.dimensions.ballDiameter / 2;
     
+    // 1. 物理刚体
     this.body = Matter.Bodies.circle(x, y, this.radius, {
       frictionAir: GameConfig.physics.ballFrictionAir,
       restitution: GameConfig.physics.ballRestitution,
@@ -21,89 +22,159 @@ export default class Ball {
     });
     this.body.entity = this;
 
+    // 2. 视图容器
     this.view = new PIXI.Container();
     
-    const texture = ResourceManager.get('ball');
-    const shadowTexture = ResourceManager.get('shadow');
+    // --- 核心改动：使用 TilingSprite 实现 3D 滚动 ---
+    
+    // A. 准备纹理
+    const rawBallTex = ResourceManager.get('ball_texture'); 
+    const rawOverlayTex = ResourceManager.get('ball_overlay');
 
-    // --- 层级 A: 阴影 ---
-    if (shadowTexture) {
-        const shadow = new PIXI.Sprite(shadowTexture);
+    const texture = rawBallTex || this.generateProceduralPattern();
+    const overlayTexture = rawOverlayTex || this.generateProceduralOverlay();
+
+    // B. 创建阴影 (在地上的影子)
+    const shadowTex = ResourceManager.get('shadow');
+    if (shadowTex) {
+        const shadow = new PIXI.Sprite(shadowTex);
         shadow.anchor.set(0.5);
-        shadow.width = this.radius * 2.5;
-        shadow.height = this.radius * 2.5;
-        shadow.position.set(3, 3);
+        shadow.width = this.radius * 2.4;
+        shadow.height = this.radius * 2.4;
         shadow.alpha = 0.4;
+        shadow.position.set(4, 4);
         this.view.addChild(shadow);
     } else {
         const g = new PIXI.Graphics();
-        g.ellipse(0, 0, this.radius * 1.1, this.radius * 1.1);
+        g.ellipse(0, 0, this.radius * 1.0, this.radius * 1.0);
         g.fill({ color: 0x000000, alpha: 0.3 });
         g.position.set(4, 4);
         this.view.addChild(g);
     }
 
-    // --- 层级 B: 旋转容器 (球体) ---
-    this.rotateContainer = new PIXI.Container();
-    this.view.addChild(this.rotateContainer);
+    // C. 创建滚动球体容器
+    const ballContainer = new PIXI.Container();
+    this.view.addChild(ballContainer);
 
-    if (texture) {
-        // 使用图片
-        const sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5);
-        sprite.width = this.radius * 2;
-        sprite.height = this.radius * 2;
-        this.rotateContainer.addChild(sprite);
-        
-        // 如果用图片，通常不需要手动加高光(图片自带)，除非你想做动态光照
-    } else {
-        // 降级：绘制矢量图 (原逻辑)
-        const base = new PIXI.Graphics();
-        base.circle(0, 0, this.radius);
-        base.fill(0xFFFFFF);
-        base.stroke({ width: 1, color: 0xCCCCCC }); 
-        this.rotateContainer.addChild(base);
+    // D. 遮罩 (Mask) - 把矩形的纹理切成圆形
+    const mask = new PIXI.Graphics();
+    mask.circle(0, 0, this.radius);
+    mask.fill(0xffffff);
+    ballContainer.addChild(mask);
+    ballContainer.mask = mask;
 
-        const patterns = new PIXI.Graphics();
-        patterns.fill(0x222222);
-        this.drawPolygon(patterns, 0, 0, 5, this.radius * 0.45);
-        this.drawPolygon(patterns, this.radius * 0.7, this.radius * 0.7, 5, this.radius * 0.35);
-        this.drawPolygon(patterns, -this.radius * 0.7, -this.radius * 0.5, 5, this.radius * 0.35);
-        this.drawPolygon(patterns, 0, -this.radius * 0.8, 5, this.radius * 0.3);
-        this.rotateContainer.addChild(patterns);
+    // E. 滚动纹理 (TilingSprite)
+    // 纹理大小设为球体直径的 2 倍以上，保证平铺效果
+    // [优化] 针对高清贴图，大幅缩小纹理比例，确保球面上能看到完整的格子
+    this.textureScale = 0.25; 
+    
+    this.ballTexture = new PIXI.TilingSprite({
+        texture: texture,
+        width: this.radius * 4,
+        height: this.radius * 4
+    });
+    this.ballTexture.anchor.set(0.5);
+    this.ballTexture.tileScale.set(this.textureScale);
+    
+    // [优化] 将纹理稍微压暗一点 (0xdddddd)，这样白色的高光层(Overlay)才能显现出来，增加立体感
+    this.ballTexture.tint = 0xdddddd; 
+    
+    ballContainer.addChild(this.ballTexture);
 
-        // 高光层 (仅在矢量模式下添加，避免覆盖图片细节)
-        const highlight = new PIXI.Graphics();
-        highlight.ellipse(-this.radius * 0.35, -this.radius * 0.35, this.radius * 0.35, this.radius * 0.25);
-        highlight.fill({ color: 0xFFFFFF, alpha: 0.5 });
-        highlight.rotation = -Math.PI / 4;
-        this.view.addChild(highlight);
-        
-        // 内部阴影
-        const shading = new PIXI.Graphics();
-        shading.circle(0, 0, this.radius);
-        shading.fill({ color: 0xFFFFFF, alpha: 0.0 });
-        shading.stroke({ width: 4, color: 0x000000, alpha: 0.15, alignment: 1 });
-        this.view.addChild(shading);
-    }
+    // F. 光影遮罩 (Overlay) - 永远盖在最上面
+    const overlay = new PIXI.Sprite(overlayTexture);
+    overlay.anchor.set(0.5);
+    overlay.width = this.radius * 2;
+    overlay.height = this.radius * 2;
+    this.view.addChild(overlay);
   }
 
-  drawPolygon(g, x, y, sides, size) {
-    const path = [];
-    for (let i = 0; i < sides; i++) {
-        const angle = (i * (360 / sides)) * (Math.PI / 180);
-        path.push(x + Math.cos(angle) * size);
-        path.push(y + Math.sin(angle) * size);
+  /**
+   * 程序化生成足球表面纹理 (备用)
+   */
+  generateProceduralPattern() {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#eeeeee';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#222222';
+    this.drawHex(ctx, size/2, size/2, size/4);
+    this.drawHex(ctx, 0, 0, size/4);
+    this.drawHex(ctx, size, 0, size/4);
+    this.drawHex(ctx, 0, size, size/4);
+    this.drawHex(ctx, size, size, size/4);
+    return PIXI.Texture.from(canvas);
+  }
+
+  drawHex(ctx, x, y, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        ctx.lineTo(x + r * Math.cos(angle), y + r * Math.sin(angle));
     }
-    g.poly(path);
-    g.fill(0x222222);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /**
+   * 程序化生成光影遮罩
+   */
+  generateProceduralOverlay() {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 2;
+
+    // 1. 边缘阴影 (增强立体感)
+    const shadowGrad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.1)');
+    shadowGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. 顶部高光 (增强材质感)
+    const hlR = r * 0.7;
+    const hlX = cx - r * 0.2;
+    const hlY = cy - r * 0.2;
+    const hlGrad = ctx.createRadialGradient(hlX, hlY, 0, hlX, hlY, hlR);
+    hlGrad.addColorStop(0, 'rgba(255,255,255,0.9)'); // 强高光
+    hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hlGrad;
+    ctx.beginPath();
+    ctx.arc(hlX, hlY, hlR, 0, Math.PI * 2);
+    ctx.fill();
+
+    return PIXI.Texture.from(canvas);
   }
 
   update() {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
-      this.rotateContainer.rotation = this.body.angle;
+      
+      const velocity = this.body.velocity;
+      const speed = Matter.Vector.magnitude(velocity);
+
+      if (speed > 0.01) {
+          // [手感优化] 调整滚动速率，让视觉看起来不打滑
+          // 纹理缩放越小，这里需要的系数值应该适当调整
+          const moveFactor = 0.5; 
+
+          this.ballTexture.tilePosition.x -= velocity.x * moveFactor;
+          this.ballTexture.tilePosition.y -= velocity.y * moveFactor;
+          
+          this.ballTexture.rotation = this.body.angle;
+      }
     }
   }
 }
