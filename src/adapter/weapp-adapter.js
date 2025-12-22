@@ -6,7 +6,7 @@
  * 
  * 通常你可以从这类地址找到: https://github.com/finscn/weapp-adapter
  */
- 
+
 // 简单模拟，防止直接报错 (实际开发请务必替换)
 if (typeof window === 'undefined') {
     // @ts-ignore

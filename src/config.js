@@ -7,7 +7,7 @@ export const GameConfig = {
   // 尺寸配置 (单位: px, 基于 1080p 高度)
   dimensions: {
     topBarHeight: 100,      // 顶部栏高度
-    fieldWidth: 1824,       // 球场长度
+    fieldWidth: 1494,       // 球场长度
     fieldHeight: 926,       // 球场高度
     goalWidth: 107,         // 球门深度 (X轴方向)
     goalOpening: 301,       // 球门开口大小 (Y轴方向/宽度)
