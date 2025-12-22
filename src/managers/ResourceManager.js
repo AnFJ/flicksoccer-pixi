@@ -6,7 +6,12 @@ class ResourceManager {
     this.resources = {};
     // 定义资源清单
     this.manifest = {
-      grass: 'assets/images/grass_texture.png',
+      // 修改：引入新的球场素材
+      field_bg: 'assets/images/field_bg.jpg',
+      field_border: 'assets/images/field_border.png',
+      // 新增：全局背景草地 (注意是 png)
+      bg_grass: 'assets/images/grass_texture.png',
+      
       ball: 'assets/images/ball.png',
       striker_red: 'assets/images/striker_red.png',
       striker_blue: 'assets/images/striker_blue.png',
