@@ -9,8 +9,7 @@ export default class Ball {
   constructor(x, y) {
     this.radius = GameConfig.dimensions.ballDiameter / 2;
     
-    // 1. 物理刚体
-    this.body = Matter.Bodies.circle(x, y, this.radius, {
+    const bodyOptions = {
       frictionAir: GameConfig.physics.ballFrictionAir,
       restitution: GameConfig.physics.ballRestitution,
       density: GameConfig.physics.ballDensity,
@@ -19,7 +18,15 @@ export default class Ball {
         category: CollisionCategory.BALL,
         mask: CollisionCategory.WALL | CollisionCategory.STRIKER | CollisionCategory.GOAL
       }
-    });
+    };
+
+    // 如果配置了固定旋转，设置惯性为无穷大 (通常足球不需要开启这个，开启后物理旋转为0)
+    if (GameConfig.physics.ballFixedRotation) {
+      bodyOptions.inertia = Infinity;
+    }
+
+    // 1. 物理刚体
+    this.body = Matter.Bodies.circle(x, y, this.radius, bodyOptions);
     this.body.entity = this;
 
     // 2. 视图容器
@@ -66,7 +73,7 @@ export default class Ball {
     // E. 滚动纹理 (TilingSprite)
     // 纹理大小设为球体直径的 2 倍以上，保证平铺效果
     // [优化] 针对高清贴图，大幅缩小纹理比例，确保球面上能看到完整的格子
-    this.textureScale = 0.25; 
+    this.textureScale = 0.18; 
     
     this.ballTexture = new PIXI.TilingSprite({
         texture: texture,
@@ -159,21 +166,33 @@ export default class Ball {
 
   update() {
     if (this.body && this.view) {
+      // 1. 同步位置
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
       
+      // 2. 同步旋转
+      this.ballTexture.rotation = this.body.angle;
+
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
 
       if (speed > 0.01) {
-          // [手感优化] 调整滚动速率，让视觉看起来不打滑
-          // 纹理缩放越小，这里需要的系数值应该适当调整
+          // 3. 计算纹理滚动
+          const angle = -this.body.angle; 
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+
+          // 将世界坐标系速度 映射到 纹理局部坐标系
+          const localVx = velocity.x * cos - velocity.y * sin;
+          const localVy = velocity.x * sin + velocity.y * cos;
+
+          // 滚动系数
           const moveFactor = 0.5; 
 
-          this.ballTexture.tilePosition.x -= velocity.x * moveFactor;
-          this.ballTexture.tilePosition.y -= velocity.y * moveFactor;
-          
-          this.ballTexture.rotation = this.body.angle;
+          // [修复] 使用 += 而不是 -=
+          // 因为球向前滚时，顶部的表面也是向前移动的，所以纹理偏移量应该增加
+          this.ballTexture.tilePosition.x += localVx * moveFactor;
+          this.ballTexture.tilePosition.y += localVy * moveFactor;
       }
     }
   }

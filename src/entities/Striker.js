@@ -11,16 +11,25 @@ export default class Striker {
     this.radius = GameConfig.dimensions.strikerDiameter / 2;
     const thickness = GameConfig.visuals.strikerThickness;
 
-    // 1. 物理刚体
-    this.body = Matter.Bodies.circle(x, y, this.radius, {
+    // 准备刚体配置
+    const bodyOptions = {
       frictionAir: GameConfig.physics.frictionAir,
       restitution: GameConfig.physics.restitution,
+      density: GameConfig.physics.strikerDensity, // [新增] 应用密度配置
       label: 'Striker',
       collisionFilter: {
         category: CollisionCategory.STRIKER,
         mask: CollisionCategory.WALL | CollisionCategory.BALL | CollisionCategory.STRIKER
       }
-    });
+    };
+
+    // 如果配置了固定旋转，设置惯性为无穷大
+    if (GameConfig.physics.strikerFixedRotation) {
+      bodyOptions.inertia = Infinity; 
+    }
+
+    // 1. 物理刚体
+    this.body = Matter.Bodies.circle(x, y, this.radius, bodyOptions);
     this.body.entity = this;
 
     // 2. Pixi 视图

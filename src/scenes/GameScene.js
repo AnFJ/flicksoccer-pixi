@@ -140,7 +140,7 @@ export default class GameScene extends BaseScene {
     this.createFieldVisuals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
     
     // 2. 创建看不见的物理墙
-    this.createPhysicsWalls(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    this.createPhysicsWalls(fieldStartX, fieldStartY+5, dimensions.fieldWidth - 5, dimensions.fieldHeight - 12);
     
     // 3. 创建物理球门 (视觉已经在前景框里了)
     this.createGoals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
@@ -182,7 +182,7 @@ export default class GameScene extends BaseScene {
         borderSprite.height = h + visualHeightPadding;
 
         // 2. 宽度适配：
-        const visualWidthPadding = 40; // 左右边框连接处的公差
+        const visualWidthPadding = 20; // 左右边框连接处的公差
         const goalTotalDepth = GameConfig.dimensions.goalWidth * 2;
         borderSprite.width = w + goalTotalDepth + visualWidthPadding;
 

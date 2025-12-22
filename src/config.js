@@ -36,14 +36,21 @@ export const GameConfig = {
   physics: {
     gravity: { x: 0, y: 0 }, // 俯视视角无重力
     
+    // --- 旋转控制 (新增) ---
+    strikerFixedRotation: true, // 棋子是否锁定旋转 (true=不转, false=会转)。建议 true，保持头像直立。
+    ballFixedRotation: false,   // 足球是否锁定旋转 (true=不转, false=会转)。建议 false，更真实。
+
     // --- 棋子(Striker)物理参数 ---
-    frictionAir: 0.04,       // [阻尼] 棋子空气摩擦力 (数值越大减速越快，建议 0.01~0.05)
+    // [手感调整] 阻力从 0.04 降至 0.02。阻力越小，滑行越顺滑。配合力度减小，实现"慢速长距离"。
+    frictionAir: 0.016,       
     restitution: 0.8,        // [弹性] 棋子碰撞反弹系数 (0~1)
+    strikerDensity: 0.0007,   // [新增] 棋子密度。比足球(0.0025)重，撞击更有力。
     
     // --- 足球(Ball)物理参数 ---
-    ballFrictionAir: 0.02,  // [阻尼] 足球空气摩擦力 (通常比棋子滑得稍微远一点，所以数值稍小)
+    // [手感调整] 阻力从 0.02 降至 0.01。
+    ballFrictionAir: 0.01,  
     ballRestitution: 0.9,    // [弹性] 足球更弹
-    ballDensity: 0.0025,      // [密度] 决定质量，质量越小越容易被撞飞
+    ballDensity: 0.0028,      // [密度] 决定质量，质量越小越容易被撞飞
 
     wallThickness: 100       // 墙壁厚度
   },
@@ -54,7 +61,9 @@ export const GameConfig = {
     
     // --- 瞄准力度参数 ---
     maxDragDistance: 80,    // [力度上限] 瞄准条拉长的最大像素距离
-    forceMultiplier: 0.011,   // [力度系数] 像素距离转换为物理力的倍率 (如果你觉得球踢不动，把这个调大，比如 0.025 或 0.03)
+    // [手感调整] 力度系数从 0.011 降至 0.0055。
+    // 因为阻力减半了，所以初速度减半也能滑到同样的距离。
+    forceMultiplier: 0.0040,   
     
     turnTimeLimit: 30        // 每回合秒数 (可选)
   },
