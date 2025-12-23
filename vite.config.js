@@ -88,9 +88,25 @@ export default defineConfig(({ mode }) => {
             } catch (err) {
               console.error('[Vite] Failed to copy assets:', err);
             }
-          } else {
-            console.warn(`[Vite] Assets folder not found at ${srcAssets}, skipping copy.`);
           }
+
+          // 2. 复制小游戏核心配置文件
+          const configFiles = [
+            'game.json',
+            'project.config.json',
+            'tt-project.config.json'
+          ];
+
+          configFiles.forEach(file => {
+             const srcFile = path.resolve(__dirname, file);
+             const destFile = path.resolve(__dirname, outDir, file);
+             if (fs.existsSync(srcFile)) {
+                 fs.copyFileSync(srcFile, destFile);
+                 console.log(`[Vite] Copied ${file}`);
+             }
+          });
+          
+          console.log('[Vite] Build & Copy complete. Please open the "dist" folder in WeChat DevTools.');
         }
       }
     ]

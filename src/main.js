@@ -1,3 +1,7 @@
+
+import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
+// import './adapter/weapp-adapter.js';// 2. 加载适配器 (模拟 window/document)
+import './libs/weapp-adapter/index.js' 
 import * as PIXI from 'pixi.js';
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
