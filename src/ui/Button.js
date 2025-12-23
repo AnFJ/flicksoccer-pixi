@@ -1,3 +1,4 @@
+
 import * as PIXI from 'pixi.js';
 
 export default class Button extends PIXI.Container {
@@ -32,21 +33,18 @@ export default class Button extends PIXI.Container {
     this.addChild(this.bg);
 
     // 文字
-    this.label = new PIXI.Text({
-      text: text,
-      style: {
-        fontFamily: 'Arial',
-        fontSize: 32,
-        fill: 0xFFFFFF,
-        align: 'center'
-      }
+    this.label = new PIXI.Text(text, { // v7 构造函数参数顺序略有不同，但 Text(text, style) 兼容
+      fontFamily: 'Arial',
+      fontSize: 32,
+      fill: 0xFFFFFF,
+      align: 'center'
     });
     this.label.anchor.set(0.5);
     this.label.position.set(width / 2, height / 2);
     this.addChild(this.label);
 
     // 交互
-    this.eventMode = 'static';
+    this.eventMode = 'static'; // v7.2+ 支持 eventMode，兼容 v8
     this.cursor = 'pointer';
 
     this.on('pointerdown', () => this.onPress());
@@ -56,8 +54,10 @@ export default class Button extends PIXI.Container {
 
   drawBg(color) {
     this.bg.clear();
-    this.bg.roundRect(0, 0, this.options.width, this.options.height, 20);
-    this.bg.fill(color);
+    // Pixi v7 API: beginFill -> drawRoundedRect -> endFill
+    this.bg.beginFill(color);
+    this.bg.drawRoundedRect(0, 0, this.options.width, this.options.height, 20);
+    this.bg.endFill();
   }
 
   onPress() {

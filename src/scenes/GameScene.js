@@ -23,7 +23,7 @@ export default class GameScene extends BaseScene {
     this.physics = new PhysicsEngine();
     this.rules = null;
     this.ai = null;
-    this.gameMode = 'pve'; // 默认为 PVE
+    this.gameMode = 'pve'; 
     
     this.strikers = [];
     this.ball = null;
@@ -50,22 +50,20 @@ export default class GameScene extends BaseScene {
     this.overLayer = new PIXI.Container(); // 前景 (球筐、边框)
     this.uiLayer = new PIXI.Container();   // UI
     
-    // 按顺序添加到主容器，确保覆盖关系正确
     this.container.addChild(this.bgLayer);
     this.container.addChild(this.gameLayer);
     this.container.addChild(this.overLayer);
     this.container.addChild(this.uiLayer);
   }
 
-  // 修改：接收 params
   async onEnter(params = {}) {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
     
-    const loadingText = new PIXI.Text({ text: 'Loading Assets...', style: { fill: 0xffffff, fontSize: 30 }});
+    const loadingText = new PIXI.Text('Loading Assets...', { fill: 0xffffff, fontSize: 30 }); // v7 style
     loadingText.anchor.set(0.5);
     loadingText.position.set(GameConfig.designWidth/2, GameConfig.designHeight/2);
-    this.uiLayer.addChild(loadingText); // 加载字放到 UI 层
+    this.uiLayer.addChild(loadingText);
 
     await ResourceManager.loadAll();
     
@@ -79,7 +77,6 @@ export default class GameScene extends BaseScene {
     this.physics.init();
     this.rules = new GameRules(this.physics);
     
-    // 修改：只有 PVE 模式才初始化 AI
     if (this.gameMode === 'pve') {
         this.ai = new AIController(this.physics, TeamId.LEFT); 
     } else {
@@ -100,29 +97,23 @@ export default class GameScene extends BaseScene {
   createLayout() {
     const { designWidth, designHeight, dimensions } = GameConfig;
     
-    // --- 1. 全局背景填充 (桌面/草地) ---
-    // 这会在最底层渲染，填满整个屏幕黑色区域
     const globalBgTexture = ResourceManager.get('bg_grass');
     if (globalBgTexture) {
-        const globalBg = new PIXI.TilingSprite({
-            texture: globalBgTexture,
-            width: designWidth,
-            height: designHeight
-        });
-        // 适当缩放纹理，避免看起来像低像素
+        const globalBg = new PIXI.TilingSprite(
+            globalBgTexture,
+            designWidth,
+            designHeight
+        );
         globalBg.tileScale.set(0.5); 
-        // 稍微压暗一点，变成深色背景，突出中间明亮的球场
         globalBg.tint = 0x666666; 
         this.bgLayer.addChild(globalBg);
     } else {
-        // 降级：深色背景
         const globalBg = new PIXI.Graphics();
-        globalBg.rect(0, 0, designWidth, designHeight);
-        globalBg.fill(0x1a1a1a);
+        globalBg.beginFill(0x1a1a1a);
+        globalBg.drawRect(0, 0, designWidth, designHeight);
+        globalBg.endFill();
         this.bgLayer.addChild(globalBg);
     }
-
-    // 注意：移除了旧的全屏黑色 topBarBg，让草地背景更通透
 
     const remainingHeight = designHeight - dimensions.topBarHeight;
     const marginY = (remainingHeight - dimensions.fieldHeight) / 2;
@@ -136,13 +127,8 @@ export default class GameScene extends BaseScene {
         h: dimensions.fieldHeight 
     };
 
-    // 1. 创建视觉 (背景图 + 前景框)
     this.createFieldVisuals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
-    
-    // 2. 创建看不见的物理墙
     this.createPhysicsWalls(fieldStartX, fieldStartY+5, dimensions.fieldWidth - 5, dimensions.fieldHeight - 12);
-    
-    // 3. 创建物理球门 (视觉已经在前景框里了)
     this.createGoals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
   }
 
@@ -150,43 +136,34 @@ export default class GameScene extends BaseScene {
     const centerX = x + w / 2;
     const centerY = y + h / 2;
 
-    // --- A. 背景层：球场草地 (field_bg) ---
     const bgTexture = ResourceManager.get('field_bg');
     if (bgTexture) {
         const bgSprite = new PIXI.Sprite(bgTexture);
         bgSprite.anchor.set(0.5);
-        // 背景严格匹配球场物理尺寸
         bgSprite.width = w;
         bgSprite.height = h;
         bgSprite.position.set(centerX, centerY);
         this.bgLayer.addChild(bgSprite);
     } else {
-        // 降级：纯色草地
         const ground = new PIXI.Graphics();
-        ground.rect(x, y, w, h);
-        ground.fill(0x27ae60);
+        ground.beginFill(0x27ae60);
+        ground.drawRect(x, y, w, h);
+        ground.endFill();
         this.bgLayer.addChild(ground);
     }
 
-    // --- B. 前景层：边框和球筐 (field_border) ---
-    // 这个层级在 GameLayer 之上，所以球进去会被挡住
     const borderTexture = ResourceManager.get('field_border');
     if (borderTexture) {
         const borderSprite = new PIXI.Sprite(borderTexture);
         borderSprite.anchor.set(0.5);
         
-        // --- 核心修改：强制适配尺寸 ---
-        
-        // 1. 高度适配：
         const visualHeightPadding = 20; 
         borderSprite.height = h + visualHeightPadding;
 
-        // 2. 宽度适配：
-        const visualWidthPadding = 20; // 左右边框连接处的公差
+        const visualWidthPadding = 20;
         const goalTotalDepth = GameConfig.dimensions.goalWidth * 2;
         borderSprite.width = w + goalTotalDepth + visualWidthPadding;
 
-        // 居中放置，因为 anchor 是 0.5
         borderSprite.position.set(centerX, centerY);
         
         this.overLayer.addChild(borderSprite);
@@ -196,7 +173,6 @@ export default class GameScene extends BaseScene {
   }
 
   createPhysicsWalls(x, y, w, h) {
-    // 物理墙保持不变，负责反弹
     const t = GameConfig.dimensions.wallThickness; 
     const centerX = x + w / 2;
     const centerY = y + h / 2;
@@ -219,30 +195,29 @@ export default class GameScene extends BaseScene {
     });
     this.physics.add(walls);
 
-    // --- 新增 Debug 绘制逻辑：显示物理墙边界 ---
+    // Pixi v7 Debug Drawing
     if (GameConfig.debug && GameConfig.debug.showPhysicsWalls) {
         const debugG = new PIXI.Graphics();
         
+        // 设置样式 (v7 style)
+        debugG.lineStyle(2, 0x00FFFF);
+        debugG.beginFill(0x00FFFF, 0.3);
+
         walls.forEach(body => {
             const v = body.vertices;
-            // 绘制多边形
             debugG.moveTo(v[0].x, v[0].y);
             for (let i = 1; i < v.length; i++) {
                 debugG.lineTo(v[i].x, v[i].y);
             }
-            debugG.lineTo(v[0].x, v[0].y); // 闭合路径
+            debugG.lineTo(v[0].x, v[0].y);
         });
 
-        // 青色 (Cyan) 表示边界墙
-        debugG.stroke({ width: 2, color: 0x00FFFF });
-        debugG.fill({ color: 0x00FFFF, alpha: 0.3 });
-        
+        debugG.endFill();
         this.gameLayer.addChild(debugG);
     }
   }
 
   createGoals(x, y, w, h) {
-    // 创建物理球门
     const { goalWidth, goalOpening } = GameConfig.dimensions;
     const centerY = y + h / 2;
 
@@ -254,7 +229,6 @@ export default class GameScene extends BaseScene {
     this.physics.add(goalLeft.body);
     this.physics.add(goalRight.body);
 
-    // 修改：如果开启了 debug 模式，Goal 会生成 view (红黄块)，将其添加到场景中方便调试
     if (goalLeft.view) this.gameLayer.addChild(goalLeft.view);
     if (goalRight.view) this.gameLayer.addChild(goalRight.view);
   }
@@ -315,78 +289,63 @@ export default class GameScene extends BaseScene {
   createUI() {
     const { designWidth, dimensions } = GameConfig;
     
-    // --- 顶部计分板容器 (HUD) ---
-    // 高度占据 topBarHeight，垂直居中
     const hudContainer = new PIXI.Container();
-    const hudY = 20; // 距离顶部留一点空隙
+    const hudY = 20; 
     hudContainer.position.set(designWidth / 2, hudY);
     this.uiLayer.addChild(hudContainer);
 
-    // 1. 计分板背景 (胶囊形状)
-    const boardW = 600; // 宽度足够容纳两个头像和比分
+    // 1. 计分板背景 (v7 API)
+    const boardW = 600; 
     const boardH = 120;
     const hudBg = new PIXI.Graphics();
-    // 半透明黑底
-    hudBg.roundRect(-boardW / 2, 0, boardW, boardH, 20);
-    hudBg.fill({ color: 0x000000, alpha: 0.6 });
-    // 淡淡的白边
-    hudBg.stroke({ width: 2, color: 0xffffff, alpha: 0.2 });
+    hudBg.beginFill(0x000000, 0.6);
+    hudBg.lineStyle(2, 0xffffff, 0.2);
+    hudBg.drawRoundedRect(-boardW / 2, 0, boardW, boardH, 20);
+    hudBg.endFill();
     hudContainer.addChild(hudBg);
 
-    // 2. 比分文本 (正中心)
-    this.scoreText = new PIXI.Text({
-        text: '0 : 0',
-        style: { 
-            fontFamily: 'Arial', 
-            fontSize: 60, 
-            fill: 0xffffff, 
-            fontWeight: 'bold',
-            dropShadow: true,
-            dropShadowColor: '#000000',
-            dropShadowBlur: 4,
-            dropShadowDistance: 2
-        }
+    // 2. 比分文本
+    this.scoreText = new PIXI.Text('0 : 0', {
+        fontFamily: 'Arial', 
+        fontSize: 60, 
+        fill: 0xffffff, 
+        fontWeight: 'bold',
+        dropShadow: true,
+        dropShadowColor: '#000000',
+        dropShadowBlur: 4,
+        dropShadowDistance: 2
     });
     this.scoreText.anchor.set(0.5);
-    this.scoreText.position.set(0, boardH * 0.4); // 稍微偏上
+    this.scoreText.position.set(0, boardH * 0.4); 
     hudContainer.addChild(this.scoreText);
 
-    // 3. 回合提示文本 (比分下方)
-    this.turnText = new PIXI.Text({
-        text: '等待开球...',
-        style: { 
-            fontFamily: 'Arial', 
-            fontSize: 22, 
-            fill: 0xcccccc 
-        }
+    // 3. 回合文本
+    this.turnText = new PIXI.Text('等待开球...', {
+        fontFamily: 'Arial', 
+        fontSize: 22, 
+        fill: 0xcccccc 
     });
     this.turnText.anchor.set(0.5);
     this.turnText.position.set(0, boardH * 0.8);
     hudContainer.addChild(this.turnText);
 
-    // 4. 玩家头像 (在比分板内部，分别位于左右两侧)
-    // 距离中心的偏移量
     const avatarOffset = 220; 
     const avatarY = boardH / 2;
 
-    // 修改：根据模式显示名字
     const leftName = this.gameMode === 'pve' ? "AI Player" : "Player 2";
     
-    // 左侧玩家 (AI / Red)
     this.createAvatar(hudContainer, -avatarOffset, avatarY, TeamId.LEFT, leftName);
-    
-    // 右侧玩家 (Player / Blue)
     this.createAvatar(hudContainer, avatarOffset, avatarY, TeamId.RIGHT, "Player 1");
 
-    // 瞄准线 (UI Layer)
     this.uiLayer.addChild(this.aimGraphics);
 
-    // 退出按钮 (右下角，保持不变)
+    // 退出按钮 (v7 API)
     const exitBtn = new PIXI.Container();
     const btnBg = new PIXI.Graphics();
-    btnBg.roundRect(0, 0, 100, 40, 10);
-    btnBg.fill(0x7f8c8d);
-    const btnText = new PIXI.Text({ text: '退出', style: { fontSize: 20, fill: 0xffffff }});
+    btnBg.beginFill(0x7f8c8d);
+    btnBg.drawRoundedRect(0, 0, 100, 40, 10);
+    btnBg.endFill();
+    const btnText = new PIXI.Text('退出', { fontSize: 20, fill: 0xffffff });
     btnText.anchor.set(0.5);
     btnText.position.set(50, 20);
     exitBtn.addChild(btnBg, btnText);
@@ -397,48 +356,35 @@ export default class GameScene extends BaseScene {
     this.uiLayer.addChild(exitBtn);
   }
 
-  /**
-   * 创建头像组件
-   * @param {PIXI.Container} parent 父容器
-   * @param {number} x 相对父容器 X
-   * @param {number} y 相对父容器 Y
-   * @param {number} teamId 队伍
-   * @param {string} name 名字
-   */
   createAvatar(parent, x, y, teamId, name) {
       const isLeft = teamId === TeamId.LEFT;
       const container = new PIXI.Container();
       container.position.set(x, y);
       
-      // 头像圈
       const radius = 35;
-      const bg = new PIXI.Graphics();
-      bg.circle(0, 0, radius);
-      bg.fill(0x333333);
-      // 边框颜色区分队伍
       const teamColor = isLeft ? 0xe74c3c : 0x3498db;
-      bg.stroke({ width: 3, color: teamColor });
 
-      // 简单的内图标 (首字母)
-      const letter = new PIXI.Text({
-          text: name.charAt(0),
-          style: { fontSize: 30, fill: teamColor, fontWeight: 'bold' }
+      // v7 API
+      const bg = new PIXI.Graphics();
+      bg.lineStyle(3, teamColor);
+      bg.beginFill(0x333333);
+      bg.drawCircle(0, 0, radius);
+      bg.endFill();
+
+      const letter = new PIXI.Text(name.charAt(0), {
+          fontSize: 30, fill: teamColor, fontWeight: 'bold' 
       });
       letter.anchor.set(0.5);
       
-      // 名字文本 (放在头像下方，居中)
-      const nameText = new PIXI.Text({
-          text: name,
-          style: { fontSize: 18, fill: 0xaaaaaa }
+      const nameText = new PIXI.Text(name, {
+          fontSize: 18, fill: 0xaaaaaa 
       });
-      nameText.anchor.set(0.5, 0); // 顶部居中
-      nameText.position.set(0, radius + 5); // 头像下方 5px
+      nameText.anchor.set(0.5, 0); 
+      nameText.position.set(0, radius + 5); 
 
       container.addChild(bg, letter, nameText);
       parent.addChild(container); 
   }
-
-  // ... (setupEvents, setupInteraction 等逻辑保持不变) ...
 
   setupEvents() {
     EventBus.on(Events.GOAL_SCORED, (data) => {
@@ -470,7 +416,6 @@ export default class GameScene extends BaseScene {
   onPointerDown(e) {
     if (this.isMoving || this.isGameOver || this.isLoading) return;
     
-    // 修改：仅在有 AI 且当前是 AI 回合时阻止操作
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
     const local = this.container.toLocal(e.global);
@@ -528,6 +473,7 @@ export default class GameScene extends BaseScene {
     const visualEndX = startX - cos * displayDist;
     const visualEndY = startY - sin * displayDist;
 
+    // 先画虚线
     this.drawDashedLine(this.aimGraphics, startX, startY, visualEndX, visualEndY, 10, 5);
 
     const arrowLen = displayDist * 3; 
@@ -539,24 +485,32 @@ export default class GameScene extends BaseScene {
     const endColor = GameConfig.visuals.aimLineColorEnd;     
     const color = powerRatio > 0.8 ? endColor : startColor;
 
+    // Pixi v7 API: 设置线样式
+    this.aimGraphics.lineStyle(6, color);
     this.aimGraphics.moveTo(startX, startY);
     this.aimGraphics.lineTo(arrowEndX, arrowEndY);
-    this.aimGraphics.stroke({ width: 6, color: color });
+    // lineStyle 不需要 close
 
+    // 箭头头部
     const headLen = 20;
-    this.aimGraphics.poly([
+    this.aimGraphics.lineStyle(0); // 清除描边
+    this.aimGraphics.beginFill(color);
+    this.aimGraphics.drawPolygon([
         arrowEndX, arrowEndY,
         arrowEndX - headLen * Math.cos(angle - Math.PI/6), arrowEndY - headLen * Math.sin(angle - Math.PI/6),
         arrowEndX - headLen * Math.cos(angle + Math.PI/6), arrowEndY - headLen * Math.sin(angle + Math.PI/6)
     ]);
-    this.aimGraphics.fill(color);
+    this.aimGraphics.endFill();
 
-    this.aimGraphics.circle(startX, startY, 60);
-    this.aimGraphics.stroke({ width: 4, color: 0xffffff, alpha: 0.3 + powerRatio * 0.7 });
+    // 底部圆圈
+    this.aimGraphics.lineStyle(4, 0xffffff, 0.3 + powerRatio * 0.7);
+    this.aimGraphics.beginFill(0x000000, 0); // 空填充
+    this.aimGraphics.drawCircle(startX, startY, 60);
+    this.aimGraphics.endFill();
     
     if (rawDist >= maxDist) {
-        this.aimGraphics.circle(startX, startY, 65);
-        this.aimGraphics.stroke({ width: 2, color: 0xFF0000, alpha: 0.8 });
+        this.aimGraphics.lineStyle(2, 0xFF0000, 0.8);
+        this.aimGraphics.drawCircle(startX, startY, 65);
     }
   }
 
@@ -570,6 +524,9 @@ export default class GameScene extends BaseScene {
     
     let currDist = 0;
     
+    // Pixi v7 API
+    g.lineStyle(2, GameConfig.visuals.dashedLineColor, 0.6);
+
     while (currDist < dist) {
         const nextDist = Math.min(currDist + dashLen, dist);
         
@@ -578,7 +535,6 @@ export default class GameScene extends BaseScene {
         
         currDist = nextDist + gapLen;
     }
-    g.stroke({ width: 2, color: GameConfig.visuals.dashedLineColor, alpha: 0.6 });
   }
 
   onPointerUp(e) {
@@ -653,7 +609,6 @@ export default class GameScene extends BaseScene {
     if (this.turnText) {
         const isLeft = this.currentTurn === TeamId.LEFT;
         
-        // 修改：更新文本显示逻辑，支持本地双人
         let str = "";
         if (isLeft) {
             str = this.gameMode === 'pve' ? "红方回合 (AI)" : "红方回合 (Player 2)";

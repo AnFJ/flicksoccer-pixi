@@ -15,17 +15,18 @@ export default class MenuScene extends BaseScene {
     const user = AccountMgr.userInfo;
 
     const bg = new PIXI.Graphics();
-    bg.rect(0, 0, designWidth, designHeight);
-    bg.fill(0x2c3e50);
+    // Pixi v7 API
+    bg.beginFill(0x2c3e50);
+    bg.drawRect(0, 0, designWidth, designHeight);
+    bg.endFill();
     this.container.addChild(bg);
 
     // 用户信息 (顶部右侧)
     this.createUserInfo(user, designWidth);
 
     // 标题
-    const title = new PIXI.Text({
-        text: '弹指足球',
-        style: { fontFamily: 'Arial', fontSize: 100, fill: 0xFFD700, stroke: { color: 0xffffff, width: 4 } }
+    const title = new PIXI.Text('弹指足球', {
+        fontFamily: 'Arial', fontSize: 100, fill: 0xFFD700, stroke: 0xffffff, strokeThickness: 4 
     });
     title.anchor.set(0.5);
     title.position.set(designWidth / 4, designHeight / 2);
@@ -61,10 +62,10 @@ export default class MenuScene extends BaseScene {
   createUserInfo(user, width) {
     const infoContainer = new PIXI.Container();
     
-    const nameText = new PIXI.Text({
-        text: `${user.nickname} | 💰 ${user.coins}`,
-        style: { fontFamily: 'Arial', fontSize: 30, fill: 0xffffff }
-    });
+    const nameText = new PIXI.Text(
+        `${user.nickname} | 💰 ${user.coins}`,
+        { fontFamily: 'Arial', fontSize: 30, fill: 0xffffff }
+    );
     nameText.anchor.set(1, 0.5);
     nameText.position.set(width - 40, 40);
 

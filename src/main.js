@@ -1,5 +1,4 @@
 
-
 import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
 // import './libs/weapp-adapter/index.js' // 优化：H5不需要此适配器；小程序由入口文件 game.js 负责加载，此处移除以兼容 H5。
 import * as PIXI from 'pixi.js';
@@ -8,7 +7,8 @@ import GameScene from './scenes/GameScene.js';
 import LoginScene from './scenes/LoginScene.js';
 import { GameConfig } from './config.js';
 
-const app = new PIXI.Application();
+// 移除 v8 的 new Application() 空构造
+// const app = new PIXI.Application(); 
 
 async function initGame() {
   try {
@@ -19,40 +19,46 @@ async function initGame() {
       // @ts-ignore
       canvasTarget = window.canvas || canvas;
     } else {
-      canvasTarget = undefined;
+      canvasTarget = undefined; // Web 端让 Pixi 自己创建 Canvas
     }
 
-    // 初始化 Pixi 应用
-    // 使用配置中的设计分辨率 2400 x 1080
-    await app.init({
-      canvas: canvasTarget, 
+    // 初始化 Pixi 应用 (v7 写法：直接在构造函数传参)
+    // 颜色使用 backgroundColor (v7) 而不是 background (v8)
+    const app = new PIXI.Application({
+      view: canvasTarget, // v7 使用 view 属性接收 canvas
       width: GameConfig.designWidth,
       height: GameConfig.designHeight,
-      background: '#1a1a1a',
+      backgroundColor: 0x1a1a1a, // v7 属性名
       resolution: window.devicePixelRatio || 2,
       autoDensity: true,
       antialias: true
     });
 
+    // 将 app 挂载到全局方便调试（可选）
+    // @ts-ignore
+    globalThis.__PIXI_APP__ = app;
+
     if (!isMiniGame) {
-      document.body.appendChild(app.canvas);
-      resizeWebCanvas();
-      window.addEventListener('resize', resizeWebCanvas);
+      document.body.appendChild(app.view); // v7 使用 app.view
+      resizeWebCanvas(app);
+      window.addEventListener('resize', () => resizeWebCanvas(app));
     } else {
-      // 小游戏环境通常由 adapter 处理缩放，
-      // 但如果需要手动干预，可以在这里基于 wx.getSystemInfoSync() 进行缩放
+      // 小游戏环境适配逻辑
     }
 
     SceneManager.init(app);
 
-    app.ticker.add((ticker) => {
-      SceneManager.update(ticker.deltaTime);
+    app.ticker.add((delta) => {
+      // v7 ticker 回调参数通常是 frame delta (1 左右)，需要根据需求转换
+      // 这里的 delta 只是帧数倍率，SceneManager.update 需要具体的 ms 还是帧率取决于实现
+      // 这里直接传 ticker.deltaMS 会更精确，或者保持原样
+      SceneManager.update(app.ticker.deltaMS);
     });
 
     // 默认进入登录场景
     await SceneManager.changeScene(LoginScene);
     
-    console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'})`);
+    console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'}, Pixi v${PIXI.VERSION})`);
 
   } catch (err) {
     console.error('Game Init Failed:', err);
@@ -61,31 +67,19 @@ async function initGame() {
 
 /**
  * H5 端的 Canvas 适配逻辑
- * 策略：Fit Height (高度适配)
- * 无论屏幕宽高比如何，优先填满屏幕高度，宽度按比例缩放。
- * 如果屏幕比设计稿更宽，左右会看到更多内容（或黑边，取决于容器）。
- * 如果屏幕比设计稿更窄，两边会被裁切（但我们已经把核心 UI 居中，应该没问题）。
  */
-function resizeWebCanvas() {
-  const canvas = app.canvas;
+function resizeWebCanvas(app) {
+  const canvas = app.view; // v7 使用 view
   if (!canvas) return;
 
   const wWidth = window.innerWidth;
   const wHeight = window.innerHeight;
 
-  // 计算缩放比例：屏幕高度 / 设计稿高度 (1080)
+  // Fit Height 策略
   const scale = wHeight / GameConfig.designHeight;
   
-  // 设置 Canvas 的 CSS 尺寸
-  // 宽度按比例计算，高度填满屏幕
   canvas.style.width = `${GameConfig.designWidth * scale}px`;
   canvas.style.height = `${wHeight}px`; 
-  
-  // 居中显示
-  // canvas.style.position = 'absolute';
-  // canvas.style.left = '50%';
-  // canvas.style.top = '50%';
-  // canvas.style.transform = 'translate(-50%, -50%)';
 }
 
 initGame();

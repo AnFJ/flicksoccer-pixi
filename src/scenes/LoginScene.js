@@ -14,16 +14,15 @@ export default class LoginScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
 
     const bg = new PIXI.Graphics();
-    bg.rect(0, 0, designWidth, designHeight);
-    bg.fill(0x1a2b3c);
+    // Pixi v7 API
+    bg.beginFill(0x1a2b3c);
+    bg.drawRect(0, 0, designWidth, designHeight);
+    bg.endFill();
     this.container.addChild(bg);
 
-    const title = new PIXI.Text({
-        text: '弹指足球',
-        style: {
-            fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: 0xFFD700,
-            stroke: { color: '#FFFFFF', width: 6 }, dropShadow: true, dropShadowDistance: 6
-        }
+    const title = new PIXI.Text('弹指足球', { // v7 写法建议分开
+        fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: 0xFFD700,
+        stroke: '#FFFFFF', strokeThickness: 6, dropShadow: true, dropShadowDistance: 6
     });
     title.anchor.set(0.5);
     title.position.set(designWidth / 2, designHeight * 0.4);

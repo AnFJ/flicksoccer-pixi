@@ -64,18 +64,20 @@ export default class Ball {
     this.view.addChild(ballContainer);
 
     const mask = new PIXI.Graphics();
-    mask.circle(0, 0, this.radius);
-    mask.fill(0xffffff);
+    // Pixi v7 API
+    mask.beginFill(0xffffff);
+    mask.drawCircle(0, 0, this.radius);
+    mask.endFill();
     ballContainer.addChild(mask);
     ballContainer.mask = mask;
 
     this.textureScale = 0.18; 
     
-    this.ballTexture = new PIXI.TilingSprite({
-        texture: texture,
-        width: this.radius * 4,
-        height: this.radius * 4
-    });
+    this.ballTexture = new PIXI.TilingSprite(
+        texture,
+        this.radius * 4,
+        this.radius * 4
+    );
     this.ballTexture.anchor.set(0.5);
     this.ballTexture.tileScale.set(this.textureScale);
     this.ballTexture.tint = 0xdddddd; 
@@ -91,7 +93,6 @@ export default class Ball {
 
   /**
    * 使用 Graphics 绘制高密度同心圆来模拟完美的柔和阴影
-   * 通过叠加 30 层极淡的圆，消除原本的 "同心圆波纹" 现象
    */
   createShadowGraphics() {
     const g = new PIXI.Graphics();
@@ -109,24 +110,28 @@ export default class Ball {
         
         if (currentR <= 0) break;
 
-        g.circle(0, 0, currentR);
-        g.fill({ color: 0x000000, alpha: alphaPerStep });
+        // Pixi v7 API
+        g.beginFill(0x000000, alphaPerStep);
+        g.drawCircle(0, 0, currentR);
+        g.endFill();
     }
 
-    // 核心区域额外加深一点点，模拟接触阴影 (Contact Shadow)
-    g.circle(0, 0, r * 0.8);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+    // 核心区域额外加深一点点
+    g.beginFill(0x000000, 0.1);
+    g.drawCircle(0, 0, r * 0.8);
+    g.endFill();
 
     return g;
   }
 
   generateTrailTexture() {
+    // 纯 Canvas API，无需更改 Pixi 逻辑，但在 Web Adapter 环境下需注意兼容
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const w = 256;
             const h = 64;
             const canvas = document.createElement('canvas');
-            // 简单的兼容性检查，防止在 adapter 占位符环境下报错
+            // 简单的兼容性检查
             if (!canvas.getContext) return PIXI.Texture.WHITE;
             
             canvas.width = w;

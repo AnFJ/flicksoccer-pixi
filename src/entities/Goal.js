@@ -72,14 +72,8 @@ export default class Goal {
     let sideWallX;
 
     if (isLeft) {
-        // 左门 (x是中心): GoalLine 在右侧 (x + w/2)
-        // 我们需要右边缘向左缩进，左边缘(网底)不变
-        // 中心点 = 原中心 - 缩进量的一半
         sideWallX = x - netRetractX / 2;
     } else {
-        // 右门 (x是中心): GoalLine 在左侧 (x - w/2)
-        // 我们需要左边缘向右缩进，右边缘(网底)不变
-        // 中心点 = 原中心 + 缩进量的一半
         sideWallX = x + netRetractX / 2;
     }
 
@@ -93,7 +87,7 @@ export default class Goal {
     const bottomWall = Matter.Bodies.rectangle(sideWallX, bottomWallY, sideWallW, wallThick, wallOptions);
     Matter.Composite.add(this.body, bottomWall);
     
-    // 后墙 (Back) - 位置不变，高度增加以衔接扩宽后的上下墙
+    // 后墙 (Back) - 位置不变
     const visualOverlap = 2; 
     let backWallX;
     if (isLeft) {
@@ -124,30 +118,32 @@ export default class Goal {
     
     Matter.Composite.add(this.body, [post1, post2]);
 
-    // --- D. 调试视图 ---
+    // --- D. 调试视图 (适配 Pixi v7) ---
     this.view = null;
     if (GameConfig.debug && GameConfig.debug.showGoalZones) {
         this.view = new PIXI.Container();
         
         // 1. 绘制感应区 (半透明黄色)
         const g = new PIXI.Graphics();
-        g.rect(x - (w*0.8)/2, y - (h*0.8)/2, w*0.8, h*0.8);
-        g.fill({ color: 0xFFFF00, alpha: 0.4 });
+        g.beginFill(0xFFFF00, 0.4);
+        g.drawRect(x - (w*0.8)/2, y - (h*0.8)/2, w*0.8, h*0.8);
+        g.endFill();
         
-        // 2. 绘制网兜墙壁 (半透明红色) - 更新为缩进后的尺寸
+        // 2. 绘制网兜墙壁 (半透明红色)
+        g.beginFill(0xFF0000, 0.3);
         // 上墙
-        g.rect(sideWallX - sideWallW/2, topWallY - wallThick/2, sideWallW, wallThick);
+        g.drawRect(sideWallX - sideWallW/2, topWallY - wallThick/2, sideWallW, wallThick);
         // 下墙
-        g.rect(sideWallX - sideWallW/2, bottomWallY - wallThick/2, sideWallW, wallThick);
+        g.drawRect(sideWallX - sideWallW/2, bottomWallY - wallThick/2, sideWallW, wallThick);
         // 后墙
-        g.rect(backWallX - wallThick/2, y - backWallH/2, wallThick, backWallH);
-        
-        g.fill({ color: 0xFF0000, alpha: 0.3 });
+        g.drawRect(backWallX - wallThick/2, y - backWallH/2, wallThick, backWallH);
+        g.endFill();
         
         // 3. 门柱 (白色)
-        g.circle(openX, y - h/2, postRadius);
-        g.circle(openX, y + h/2, postRadius);
-        g.fill(0xFFFFFF);
+        g.beginFill(0xFFFFFF);
+        g.drawCircle(openX, y - h/2, postRadius);
+        g.drawCircle(openX, y + h/2, postRadius);
+        g.endFill();
 
         this.view.addChild(g);
     }

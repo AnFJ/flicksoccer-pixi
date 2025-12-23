@@ -34,7 +34,6 @@ export default class Striker {
     this.view = new PIXI.Container();
     
     // --- 绘制高质量柔滑阴影 ---
-    // 使用高密度 Graphics 叠加
     const shadow = this.createShadowGraphics();
     shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5); 
     shadow.alpha = 0.8; 
@@ -57,14 +56,28 @@ export default class Striker {
         const starColor = 0xFFFFFF; 
 
         const graphics = new PIXI.Graphics();
-        graphics.circle(0, thickness, this.radius);
-        graphics.fill(sideColor);
+        
+        // Pixi v7 API
+        // 侧面
+        graphics.beginFill(sideColor);
+        graphics.drawCircle(0, thickness, this.radius);
+        graphics.endFill();
+        
+        // 侧面高光
+        graphics.lineStyle(2, 0xffffff, 0.3);
         graphics.arc(0, thickness, this.radius, 0.1, Math.PI - 0.1);
-        graphics.stroke({ width: 2, color: 0xffffff, alpha: 0.3 });
-        graphics.circle(0, 0, this.radius);
-        graphics.fill(mainColor);
-        graphics.circle(0, 0, this.radius - 2);
-        graphics.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.3 });
+        
+        // 顶面
+        graphics.lineStyle(0); // 清除描边
+        graphics.beginFill(mainColor);
+        graphics.drawCircle(0, 0, this.radius);
+        graphics.endFill();
+        
+        // 内圈装饰
+        graphics.lineStyle(3, 0xFFFFFF, 0.3);
+        graphics.drawCircle(0, 0, this.radius - 2);
+        graphics.endFill(); // lineStyle 不需要 endFill 但为了闭合状态
+
         this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
         
         this.view.addChild(graphics);
@@ -72,16 +85,15 @@ export default class Striker {
   }
 
   /**
-   * 使用 30 层同心圆叠加，消除波纹感
+   * 使用 30 层同心圆叠加
    */
   createShadowGraphics() {
     const g = new PIXI.Graphics();
     const r = this.radius;
     
-    // 棋子比较扁平，阴影扩散范围适中
     const steps = 30;
     const maxR = r * 1.1; 
-    const alphaPerStep = 0.05; // 每一层很淡，叠加起来就黑了，且边缘非常柔和
+    const alphaPerStep = 0.05;
 
     for (let i = 0; i < steps; i++) {
         const ratio = i / steps; 
@@ -89,13 +101,16 @@ export default class Striker {
         
         if (currentR <= 0) break;
 
-        g.circle(0, 0, currentR);
-        g.fill({ color: 0x000000, alpha: alphaPerStep });
+        // Pixi v7 API
+        g.beginFill(0x000000, alphaPerStep);
+        g.drawCircle(0, 0, currentR);
+        g.endFill();
     }
 
-    // 棋子底部的接触阴影
-    g.circle(0, 0, r * 0.9);
-    g.fill({ color: 0x000000, alpha: 0.1 });
+    // 底部接触阴影
+    g.beginFill(0x000000, 0.1);
+    g.drawCircle(0, 0, r * 0.9);
+    g.endFill();
 
     return g;
   }
@@ -106,24 +121,27 @@ export default class Striker {
     let y = cy;
     let step = Math.PI / spikes;
 
-    g.beginPath();
+    // Pixi v7 API
+    g.lineStyle(2, 0x000000, 0.2);
+    g.beginFill(color);
+    
+    // v7 无法直接 poly(flatArray) 后 fill, 需要 moveTo/lineTo 构建路径，或者 use drawPolygon
+    // 这里使用 moveTo/lineTo 手动构建
     g.moveTo(cx, cy - outerRadius);
     
-    const path = [];
     for (let i = 0; i < spikes; i++) {
         x = cx + Math.cos(rot) * outerRadius;
         y = cy + Math.sin(rot) * outerRadius;
-        path.push(x, y);
+        g.lineTo(x, y);
         rot += step;
 
         x = cx + Math.cos(rot) * innerRadius;
         y = cy + Math.sin(rot) * innerRadius;
-        path.push(x, y);
+        g.lineTo(x, y);
         rot += step;
     }
-    g.poly(path);
-    g.fill(color);
-    g.stroke({ width: 2, color: 0x000000, alpha: 0.2 });
+    g.lineTo(cx, cy - outerRadius); // Close loop
+    g.endFill();
   }
 
   update() {
