@@ -1,7 +1,7 @@
 
+
 import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
-// import './adapter/weapp-adapter.js';// 2. 加载适配器 (模拟 window/document)
-import './libs/weapp-adapter/index.js' 
+// import './libs/weapp-adapter/index.js' // 优化：H5不需要此适配器；小程序由入口文件 game.js 负责加载，此处移除以兼容 H5。
 import * as PIXI from 'pixi.js';
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
