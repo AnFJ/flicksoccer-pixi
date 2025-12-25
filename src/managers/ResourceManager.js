@@ -7,7 +7,7 @@ class ResourceManager {
     // 定义资源清单
     this.manifest = {
       // 修改：引入新的球场素材
-      field_bg: 'assets/images/field_bg.jpg',
+      field_bg: 'assets/images/field_bg.png',
       field_border: 'assets/images/field_border.png',
       // 新增：全局背景草地 (注意是 png)
       bg_grass: 'assets/images/grass_texture.png',
@@ -26,27 +26,39 @@ class ResourceManager {
   }
 
   /**
-   * 加载所有必要资源
+   * 加载所有必要资源 (适配 PixiJS v6 Loader)
    */
-  async loadAll() {
-    const promises = [];
-    
-    for (const [key, url] of Object.entries(this.manifest)) {
-      // 使用 PIXI.Assets 加载
-      // 添加一个错误捕获，如果图片不存在，不影响游戏运行
-      const p = PIXI.Assets.load(url)
-        .then(texture => {
-          this.resources[key] = texture;
-          console.log(`[Resource] Loaded: ${key}`);
-        })
-        .catch(err => {
-          console.warn(`[Resource] Failed to load ${key} (${url}), using fallback graphics.`);
-          this.resources[key] = null;
-        });
-      promises.push(p);
-    }
+  loadAll() {
+    return new Promise((resolve, reject) => {
+      const loader = PIXI.Loader.shared;
+      
+      // 防止重复添加导致报错
+      for (const [key, url] of Object.entries(this.manifest)) {
+        if (!loader.resources[key]) {
+            loader.add(key, url);
+        }
+      }
 
-    await Promise.all(promises);
+      loader.load((loader, resources) => {
+        // 将加载好的资源映射到 this.resources
+        for (const [key, resource] of Object.entries(resources)) {
+          // v6 中 resource.texture 是纹理对象
+          if (resource.texture) {
+            this.resources[key] = resource.texture;
+            console.log(`[Resource] Loaded: ${key}`);
+          } else if (resource.error) {
+            console.warn(`[Resource] Failed to load ${key}, using fallback.`);
+            this.resources[key] = null;
+          }
+        }
+        resolve();
+      });
+
+      loader.onError.add((err) => {
+        console.error('[Resource] Loader Error:', err);
+        // 不reject，允许部分资源缺失继续运行
+      });
+    });
   }
 
   /**

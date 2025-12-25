@@ -60,7 +60,7 @@ export default class GameScene extends BaseScene {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
     
-    const loadingText = new PIXI.Text('Loading Assets...', { fill: 0xffffff, fontSize: 30 }); // v7 style
+    const loadingText = new PIXI.Text('Loading Assets...', { fill: 0xffffff, fontSize: 30 }); 
     loadingText.anchor.set(0.5);
     loadingText.position.set(GameConfig.designWidth/2, GameConfig.designHeight/2);
     this.uiLayer.addChild(loadingText);
@@ -195,11 +195,9 @@ export default class GameScene extends BaseScene {
     });
     this.physics.add(walls);
 
-    // Pixi v7 Debug Drawing
     if (GameConfig.debug && GameConfig.debug.showPhysicsWalls) {
         const debugG = new PIXI.Graphics();
         
-        // 设置样式 (v7 style)
         debugG.lineStyle(2, 0x00FFFF);
         debugG.beginFill(0x00FFFF, 0.3);
 
@@ -294,7 +292,7 @@ export default class GameScene extends BaseScene {
     hudContainer.position.set(designWidth / 2, hudY);
     this.uiLayer.addChild(hudContainer);
 
-    // 1. 计分板背景 (v7 API)
+    // 1. 计分板背景
     const boardW = 600; 
     const boardH = 120;
     const hudBg = new PIXI.Graphics();
@@ -339,7 +337,7 @@ export default class GameScene extends BaseScene {
 
     this.uiLayer.addChild(this.aimGraphics);
 
-    // 退出按钮 (v7 API)
+    // 退出按钮 (手动创建的按钮，需要单独适配 v6)
     const exitBtn = new PIXI.Container();
     const btnBg = new PIXI.Graphics();
     btnBg.beginFill(0x7f8c8d);
@@ -350,8 +348,11 @@ export default class GameScene extends BaseScene {
     btnText.position.set(50, 20);
     exitBtn.addChild(btnBg, btnText);
     exitBtn.position.set(designWidth - 120, GameConfig.designHeight - 60);
-    exitBtn.eventMode = 'static';
-    exitBtn.cursor = 'pointer';
+    
+    // v6 交互适配
+    exitBtn.interactive = true; // 替换 eventMode = 'static'
+    exitBtn.buttonMode = true;  // 替换 cursor = 'pointer'
+    
     exitBtn.on('pointerdown', () => SceneManager.changeScene(MenuScene));
     this.uiLayer.addChild(exitBtn);
   }
@@ -364,7 +365,6 @@ export default class GameScene extends BaseScene {
       const radius = 35;
       const teamColor = isLeft ? 0xe74c3c : 0x3498db;
 
-      // v7 API
       const bg = new PIXI.Graphics();
       bg.lineStyle(3, teamColor);
       bg.beginFill(0x333333);
@@ -406,7 +406,9 @@ export default class GameScene extends BaseScene {
   }
 
   setupInteraction() {
-    this.container.eventMode = 'static'; 
+    this.container.interactive = true; // v6: 开启交互，替换 eventMode
+    // v6 不需要设置 cursor 来接收事件，但如果是背景通常不设 buttonMode
+    
     this.container.on('pointerdown', this.onPointerDown.bind(this));
     this.container.on('pointermove', this.onPointerMove.bind(this));
     this.container.on('pointerup', this.onPointerUp.bind(this));
@@ -418,7 +420,7 @@ export default class GameScene extends BaseScene {
     
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
-    const local = this.container.toLocal(e.global);
+    const local = this.container.toLocal(e.data.global); // v6: e.data.global
     const bodies = this.physics.queryPoint(local.x, local.y);
 
     if (bodies.length > 0) {
@@ -440,7 +442,7 @@ export default class GameScene extends BaseScene {
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
 
-    const local = this.container.toLocal(e.global);
+    const local = this.container.toLocal(e.data.global); // v6: e.data.global
     this.currentPointerPos = { x: local.x, y: local.y };
     
     this.drawAimingLine();
@@ -485,11 +487,9 @@ export default class GameScene extends BaseScene {
     const endColor = GameConfig.visuals.aimLineColorEnd;     
     const color = powerRatio > 0.8 ? endColor : startColor;
 
-    // Pixi v7 API: 设置线样式
     this.aimGraphics.lineStyle(6, color);
     this.aimGraphics.moveTo(startX, startY);
     this.aimGraphics.lineTo(arrowEndX, arrowEndY);
-    // lineStyle 不需要 close
 
     // 箭头头部
     const headLen = 20;
@@ -524,7 +524,6 @@ export default class GameScene extends BaseScene {
     
     let currDist = 0;
     
-    // Pixi v7 API
     g.lineStyle(2, GameConfig.visuals.dashedLineColor, 0.6);
 
     while (currDist < dist) {
@@ -539,7 +538,7 @@ export default class GameScene extends BaseScene {
 
   onPointerUp(e) {
     if (this.isDragging && this.selectedBody) {
-      const local = this.container.toLocal(e.global);
+      const local = this.container.toLocal(e.data.global); // v6: e.data.global
       
       const dx = this.dragStartPos.x - local.x;
       const dy = this.dragStartPos.y - local.y;

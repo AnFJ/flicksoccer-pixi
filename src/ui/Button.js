@@ -33,7 +33,7 @@ export default class Button extends PIXI.Container {
     this.addChild(this.bg);
 
     // 文字
-    this.label = new PIXI.Text(text, { // v7 构造函数参数顺序略有不同，但 Text(text, style) 兼容
+    this.label = new PIXI.Text(text, { 
       fontFamily: 'Arial',
       fontSize: 32,
       fill: 0xFFFFFF,
@@ -43,10 +43,11 @@ export default class Button extends PIXI.Container {
     this.label.position.set(width / 2, height / 2);
     this.addChild(this.label);
 
-    // 交互
-    this.eventMode = 'static'; // v7.2+ 支持 eventMode，兼容 v8
-    this.cursor = 'pointer';
+    // 交互 (适配 Pixi v6)
+    this.interactive = true; // v6 开启交互
+    this.buttonMode = true;  // v6 鼠标悬停变手型
 
+    // v6 依然支持 pointerdown 等事件
     this.on('pointerdown', () => this.onPress());
     this.on('pointerup', () => this.onRelease());
     this.on('pointerupoutside', () => this.onRelease(false));
@@ -54,7 +55,6 @@ export default class Button extends PIXI.Container {
 
   drawBg(color) {
     this.bg.clear();
-    // Pixi v7 API: beginFill -> drawRoundedRect -> endFill
     this.bg.beginFill(color);
     this.bg.drawRoundedRect(0, 0, this.options.width, this.options.height, 20);
     this.bg.endFill();
