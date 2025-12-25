@@ -55,7 +55,8 @@ export default class Ball {
 
     // C. 足球本体 (Ball)
     const rawBallTex = ResourceManager.get('ball_texture'); 
-    const rawOverlayTex = ResourceManager.get('ball_overlay');
+    // const rawOverlayTex = ResourceManager.get('ball_overlay');
+    const rawOverlayTex = null;
 
     const texture = rawBallTex || this.generateProceduralPattern();
     const overlayTexture = rawOverlayTex || this.generateProceduralOverlay();

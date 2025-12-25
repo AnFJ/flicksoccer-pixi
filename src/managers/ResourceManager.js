@@ -16,12 +16,11 @@ class ResourceManager {
       // ball_texture: 你生成的无缝平铺纹理
       ball_texture: 'assets/images/ball_texture.png', 
       // ball_overlay: 可选的光影遮罩 (如果没有这张图，Ball.js 会自动用代码生成一个)
-      ball_overlay: 'assets/images/ball_overlay.png',
+      // ball_overlay: 'assets/images/ball_overlay.png',
       
       ball: 'assets/images/ball.png', // 旧的备用
       striker_red: 'assets/images/striker_red.png',
-      striker_blue: 'assets/images/striker_blue.png',
-      shadow: 'assets/images/shadow.png'
+      striker_blue: 'assets/images/striker_blue.png'
     };
   }
 

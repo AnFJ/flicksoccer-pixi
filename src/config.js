@@ -4,6 +4,8 @@ export const GameConfig = {
   // 屏幕参考尺寸 (横屏设计稿 1080*2400)
   designWidth: 2400,
   designHeight: 1080,
+  // designWidth: 1440,
+  // designHeight: 720,
   
   // 调试配置 (新增)
   debug: {
