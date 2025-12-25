@@ -3,7 +3,7 @@ import * as PIXI from 'pixi.js';
 import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
-import Platform from '../managers/Platform.js'; // 导入 Platform
+import Platform from '../managers/Platform.js'; 
 import MenuScene from './MenuScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
@@ -14,13 +14,12 @@ export default class LoginScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
 
     const bg = new PIXI.Graphics();
-    // Pixi v7 API
     bg.beginFill(0x1a2b3c);
     bg.drawRect(0, 0, designWidth, designHeight);
     bg.endFill();
     this.container.addChild(bg);
 
-    const title = new PIXI.Text('弹指足球', { // v7 写法建议分开
+    const title = new PIXI.Text('弹指足球', { 
         fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: 0xFFD700,
         stroke: '#FFFFFF', strokeThickness: 6, dropShadow: true, dropShadowDistance: 6
     });

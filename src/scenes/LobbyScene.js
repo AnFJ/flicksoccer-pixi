@@ -12,7 +12,6 @@ export default class LobbyScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
 
     const bg = new PIXI.Graphics();
-    // Pixi v7 API
     bg.beginFill(0x2c3e50);
     bg.drawRect(0, 0, designWidth, designHeight);
     bg.endFill();

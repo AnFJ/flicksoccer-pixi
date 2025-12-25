@@ -57,7 +57,6 @@ export default class Striker {
 
         const graphics = new PIXI.Graphics();
         
-        // Pixi v7 API
         // 侧面
         graphics.beginFill(sideColor);
         graphics.drawCircle(0, thickness, this.radius);
@@ -76,7 +75,7 @@ export default class Striker {
         // 内圈装饰
         graphics.lineStyle(3, 0xFFFFFF, 0.3);
         graphics.drawCircle(0, 0, this.radius - 2);
-        graphics.endFill(); // lineStyle 不需要 endFill 但为了闭合状态
+        graphics.endFill(); 
 
         this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
         
@@ -101,7 +100,6 @@ export default class Striker {
         
         if (currentR <= 0) break;
 
-        // Pixi v7 API
         g.beginFill(0x000000, alphaPerStep);
         g.drawCircle(0, 0, currentR);
         g.endFill();
@@ -121,12 +119,10 @@ export default class Striker {
     let y = cy;
     let step = Math.PI / spikes;
 
-    // Pixi v7 API
     g.lineStyle(2, 0x000000, 0.2);
     g.beginFill(color);
     
-    // v7 无法直接 poly(flatArray) 后 fill, 需要 moveTo/lineTo 构建路径，或者 use drawPolygon
-    // 这里使用 moveTo/lineTo 手动构建
+    // 手动构建五角星路径
     g.moveTo(cx, cy - outerRadius);
     
     for (let i = 0; i < spikes; i++) {

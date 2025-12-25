@@ -63,8 +63,8 @@ export default class Ball {
     const ballContainer = new PIXI.Container();
     this.view.addChild(ballContainer);
 
+    // 创建遮罩
     const mask = new PIXI.Graphics();
-    // Pixi v7 API
     mask.beginFill(0xffffff);
     mask.drawCircle(0, 0, this.radius);
     mask.endFill();
@@ -73,6 +73,7 @@ export default class Ball {
 
     this.textureScale = 0.18; 
     
+    // v6 TilingSprite 构造: (texture, width, height)
     this.ballTexture = new PIXI.TilingSprite(
         texture,
         this.radius * 4,
@@ -110,7 +111,6 @@ export default class Ball {
         
         if (currentR <= 0) break;
 
-        // Pixi v7 API
         g.beginFill(0x000000, alphaPerStep);
         g.drawCircle(0, 0, currentR);
         g.endFill();
@@ -125,13 +125,11 @@ export default class Ball {
   }
 
   generateTrailTexture() {
-    // 纯 Canvas API，无需更改 Pixi 逻辑，但在 Web Adapter 环境下需注意兼容
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const w = 256;
             const h = 64;
             const canvas = document.createElement('canvas');
-            // 简单的兼容性检查
             if (!canvas.getContext) return PIXI.Texture.WHITE;
             
             canvas.width = w;

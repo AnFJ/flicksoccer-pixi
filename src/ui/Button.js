@@ -43,11 +43,10 @@ export default class Button extends PIXI.Container {
     this.label.position.set(width / 2, height / 2);
     this.addChild(this.label);
 
-    // 交互 (适配 Pixi v6)
-    this.interactive = true; // v6 开启交互
-    this.buttonMode = true;  // v6 鼠标悬停变手型
+    // 交互设置 (Pixi v6 标准)
+    this.interactive = true; 
+    this.buttonMode = true;  // 鼠标悬停显示手型
 
-    // v6 依然支持 pointerdown 等事件
     this.on('pointerdown', () => this.onPress());
     this.on('pointerup', () => this.onRelease());
     this.on('pointerupoutside', () => this.onRelease(false));

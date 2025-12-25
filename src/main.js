@@ -1,14 +1,11 @@
 
 import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
-// import './libs/weapp-adapter/index.js' // 优化：H5不需要此适配器；小程序由入口文件 game.js 负责加载，此处移除以兼容 H5。
+// import './libs/weapp-adapter/index.js' // H5不需要此适配器；小程序由入口文件 game.js 负责加载。
 import * as PIXI from 'pixi.js';
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
 import LoginScene from './scenes/LoginScene.js';
 import { GameConfig } from './config.js';
-
-// 移除 v8 的 new Application() 空构造
-// const app = new PIXI.Application(); 
 
 async function initGame() {
   try {
@@ -22,36 +19,34 @@ async function initGame() {
       canvasTarget = undefined; // Web 端让 Pixi 自己创建 Canvas
     }
 
-    // 初始化 Pixi 应用 (v7 写法：直接在构造函数传参)
-    // 颜色使用 backgroundColor (v7) 而不是 background (v8)
+    // 初始化 Pixi 应用 (v6.5.10 标准写法)
     const app = new PIXI.Application({
-      view: canvasTarget, // v7 使用 view 属性接收 canvas
+      view: canvasTarget, // 指定 canvas 元素
       width: GameConfig.designWidth,
       height: GameConfig.designHeight,
-      backgroundColor: 0x1a1a1a, // v7 属性名
+      backgroundColor: 0x1a1a1a, // 背景色
       resolution: window.devicePixelRatio || 2,
-      autoDensity: true,
+      autoDensity: true, // CSS 像素校正
       antialias: true
     });
 
-    // 将 app 挂载到全局方便调试（可选）
+    // 将 app 挂载到全局方便调试
     // @ts-ignore
-    globalThis.__PIXI_APP__ = app;
+    if (typeof globalThis !== 'undefined') {
+        globalThis.__PIXI_APP__ = app;
+    }
 
-    if (!isMiniGame) {
-      document.body.appendChild(app.view); // v7 使用 app.view
+    if (!isMiniGame && document.body) {
+      document.body.appendChild(app.view);
       resizeWebCanvas(app);
       window.addEventListener('resize', () => resizeWebCanvas(app));
-    } else {
-      // 小游戏环境适配逻辑
     }
 
     SceneManager.init(app);
 
     app.ticker.add((delta) => {
-      // v7 ticker 回调参数通常是 frame delta (1 左右)，需要根据需求转换
-      // 这里的 delta 只是帧数倍率，SceneManager.update 需要具体的 ms 还是帧率取决于实现
-      // 这里直接传 ticker.deltaMS 会更精确，或者保持原样
+      // v6 ticker 回调参数 delta 是帧率系数 (frame-dependent)
+      // 使用 app.ticker.deltaMS 获取两帧之间的毫秒数，更适合物理计算
       SceneManager.update(app.ticker.deltaMS);
     });
 
@@ -69,13 +64,13 @@ async function initGame() {
  * H5 端的 Canvas 适配逻辑
  */
 function resizeWebCanvas(app) {
-  const canvas = app.view; // v7 使用 view
+  const canvas = app.view;
   if (!canvas) return;
 
   const wWidth = window.innerWidth;
   const wHeight = window.innerHeight;
 
-  // Fit Height 策略
+  // Fit Height 策略：保持高度充满，宽度按比例缩放
   const scale = wHeight / GameConfig.designHeight;
   
   canvas.style.width = `${GameConfig.designWidth * scale}px`;

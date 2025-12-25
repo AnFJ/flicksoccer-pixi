@@ -337,7 +337,7 @@ export default class GameScene extends BaseScene {
 
     this.uiLayer.addChild(this.aimGraphics);
 
-    // 退出按钮 (手动创建的按钮，需要单独适配 v6)
+    // 退出按钮
     const exitBtn = new PIXI.Container();
     const btnBg = new PIXI.Graphics();
     btnBg.beginFill(0x7f8c8d);
@@ -349,9 +349,9 @@ export default class GameScene extends BaseScene {
     exitBtn.addChild(btnBg, btnText);
     exitBtn.position.set(designWidth - 120, GameConfig.designHeight - 60);
     
-    // v6 交互适配
-    exitBtn.interactive = true; // 替换 eventMode = 'static'
-    exitBtn.buttonMode = true;  // 替换 cursor = 'pointer'
+    // Pixi v6 交互属性
+    exitBtn.interactive = true; 
+    exitBtn.buttonMode = true;
     
     exitBtn.on('pointerdown', () => SceneManager.changeScene(MenuScene));
     this.uiLayer.addChild(exitBtn);
@@ -406,8 +406,7 @@ export default class GameScene extends BaseScene {
   }
 
   setupInteraction() {
-    this.container.interactive = true; // v6: 开启交互，替换 eventMode
-    // v6 不需要设置 cursor 来接收事件，但如果是背景通常不设 buttonMode
+    this.container.interactive = true; 
     
     this.container.on('pointerdown', this.onPointerDown.bind(this));
     this.container.on('pointermove', this.onPointerMove.bind(this));
@@ -420,7 +419,8 @@ export default class GameScene extends BaseScene {
     
     if (this.ai && this.currentTurn === this.ai.teamId) return;
 
-    const local = this.container.toLocal(e.data.global); // v6: e.data.global
+    // v6 中 e.data.global 返回 Point，toLocal 参数也是 Point
+    const local = this.container.toLocal(e.data.global); 
     const bodies = this.physics.queryPoint(local.x, local.y);
 
     if (bodies.length > 0) {
@@ -442,7 +442,7 @@ export default class GameScene extends BaseScene {
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
 
-    const local = this.container.toLocal(e.data.global); // v6: e.data.global
+    const local = this.container.toLocal(e.data.global); 
     this.currentPointerPos = { x: local.x, y: local.y };
     
     this.drawAimingLine();
@@ -538,7 +538,7 @@ export default class GameScene extends BaseScene {
 
   onPointerUp(e) {
     if (this.isDragging && this.selectedBody) {
-      const local = this.container.toLocal(e.data.global); // v6: e.data.global
+      const local = this.container.toLocal(e.data.global); 
       
       const dx = this.dragStartPos.x - local.x;
       const dy = this.dragStartPos.y - local.y;
