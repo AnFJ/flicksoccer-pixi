@@ -65,7 +65,7 @@ export default defineConfig(({ mode }) => {
       },
       // 使用 esbuild 压缩
       minify: 'esbuild',
-      sourcemap: false
+      sourcemap: true
     },
     resolve: {
       alias: {
