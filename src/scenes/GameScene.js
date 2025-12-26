@@ -20,6 +20,8 @@ import { TeamId, CollisionCategory, Events } from '../constants.js';
 import AdBoard from '../ui/AdBoard.js';
 import GameMenuButton from '../ui/GameMenuButton.js';
 import GameHUD from '../ui/GameHUD.js';
+// 新增：引入进球条幅
+import GoalBanner from '../ui/GoalBanner.js';
 // 修复报错：引入 MenuScene
 import MenuScene from './MenuScene.js';
 
@@ -61,8 +63,13 @@ export default class GameScene extends BaseScene {
     
     // HUD 组件引用
     this.hud = null;
+    this.goalBanner = null; // 进球条幅引用
     
     this.isLoading = true;
+    
+    // --- 移位动画队列 ---
+    // 结构: { body, start: {x,y}, end: {x,y}, time: 0, duration: 500 }
+    this.repositionAnimations = [];
 
     // --- 定义分层容器 ---
     this.bgLayer = new PIXI.Container();   // 背景 (草地)
@@ -311,6 +318,10 @@ export default class GameScene extends BaseScene {
     this.hud = new GameHUD(this.gameMode);
     this.uiLayer.addChild(this.hud);
 
+    // 新增：创建进球条幅，添加到 HUD 之上
+    this.goalBanner = new GoalBanner();
+    this.uiLayer.addChild(this.goalBanner);
+
     const menuBtn = new GameMenuButton(this.app, this.uiLayer);
     this.uiLayer.addChild(menuBtn);
 
@@ -322,6 +333,11 @@ export default class GameScene extends BaseScene {
         AudioManager.playSFX('goal');
         if (this.hud) {
             this.hud.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
+        }
+        
+        // 播放进球动画
+        if (this.goalBanner) {
+            this.goalBanner.play();
         }
         
         Platform.vibrateShort();
@@ -350,13 +366,17 @@ export default class GameScene extends BaseScene {
     this.container.on('pointerupoutside', this.onPointerUp.bind(this));
   }
 
-  // ... (onPointerDown, onPointerMove, drawAimingLine, drawDashedLine, onPointerUp, resetDrag 保持不变，为了节省篇幅略去未改动部分) ...
+  // ... (onPointerDown, onPointerMove, drawAimingLine, drawDashedLine, onPointerUp, resetDrag 保持不变) ...
   onPointerDown(e) {
     const global = e.data.global;
     const local = this.container.toLocal(global); 
     const pointerId = e.id; 
 
     if (this.isMoving || this.isGameOver || this.isLoading) {
+        return;
+    }
+    
+    if (this.repositionAnimations.length > 0) {
         return;
     }
     
@@ -443,108 +463,83 @@ export default class GameScene extends BaseScene {
     
     const rawDist = Math.sqrt(dx*dx + dy*dy);
 
-    if (rawDist < 10) return;
+    if (rawDist < 40) return;
 
     const maxDist = GameConfig.gameplay.maxDragDistance;
-    // 使用统一的 displayDist 作为视觉长度（半径）
     const displayDist = Math.min(rawDist, maxDist); 
     
     const angle = Math.atan2(dy, dx); 
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    // --- 1. 绘制阴影圆圈 (Range Circle) ---
-    // 箭头长度 + 虚线长度 = 2 * displayDist = 直径
-    // 所以半径就是 displayDist
-    this.aimGraphics.beginFill(0x000000, 0.2); 
-    this.aimGraphics.drawCircle(startX, startY, displayDist);
+    const r = GameConfig.dimensions.strikerDiameter / 2;
+
+    this.aimGraphics.beginFill(0x000000, 0.15); 
+    this.aimGraphics.drawCircle(startX, startY, r + displayDist);
     this.aimGraphics.endFill();
 
-    // --- 2. 绘制反向虚线 (Back Line) ---
-    // 长度与箭头一致
-    const backX = startX - cos * displayDist;
-    const backY = startY - sin * displayDist;
-    this.drawDashedLine(this.aimGraphics, startX, startY, backX, backY, 15, 8); // 加粗虚线
-
-    // --- 3. 绘制前向箭头 (Forward Arrow) ---
+    const backEdgeX = startX - cos * r;
+    const backEdgeY = startY - sin * r;
     
-    const arrowTipX = startX + cos * displayDist;
-    const arrowTipY = startY + sin * displayDist;
+    const dotGap = 20;   
+    const dotRadius = 5; 
+    
+    this.aimGraphics.lineStyle(0);
+    this.aimGraphics.beginFill(0x444444, 0.8); 
+    
+    for (let d = dotGap; d <= displayDist; d += dotGap) {
+        const dotX = backEdgeX - cos * d;
+        const dotY = backEdgeY - sin * d;
+        this.aimGraphics.drawCircle(dotX, dotY, dotRadius);
+    }
+    this.aimGraphics.endFill();
 
-    // 箭头头部几何参数
+    const frontEdgeX = startX + cos * r;
+    const frontEdgeY = startY + sin * r;
+    
+    const arrowTipX = frontEdgeX + cos * displayDist;
+    const arrowTipY = frontEdgeY + sin * displayDist;
+
     const headSize = 35;
-    // 头部在轴线上的投影长度 = size * cos(30°) ≈ size * 0.866
     const headDepth = headSize * Math.cos(Math.PI / 6); 
     
-    // 关键修改：计算箭杆终点
-    // 让箭杆只画到箭头头部的底部，稍微多一点重叠(+5)避免缝隙，但不画到尖端
-    const shaftLen = Math.max(0, displayDist - headDepth + 5); 
-
-    const shaftEndX = startX + cos * shaftLen;
-    const shaftEndY = startY + sin * shaftLen;
-
-    // A. 箭杆 - 底层轮廓 (深褐色)
-    this.aimGraphics.lineStyle(11, 0xB8860B); // DarkGoldenRod
-    this.aimGraphics.moveTo(startX, startY);
-    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
-
-    // B. 箭杆 - 主体 (纯金色)
-    this.aimGraphics.lineStyle(7, 0xFFD700); // Gold
-    this.aimGraphics.moveTo(startX, startY);
-    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
-
-    // C. 箭杆 - 高光 (中心亮条，模拟立体感)
-    this.aimGraphics.lineStyle(2, 0xFFFACD, 0.8); // LemonChiffon
-    this.aimGraphics.moveTo(startX, startY);
-    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
-
-    // --- 4. 绘制箭头头部 (Arrow Head) ---
-    // 绘制一个填充的三角形
+    let shaftLen = displayDist - headDepth + 3;
     
-    // 头部顶点
-    const p1x = arrowTipX + cos * 5; // 稍微突出一丢丢
+    if (shaftLen > 0) {
+        const shaftEndX = frontEdgeX + cos * shaftLen;
+        const shaftEndY = frontEdgeY + sin * shaftLen;
+
+        this.aimGraphics.lineStyle(18, 0xB8860B); 
+        this.aimGraphics.moveTo(frontEdgeX, frontEdgeY);
+        this.aimGraphics.lineTo(shaftEndX, shaftEndY);
+
+        this.aimGraphics.lineStyle(12, 0xFFD700); 
+        this.aimGraphics.moveTo(frontEdgeX, frontEdgeY);
+        this.aimGraphics.lineTo(shaftEndX, shaftEndY);
+
+        this.aimGraphics.lineStyle(4, 0xFFFACD, 0.6); 
+        this.aimGraphics.moveTo(frontEdgeX, frontEdgeY);
+        this.aimGraphics.lineTo(shaftEndX, shaftEndY);
+    }
+
+    const p1x = arrowTipX + cos * 5; 
     const p1y = arrowTipY + sin * 5;
     
-    // 两个底角
     const p2x = arrowTipX - headSize * Math.cos(angle - Math.PI/6);
     const p2y = arrowTipY - headSize * Math.sin(angle - Math.PI/6);
     
     const p3x = arrowTipX - headSize * Math.cos(angle + Math.PI/6);
     const p3y = arrowTipY - headSize * Math.sin(angle + Math.PI/6);
 
-    this.aimGraphics.lineStyle(3, 0xB8860B); // 头部描边
-    this.aimGraphics.beginFill(0xFFA500);    // 头部填充 (Orange Gold)
+    this.aimGraphics.lineStyle(3, 0xB8860B); 
+    this.aimGraphics.beginFill(0xFFA500);    
     this.aimGraphics.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
     this.aimGraphics.endFill();
     
-    // 头部高光点
     this.aimGraphics.lineStyle(0);
-    this.aimGraphics.beginFill(0xFFFFFF, 0.5);
-    this.aimGraphics.drawCircle(arrowTipX - cos*10, arrowTipY - sin*10, 5);
+    this.aimGraphics.beginFill(0xFFFFFF, 0.6);
+    this.aimGraphics.drawCircle(arrowTipX - cos * 8, arrowTipY - sin * 8, 4);
     this.aimGraphics.endFill();
-  }
-
-  drawDashedLine(g, x1, y1, x2, y2, dashLen, gapLen) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const angle = Math.atan2(dy, dx);
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    
-    let currDist = 0;
-    
-    // 虚线样式：加粗，白色带透明度
-    g.lineStyle(4, 0xFFFFFF, 0.6);
-
-    while (currDist < dist) {
-        const nextDist = Math.min(currDist + dashLen, dist);
-        
-        g.moveTo(x1 + cos * currDist, y1 + sin * currDist);
-        g.lineTo(x1 + cos * nextDist, y1 + sin * nextDist);
-        
-        currDist = nextDist + gapLen;
-    }
   }
 
   onPointerUp(e) {
@@ -565,7 +560,7 @@ export default class GameScene extends BaseScene {
         y: Math.sin(angle) * effectiveDist * forceMultiplier
       };
 
-      if (currentLen > 10) {
+      if (currentLen > 40) {
         Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
         this.onTurnActionComplete();
       }
@@ -588,7 +583,6 @@ export default class GameScene extends BaseScene {
   onTurnActionComplete() {
     this.isMoving = true;
     AudioManager.playSFX('collision');
-    // 回合结束，重置计时器防止重复触发超时
     this.turnTimer = 0;
     if (this.hud) {
         this.hud.updateTimerVisuals(this.currentTurn, 0);
@@ -598,70 +592,82 @@ export default class GameScene extends BaseScene {
   update(delta) {
     super.update(delta);
     
-    // 安全检查：如果正在加载资源，或者物理引擎尚未初始化，跳过更新
     if (this.isLoading || !this.physics.engine) {
         return;
     }
+    
+    if (this.repositionAnimations.length > 0) {
+        this.updateRepositionAnimations(delta);
+    } 
     
     this.physics.update(16.66);
 
     this.strikers.forEach(s => s.update());
     if (this.ball) this.ball.update();
 
-    // 新增：更新棋子高亮状态
+    // 更新进球条幅动画
+    if (this.goalBanner) {
+        this.goalBanner.update(delta);
+    }
+
     this.updateStrikerHighlights();
 
     this.checkTurnState();
 
-    // AI 逻辑 (如果是 PVE 且轮到 AI)
     if (!this.isMoving && !this.isGameOver && this.ai && this.currentTurn === this.ai.teamId) {
         this.processAITurn();
     } 
-    // 玩家倒计时逻辑 (如果没在动且没结束)
     else if (!this.isMoving && !this.isGameOver) {
         this.updateTurnTimer(delta);
     }
   }
+  
+  // 更新复位动画
+  updateRepositionAnimations(delta) {
+      this.repositionAnimations = this.repositionAnimations.filter(anim => {
+          anim.time += delta;
+          const progress = Math.min(anim.time / anim.duration, 1.0);
+          
+          const ease = 1 - Math.pow(1 - progress, 3);
+          
+          const curX = anim.start.x + (anim.end.x - anim.start.x) * ease;
+          const curY = anim.start.y + (anim.end.y - anim.start.y) * ease;
+          
+          Matter.Body.setPosition(anim.body, { x: curX, y: curY });
+          Matter.Body.setVelocity(anim.body, { x: 0, y: 0 });
+          Matter.Body.setAngularVelocity(anim.body, 0);
+          
+          if (progress >= 1.0) {
+              anim.body.isSensor = false;
+              Matter.Body.setVelocity(anim.body, { x: 0, y: 0 });
+              return false; 
+          }
+          return true; 
+      });
+  }
 
-  // 更新棋子光圈显隐
   updateStrikerHighlights() {
-      // 核心逻辑修改：
-      // 1. 游戏必须处于等待状态 (canInteract)
-      // 2. 玩家当前没有选中任何棋子 (!isSelecting) -> 只要按住了一个，所有提示都消失
-      
-      const canInteract = !this.isMoving && !this.isGameOver && !this.isLoading;
+      const canInteract = !this.isMoving && !this.isGameOver && !this.isLoading && this.repositionAnimations.length === 0;
       const isSelecting = !!this.selectedBody; 
-      
-      // 最终决定是否显示光圈
       const shouldShowAll = canInteract && !isSelecting;
       
       this.strikers.forEach(s => {
           let shouldGlow = false;
-          
           if (shouldShowAll) {
-              // 只有当前回合方的棋子才发光
               if (s.teamId === this.currentTurn) {
                   shouldGlow = true;
               }
           }
-          
-          // 设置高亮状态 (Striker 内部会处理淡入淡出)
           s.setHighlight(shouldGlow);
       });
   }
 
   updateTurnTimer(delta) {
-      // 减少时间 (delta 是毫秒)
       this.turnTimer -= delta / 1000;
-      
       const ratio = Math.max(0, this.turnTimer / this.maxTurnTime);
-      
-      // 更新 HUD
       if (this.hud) {
           this.hud.updateTimerVisuals(this.currentTurn, ratio);
       }
-
-      // 超时处理
       if (this.turnTimer <= 0) {
           this.handleTurnTimeout();
       }
@@ -669,12 +675,8 @@ export default class GameScene extends BaseScene {
 
   handleTurnTimeout() {
       console.log(`[Game] Turn timeout for Team ${this.currentTurn}, forcing move.`);
-      
-      // 强制重置拖拽状态
       if (this.isDragging) this.resetDrag();
       
-      // 临时使用 AI 逻辑来计算一个合法移动
-      // 即使是玩家，也帮他随机踢一脚
       const tempAI = new AIController(this.physics, this.currentTurn);
       const teamStrikers = this.strikers.filter(s => s.teamId === this.currentTurn);
       
@@ -685,16 +687,93 @@ export default class GameScene extends BaseScene {
           this.onTurnActionComplete();
           Platform.showToast("操作超时，系统代踢");
       } else {
-          // 极少数情况如果没有棋子能动，直接切回合
           this.onTurnActionComplete();
       }
   }
 
   checkTurnState() {
-    if (this.isMoving && this.physics.isSleeping()) {
+    if (this.isMoving && this.physics.isSleeping() && this.repositionAnimations.length === 0) {
         this.isMoving = false;
+        
+        this.enforceFairPlay();
+        
         this.switchTurn();
     }
+  }
+
+  enforceFairPlay() {
+      const { strikerDiameter, goalWidth } = GameConfig.dimensions;
+      const r = strikerDiameter / 2;
+      const fieldLeft = this.fieldRect.x;
+      const fieldRight = this.fieldRect.x + this.fieldRect.w;
+
+      const fieldTop = this.fieldRect.y;
+      const fieldBottom = this.fieldRect.y + this.fieldRect.h;
+
+      const minY = fieldTop + r + 20;
+      const maxY = fieldBottom - r - 20;
+
+      const offsetDist = goalWidth * 3;
+
+      this.strikers.forEach(striker => {
+          const pos = striker.body.position;
+          let targetX = null;
+          let needsReset = false;
+
+          const randomX = (Math.random() - 0.5) * strikerDiameter;
+
+          if (pos.x < fieldLeft - r + 5) {
+              targetX = fieldLeft + offsetDist + randomX;
+              needsReset = true;
+          }
+          else if (pos.x > fieldRight + r - 5) {
+              targetX = fieldRight - offsetDist + randomX;
+              needsReset = true;
+          }
+
+          if (needsReset) {
+              let targetPos = null;
+              
+              for (let i = 0; i < 10; i++) {
+                  const randY = Math.random() * (maxY - minY) + minY;
+                  const candidate = { x: targetX, y: randY };
+                  
+                  const safeDistance = r * 2 + 10;
+                  let overlap = false;
+                  
+                  for (const other of this.strikers) {
+                      if (other === striker) continue; 
+                      const dx = other.body.position.x - candidate.x;
+                      const dy = other.body.position.y - candidate.y;
+                      if (dx * dx + dy * dy < safeDistance * safeDistance) {
+                          overlap = true;
+                          break;
+                      }
+                  }
+                  
+                  if (!overlap) {
+                      targetPos = candidate;
+                      break; 
+                  }
+              }
+              
+              if (!targetPos) {
+                  targetPos = { x: targetX, y: (minY + maxY) / 2 };
+              }
+              
+              console.log(`[FairPlay] Animating striker out to (${targetPos.x.toFixed(0)}, ${targetPos.y.toFixed(0)})`);
+              
+              striker.body.isSensor = true;
+              
+              this.repositionAnimations.push({
+                  body: striker.body,
+                  start: { x: pos.x, y: pos.y },
+                  end: targetPos,
+                  time: 0,
+                  duration: 600 
+              });
+          }
+      });
   }
 
   switchTurn() {
@@ -705,11 +784,8 @@ export default class GameScene extends BaseScene {
 
   resetTurnTimer() {
       this.turnTimer = this.maxTurnTime;
-      // 重置 HUD 计时器显示 (满状态)
       if (this.hud) {
-          // 立即更新一次，显示满圆
           this.hud.updateTimerVisuals(this.currentTurn, 1.0);
-          // 清除对方的计时器
           const opponent = this.currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
           this.hud.updateTimerVisuals(opponent, 0);
       }
