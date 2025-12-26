@@ -3,7 +3,6 @@ import * as PIXI from 'pixi.js';
 import Matter from 'matter-js';
 import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
-import MenuScene from './MenuScene.js';
 import PhysicsEngine from '../core/PhysicsEngine.js';
 import GameRules from '../core/GameRules.js';
 import AIController from '../core/AIController.js';
@@ -16,6 +15,11 @@ import Platform from '../managers/Platform.js';
 import ResourceManager from '../managers/ResourceManager.js'; 
 import { GameConfig } from '../config.js';
 import { TeamId, CollisionCategory, Events } from '../constants.js';
+
+// 引入拆分后的 UI 组件
+import AdBoard from '../ui/AdBoard.js';
+import GameMenuButton from '../ui/GameMenuButton.js';
+import GameHUD from '../ui/GameHUD.js';
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -33,33 +37,35 @@ export default class GameScene extends BaseScene {
     this.isMoving = false; 
     this.isGameOver = false;
 
+    // --- 倒计时相关 ---
+    this.turnTimer = 0;
+    this.maxTurnTime = GameConfig.gameplay.turnTimeLimit || 30; // 默认30秒
+
     this.selectedBody = null;
     
     // --- 瞄准核心数据 ---
-    // 拖拽起始点（棋子中心）
     this.dragStartPos = { x: 0, y: 0 };
-    // 当前的瞄准向量 (x, y)，代表力度的方向和大小
     this.aimVector = { x: 0, y: 0 };
     
     // --- 双指接管数据 ---
-    this.isDualControl = false; // 是否处于第二指接管模式
-    this.controlStartPos = { x: 0, y: 0 }; // 第二指按下的起始位置
-    this.baseAimVector = { x: 0, y: 0 };   // 第二指按下瞬间的瞄准向量快照
+    this.isDualControl = false; 
+    this.controlStartPos = { x: 0, y: 0 }; 
+    this.baseAimVector = { x: 0, y: 0 };   
 
     this.isDragging = false;
     this.aimingPointerId = null; 
 
     this.aimGraphics = new PIXI.Graphics();
     
-    this.scoreText = null;
-    this.turnText = null;
+    // HUD 组件引用
+    this.hud = null;
     
     this.isLoading = true;
 
     // --- 定义分层容器 ---
     this.bgLayer = new PIXI.Container();   // 背景 (草地)
     this.gameLayer = new PIXI.Container(); // 游戏物体 (球、人)
-    this.overLayer = new PIXI.Container(); // 前景 (球筐、边框)
+    this.overLayer = new PIXI.Container(); // 前景 (球筐、边框、广告牌)
     this.uiLayer = new PIXI.Container();   // UI
     
     this.container.addChild(this.bgLayer);
@@ -103,12 +109,16 @@ export default class GameScene extends BaseScene {
     this.setupInteraction();
 
     this.isGameOver = false;
+    
+    // 初始化回合
+    this.resetTurnTimer();
     this.updateUI();
   }
 
   createLayout() {
     const { designWidth, designHeight, dimensions } = GameConfig;
     
+    // 1. 草地背景
     const globalBgTexture = ResourceManager.get('bg_grass');
     if (globalBgTexture) {
         const globalBg = new PIXI.TilingSprite(
@@ -142,6 +152,9 @@ export default class GameScene extends BaseScene {
     this.createFieldVisuals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
     this.createPhysicsWalls(fieldStartX, fieldStartY+5, dimensions.fieldWidth - 5, dimensions.fieldHeight - 12);
     this.createGoals(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
+    
+    // 2. 新增：广告牌 (使用 AdBoard 组件)
+    this.createAdBoards(fieldStartX, fieldStartY, dimensions.fieldWidth, dimensions.fieldHeight);
   }
 
   createFieldVisuals(x, y, w, h) {
@@ -171,7 +184,6 @@ export default class GameScene extends BaseScene {
         
         const visualHeightPadding = 20; 
         borderSprite.height = h + visualHeightPadding;
-
         const visualWidthPadding = 20;
         const goalTotalDepth = GameConfig.dimensions.goalWidth * 2;
         borderSprite.width = w + goalTotalDepth + visualWidthPadding;
@@ -179,9 +191,24 @@ export default class GameScene extends BaseScene {
         borderSprite.position.set(centerX, centerY);
         
         this.overLayer.addChild(borderSprite);
-    } else {
-        console.warn("Missing field_border texture!");
     }
+  }
+
+  createAdBoards(fieldX, fieldY, fieldW, fieldH) {
+    // 在球场左右两侧放置广告牌
+    const adWidth = 200;
+    const adHeight = 350;
+    const distance = 160; 
+
+    // 左侧广告牌
+    const leftAd = new AdBoard(adWidth, adHeight, 0);
+    leftAd.position.set(fieldX - distance - adWidth/2, fieldY + fieldH / 2);
+    this.overLayer.addChild(leftAd);
+
+    // 右侧广告牌
+    const rightAd = new AdBoard(adWidth, adHeight, 1);
+    rightAd.position.set(fieldX + fieldW + distance + adWidth/2, fieldY + fieldH / 2);
+    this.overLayer.addChild(rightAd);
   }
 
   createPhysicsWalls(x, y, w, h) {
@@ -203,28 +230,11 @@ export default class GameScene extends BaseScene {
     walls.forEach(body => {
         body.collisionFilter = { category: CollisionCategory.WALL, mask: CollisionCategory.DEFAULT | CollisionCategory.BALL | CollisionCategory.STRIKER };
         body.render.visible = false;
-        body.restitution = 1.0; 
+        body.restitution = GameConfig.physics.wallRestitution; 
+        body.friction = GameConfig.physics.wallFriction;
+        body.frictionStatic = GameConfig.physics.wallFriction; 
     });
     this.physics.add(walls);
-
-    if (GameConfig.debug && GameConfig.debug.showPhysicsWalls) {
-        const debugG = new PIXI.Graphics();
-        
-        debugG.lineStyle(2, 0x00FFFF);
-        debugG.beginFill(0x00FFFF, 0.3);
-
-        walls.forEach(body => {
-            const v = body.vertices;
-            debugG.moveTo(v[0].x, v[0].y);
-            for (let i = 1; i < v.length; i++) {
-                debugG.lineTo(v[i].x, v[i].y);
-            }
-            debugG.lineTo(v[0].x, v[0].y);
-        });
-
-        debugG.endFill();
-        this.gameLayer.addChild(debugG);
-    }
   }
 
   createGoals(x, y, w, h) {
@@ -255,7 +265,6 @@ export default class GameScene extends BaseScene {
 
     const r = GameConfig.dimensions.strikerDiameter / 2;
     
-    // 阵型位置
     const leftFormation = [
       { x: -w * 0.45, y: 0 },         
       { x: -w * 0.30, y: -h * 0.15 }, 
@@ -297,111 +306,22 @@ export default class GameScene extends BaseScene {
   }
 
   createUI() {
-    const { designWidth, dimensions } = GameConfig;
-    
-    const hudContainer = new PIXI.Container();
-    const hudY = 20; 
-    hudContainer.position.set(designWidth / 2, hudY);
-    this.uiLayer.addChild(hudContainer);
+    this.hud = new GameHUD(this.gameMode);
+    this.uiLayer.addChild(this.hud);
 
-    // 1. 计分板背景
-    const boardW = 600; 
-    const boardH = 120;
-    const hudBg = new PIXI.Graphics();
-    hudBg.beginFill(0x000000, 0.6);
-    hudBg.lineStyle(2, 0xffffff, 0.2);
-    hudBg.drawRoundedRect(-boardW / 2, 0, boardW, boardH, 20);
-    hudBg.endFill();
-    hudContainer.addChild(hudBg);
-
-    // 2. 比分文本
-    this.scoreText = new PIXI.Text('0 : 0', {
-        fontFamily: 'Arial', 
-        fontSize: 60, 
-        fill: 0xffffff, 
-        fontWeight: 'bold',
-        dropShadow: true,
-        dropShadowColor: '#000000',
-        dropShadowBlur: 4,
-        dropShadowDistance: 2
-    });
-    this.scoreText.anchor.set(0.5);
-    this.scoreText.position.set(0, boardH * 0.4); 
-    hudContainer.addChild(this.scoreText);
-
-    // 3. 回合文本
-    this.turnText = new PIXI.Text('等待开球...', {
-        fontFamily: 'Arial', 
-        fontSize: 22, 
-        fill: 0xcccccc 
-    });
-    this.turnText.anchor.set(0.5);
-    this.turnText.position.set(0, boardH * 0.8);
-    hudContainer.addChild(this.turnText);
-
-    const avatarOffset = 220; 
-    const avatarY = boardH / 2;
-
-    const leftName = this.gameMode === 'pve' ? "AI Player" : "Player 2";
-    
-    this.createAvatar(hudContainer, -avatarOffset, avatarY, TeamId.LEFT, leftName);
-    this.createAvatar(hudContainer, avatarOffset, avatarY, TeamId.RIGHT, "Player 1");
+    const menuBtn = new GameMenuButton(this.app, this.uiLayer);
+    this.uiLayer.addChild(menuBtn);
 
     this.uiLayer.addChild(this.aimGraphics);
-
-    // 退出按钮
-    const exitBtn = new PIXI.Container();
-    const btnBg = new PIXI.Graphics();
-    btnBg.beginFill(0x7f8c8d);
-    btnBg.drawRoundedRect(0, 0, 100, 40, 10);
-    btnBg.endFill();
-    const btnText = new PIXI.Text('退出', { fontSize: 20, fill: 0xffffff });
-    btnText.anchor.set(0.5);
-    btnText.position.set(50, 20);
-    exitBtn.addChild(btnBg, btnText);
-    exitBtn.position.set(designWidth - 120, GameConfig.designHeight - 60);
-    
-    // Pixi v6 交互属性
-    exitBtn.interactive = true; 
-    exitBtn.buttonMode = true;
-    
-    exitBtn.on('pointerdown', () => SceneManager.changeScene(MenuScene));
-    this.uiLayer.addChild(exitBtn);
-  }
-
-  createAvatar(parent, x, y, teamId, name) {
-      const isLeft = teamId === TeamId.LEFT;
-      const container = new PIXI.Container();
-      container.position.set(x, y);
-      
-      const radius = 35;
-      const teamColor = isLeft ? 0xe74c3c : 0x3498db;
-
-      const bg = new PIXI.Graphics();
-      bg.lineStyle(3, teamColor);
-      bg.beginFill(0x333333);
-      bg.drawCircle(0, 0, radius);
-      bg.endFill();
-
-      const letter = new PIXI.Text(name.charAt(0), {
-          fontSize: 30, fill: teamColor, fontWeight: 'bold' 
-      });
-      letter.anchor.set(0.5);
-      
-      const nameText = new PIXI.Text(name, {
-          fontSize: 18, fill: 0xaaaaaa 
-      });
-      nameText.anchor.set(0.5, 0); 
-      nameText.position.set(0, radius + 5); 
-
-      container.addChild(bg, letter, nameText);
-      parent.addChild(container); 
   }
 
   setupEvents() {
     EventBus.on(Events.GOAL_SCORED, (data) => {
         AudioManager.playSFX('goal');
-        this.scoreText.text = `${data.newScore[TeamId.LEFT]} : ${data.newScore[TeamId.RIGHT]}`;
+        if (this.hud) {
+            this.hud.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
+        }
+        
         Platform.vibrateShort();
         setTimeout(() => {
             if (!this.isGameOver) this.setupFormation();
@@ -413,7 +333,7 @@ export default class GameScene extends BaseScene {
         AudioManager.playSFX('win');
         const winnerName = data.winner === TeamId.LEFT ? "红方" : "蓝方";
         Platform.showToast(`${winnerName} 获胜!`);
-        setTimeout(() => SceneManager.changeScene(MenuScene), 3000);
+        setTimeout(() => SceneManager.changeScene(null), 3000); 
     }, this);
   }
 
@@ -426,6 +346,7 @@ export default class GameScene extends BaseScene {
     this.container.on('pointerupoutside', this.onPointerUp.bind(this));
   }
 
+  // ... (onPointerDown, onPointerMove, drawAimingLine, drawDashedLine, onPointerUp, resetDrag 保持不变，为了节省篇幅略去未改动部分) ...
   onPointerDown(e) {
     const global = e.data.global;
     const local = this.container.toLocal(global); 
@@ -439,33 +360,17 @@ export default class GameScene extends BaseScene {
         return;
     }
 
-    // --- 双指/多指接管逻辑 (Direct Manipulation) ---
-    // 逻辑：第二指按下时，记录当前向量状态，后续移动直接叠加到这个向量上
     if (this.isDragging && this.selectedBody) {
         console.log(`[GameScene] Switching control to new pointer: ${pointerId}`);
-        
-        // 1. 切换控制权
         this.aimingPointerId = pointerId;
-        
-        // 2. 标记进入双指模式
         this.isDualControl = true;
-
-        // 3. 记录初始状态
-        // 记录按下时的位置
         this.controlStartPos = { x: local.x, y: local.y };
-        // 记录按下时，当前的瞄准向量 (快照)
         this.baseAimVector = { ...this.aimVector };
-
-        // 不需要 drawAimingLine，因为此时 delta 为 0，aimVector 应该等于 baseAimVector，画面不动
         return; 
     }
-
-    // --- 第一指操作 (Slingshot / Pull-back) ---
     
     let visualTarget = e.target;
     let selectedStriker = null;
-
-    console.log(`[GameScene] Visual Click Target:`, visualTarget ? (visualTarget.name || visualTarget.constructor.name) : 'null');
 
     while (visualTarget && visualTarget !== this.container) {
         if (visualTarget.entity && typeof visualTarget.entity.teamId !== 'undefined') {
@@ -488,14 +393,9 @@ export default class GameScene extends BaseScene {
             this.selectedBody = selectedStriker.body;
             this.isDragging = true;
             this.aimingPointerId = pointerId;
-            
-            // 初始状态：单指拉弓模式
             this.isDualControl = false;
             this.dragStartPos = { x: selectedStriker.body.position.x, y: selectedStriker.body.position.y };
-            
-            // 初始向量为 0
             this.aimVector = { x: 0, y: 0 };
-            
             this.drawAimingLine();
         } else {
              console.log("[GameScene] Not your turn.");
@@ -505,27 +405,18 @@ export default class GameScene extends BaseScene {
 
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
-
-    // 核心过滤：只响应当前负责瞄准的手指
     if (e.id !== this.aimingPointerId) return;
 
     const local = this.container.toLocal(e.data.global); 
     
     if (this.isDualControl) {
-        // --- 模式2：同向接管 (右手) ---
-        // 向量 = 初始向量 + (当前位置 - 初始位置)
-        // 效果：手指往右移，箭头往右移；手指往上移，箭头往上移
         const deltaX = local.x - this.controlStartPos.x;
         const deltaY = local.y - this.controlStartPos.y;
-
         this.aimVector = {
             x: this.baseAimVector.x + deltaX,
             y: this.baseAimVector.y + deltaY
         };
     } else {
-        // --- 模式1：反向拉弓 (左手) ---
-        // 向量 = 棋子位置 - 手指位置
-        // 效果：手指往左下移，箭头往右上指
         this.aimVector = {
             x: this.dragStartPos.x - local.x,
             y: this.dragStartPos.y - local.y
@@ -543,7 +434,6 @@ export default class GameScene extends BaseScene {
     const startX = this.dragStartPos.x;
     const startY = this.dragStartPos.y;
     
-    // 使用 aimVector 计算终点
     const dx = this.aimVector.x;
     const dy = this.aimVector.y;
     
@@ -558,16 +448,9 @@ export default class GameScene extends BaseScene {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    const visualEndX = startX - cos * displayDist; // 注意：这里还是画在反方向吗？
-    // 不，aimVector 已经是"射出方向"了。
-    // 在反向拉弓模式下：aimVector = Start - Finger. 如果手指在左下，aimVector 指向右上。
-    // 所以视觉上，箭头应该画在 aimVector 的方向上。
-    
-    // 修正绘制逻辑：直接沿着 aimVector 方向画
-    const arrowEndX = startX + cos * displayDist * 3; // 箭头拉长一点好看
+    const arrowEndX = startX + cos * displayDist * 3; 
     const arrowEndY = startY + sin * displayDist * 3;
 
-    // 虚线画在相反方向 (模拟拉开的弦)
     const backX = startX - cos * displayDist;
     const backY = startY - sin * displayDist;
     this.drawDashedLine(this.aimGraphics, startX, startY, backX, backY, 10, 5);
@@ -581,9 +464,8 @@ export default class GameScene extends BaseScene {
     this.aimGraphics.moveTo(startX, startY);
     this.aimGraphics.lineTo(arrowEndX, arrowEndY);
 
-    // 箭头头部
     const headLen = 20;
-    this.aimGraphics.lineStyle(0); // 清除描边
+    this.aimGraphics.lineStyle(0); 
     this.aimGraphics.beginFill(color);
     this.aimGraphics.drawPolygon([
         arrowEndX, arrowEndY,
@@ -592,9 +474,8 @@ export default class GameScene extends BaseScene {
     ]);
     this.aimGraphics.endFill();
 
-    // 底部圆圈
     this.aimGraphics.lineStyle(4, 0xffffff, 0.3 + powerRatio * 0.7);
-    this.aimGraphics.beginFill(0x000000, 0); // 空填充
+    this.aimGraphics.beginFill(0x000000, 0); 
     this.aimGraphics.drawCircle(startX, startY, 60);
     this.aimGraphics.endFill();
     
@@ -628,24 +509,17 @@ export default class GameScene extends BaseScene {
 
   onPointerUp(e) {
     if (this.isDragging && this.selectedBody) {
-      
       if (e.id !== this.aimingPointerId) {
           console.log("Ignored pointer up from non-aiming finger");
           return;
       }
-
-      // 直接使用 aimVector 计算力度
       const dx = this.aimVector.x;
       const dy = this.aimVector.y;
-      
       const currentLen = Math.sqrt(dx*dx + dy*dy);
       const maxLen = GameConfig.gameplay.maxDragDistance;
-      
       const effectiveDist = Math.min(currentLen, maxLen);
       const angle = Math.atan2(dy, dx);
-      
       const forceMultiplier = GameConfig.gameplay.forceMultiplier;
-      
       const force = {
         x: Math.cos(angle) * effectiveDist * forceMultiplier,
         y: Math.sin(angle) * effectiveDist * forceMultiplier
@@ -665,8 +539,6 @@ export default class GameScene extends BaseScene {
     this.isDragging = false;
     this.selectedBody = null;
     this.aimingPointerId = null; 
-    
-    // 重置双指状态
     this.isDualControl = false;
     this.aimVector = { x: 0, y: 0 };
     this.baseAimVector = { x: 0, y: 0 };
@@ -676,10 +548,20 @@ export default class GameScene extends BaseScene {
   onTurnActionComplete() {
     this.isMoving = true;
     AudioManager.playSFX('collision');
+    // 回合结束，重置计时器防止重复触发超时
+    this.turnTimer = 0;
+    if (this.hud) {
+        this.hud.updateTimerVisuals(this.currentTurn, 0);
+    }
   }
 
   update(delta) {
     super.update(delta);
+    
+    // 安全检查：如果正在加载资源，或者物理引擎尚未初始化，跳过更新
+    if (this.isLoading || !this.physics.engine) {
+        return;
+    }
     
     this.physics.update(16.66);
 
@@ -688,9 +570,54 @@ export default class GameScene extends BaseScene {
 
     this.checkTurnState();
 
+    // AI 逻辑 (如果是 PVE 且轮到 AI)
     if (!this.isMoving && !this.isGameOver && this.ai && this.currentTurn === this.ai.teamId) {
         this.processAITurn();
+    } 
+    // 玩家倒计时逻辑 (如果没在动且没结束)
+    else if (!this.isMoving && !this.isGameOver) {
+        this.updateTurnTimer(delta);
     }
+  }
+
+  updateTurnTimer(delta) {
+      // 减少时间 (delta 是毫秒)
+      this.turnTimer -= delta / 1000;
+      
+      const ratio = Math.max(0, this.turnTimer / this.maxTurnTime);
+      
+      // 更新 HUD
+      if (this.hud) {
+          this.hud.updateTimerVisuals(this.currentTurn, ratio);
+      }
+
+      // 超时处理
+      if (this.turnTimer <= 0) {
+          this.handleTurnTimeout();
+      }
+  }
+
+  handleTurnTimeout() {
+      console.log(`[Game] Turn timeout for Team ${this.currentTurn}, forcing move.`);
+      
+      // 强制重置拖拽状态
+      if (this.isDragging) this.resetDrag();
+      
+      // 临时使用 AI 逻辑来计算一个合法移动
+      // 即使是玩家，也帮他随机踢一脚
+      const tempAI = new AIController(this.physics, this.currentTurn);
+      const teamStrikers = this.strikers.filter(s => s.teamId === this.currentTurn);
+      
+      const decision = tempAI.think(teamStrikers, this.ball);
+      
+      if (decision) {
+          Matter.Body.applyForce(decision.striker.body, decision.striker.body.position, decision.force);
+          this.onTurnActionComplete();
+          Platform.showToast("操作超时，系统代踢");
+      } else {
+          // 极少数情况如果没有棋子能动，直接切回合
+          this.onTurnActionComplete();
+      }
   }
 
   checkTurnState() {
@@ -702,22 +629,25 @@ export default class GameScene extends BaseScene {
 
   switchTurn() {
     this.currentTurn = this.currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+    this.resetTurnTimer();
     this.updateUI();
   }
 
-  updateUI() {
-    if (this.turnText) {
-        const isLeft = this.currentTurn === TeamId.LEFT;
-        
-        let str = "";
-        if (isLeft) {
-            str = this.gameMode === 'pve' ? "红方回合 (AI)" : "红方回合 (Player 2)";
-        } else {
-            str = "蓝方回合 (Player 1)";
-        }
+  resetTurnTimer() {
+      this.turnTimer = this.maxTurnTime;
+      // 重置 HUD 计时器显示 (满状态)
+      if (this.hud) {
+          // 立即更新一次，显示满圆
+          this.hud.updateTimerVisuals(this.currentTurn, 1.0);
+          // 清除对方的计时器
+          const opponent = this.currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+          this.hud.updateTimerVisuals(opponent, 0);
+      }
+  }
 
-        this.turnText.text = str;
-        this.turnText.style.fill = isLeft ? 0xe74c3c : 0x3498db;
+  updateUI() {
+    if (this.hud) {
+        this.hud.updateTurn(this.currentTurn);
     }
   }
 

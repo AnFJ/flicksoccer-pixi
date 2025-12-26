@@ -1,5 +1,6 @@
 
 import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
+// import './libs/weapp-adapter/index.js' // H5不需要此适配器；小程序由入口文件 game.js 负责加载。
 import * as PIXI from 'pixi.js';
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
@@ -50,7 +51,7 @@ async function initGame() {
     });
 
     // 默认进入登录场景
-    await SceneManager.changeScene(LoginScene);
+    await SceneManager.changeScene(GameScene);
     
     console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'}, Pixi v${PIXI.VERSION})`);
 

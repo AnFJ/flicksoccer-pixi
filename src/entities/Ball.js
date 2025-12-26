@@ -33,7 +33,7 @@ export default class Ball {
     
     // --- 渲染顺序：阴影 -> 拖尾 -> 足球本体 ---
 
-    // A. 阴影 (使用高密度 Graphics 叠加模拟平滑渐变)
+    // A. 阴影 
     const shadow = this.createShadowGraphics();
     // 阴影偏移量，模拟光照方向
     shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5);
@@ -55,8 +55,7 @@ export default class Ball {
 
     // C. 足球本体 (Ball)
     const rawBallTex = ResourceManager.get('ball_texture'); 
-    // const rawOverlayTex = ResourceManager.get('ball_overlay');
-    const rawOverlayTex = null;
+    const rawOverlayTex = ResourceManager.get('ball_overlay');
 
     const texture = rawBallTex || this.generateProceduralPattern();
     const overlayTexture = rawOverlayTex || this.generateProceduralOverlay();
@@ -94,16 +93,16 @@ export default class Ball {
   }
 
   /**
-   * 使用 Graphics 绘制高密度同心圆来模拟完美的柔和阴影
+   * 性能优化：减少同心圆层数 (30 -> 5)
    */
   createShadowGraphics() {
     const g = new PIXI.Graphics();
     const r = this.radius;
     
     // 配置参数
-    const steps = 30; // 层数越多越平滑
-    const maxR = r * 1.3; // 阴影最大扩散范围 (比球略大)
-    const alphaPerStep = 0.05; // 每层的不透明度 (越低越柔和)
+    const steps = 5; // 优化后
+    const maxR = r * 1.3; 
+    const alphaPerStep = 0.15; 
 
     // 从大到小绘制
     for (let i = 0; i < steps; i++) {
@@ -118,7 +117,7 @@ export default class Ball {
     }
 
     // 核心区域额外加深一点点
-    g.beginFill(0x000000, 0.1);
+    g.beginFill(0x000000, 0.2);
     g.drawCircle(0, 0, r * 0.8);
     g.endFill();
 

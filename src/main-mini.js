@@ -16,12 +16,18 @@ import Interaction from './adapter/pixi-interaction.js'
 
 // PixiJS 设置
 PIXI.settings.SORTABLE_CHILDREN = true
-PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL_LEGACY 
-PIXI.settings.PRECISION_VERTEX = PIXI.PRECISION.HIGH
-PIXI.settings.PRECISION_FRAGMENT = PIXI.PRECISION.HIGH
+
+// 兼容性优化 1: 移除强制 WEBGL_LEGACY，让 Pixi 自动检测最佳 WebGL 版本
+// PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL_LEGACY 
+
+// 兼容性优化 2: 降低 Shader 精度
+// iPhone 7 等旧设备在 HIGH 精度下可能会因为显存或驱动问题导致 WebGL Context 创建失败
+PIXI.settings.PRECISION_VERTEX = PIXI.PRECISION.MEDIUM
+PIXI.settings.PRECISION_FRAGMENT = PIXI.PRECISION.MEDIUM
+
 PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR
 
-// 安装 unsafe-eval
+// 安装 unsafe-eval (适配微信小游戏禁止 eval 的限制)
 install(PIXI)
 
 // 移除默认的 interaction 插件
@@ -54,28 +60,29 @@ async function initGame() {
     let canvasTarget;
     if (isMiniGame) {
       // @ts-ignore
-      canvasTarget = window.canvas || canvas;
+      // 确保能获取到全局 canvas
+      canvasTarget = window.canvas || (typeof canvas !== 'undefined' ? canvas : null);
     }
 
-    // --- 核心修复 ---
     // 获取真机系统信息
     const systemInfo = wx.getSystemInfoSync();
-    const screenWidth = systemInfo.windowWidth;   // 逻辑宽度 (e.g. 375 / 414)
-    const screenHeight = systemInfo.windowHeight; // 逻辑高度 (e.g. 667 / 896)
+    const screenWidth = systemInfo.windowWidth;   // 逻辑宽度
+    const screenHeight = systemInfo.windowHeight; // 逻辑高度
     const dpr = systemInfo.devicePixelRatio;
 
     console.log(`[Main] Screen: ${screenWidth}x${screenHeight}, DPR: ${dpr}`);
 
     // 初始化 Pixi 应用
-    // 关键点：使用【屏幕实际逻辑宽高】初始化，而不是设计稿宽高
+    // 关键兼容性修复：antialias: false
     const app = new PIXI.Application({
       view: canvasTarget, 
-      width: screenWidth,   // <--- 使用屏幕宽
-      height: screenHeight, // <--- 使用屏幕高
+      width: screenWidth,   
+      height: screenHeight, 
       backgroundColor: 0x1a1a1a,
-      resolution: dpr,      // <--- 使用设备像素比
+      resolution: dpr,      
       autoDensity: true,
-      antialias: true
+      antialias: false, // 兼容性优化 3: 关闭抗锯齿，极大降低旧设备 WebGL 崩溃概率
+      preserveDrawingBuffer: false // 显式关闭，节省内存
     });
 
     // 将 app 挂载到全局方便调试
@@ -98,6 +105,10 @@ async function initGame() {
 
   } catch (err) {
     console.error('Game Init Failed:', err);
+    // 如果是 WebGL 不支持的错误，且是在真机上，尝试提示用户
+    if (err.message && err.message.indexOf('WebGL') !== -1) {
+        console.error('CRITICAL: WebGL Context creation failed. Try using pixi.js-legacy for Canvas fallback.');
+    }
   }
 }
 

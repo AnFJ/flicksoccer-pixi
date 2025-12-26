@@ -12,10 +12,11 @@ export default class PhysicsEngine {
     // 创建物理引擎，关闭重力
     this.engine = Matter.Engine.create({
       gravity: GameConfig.physics.gravity,
-      // 核心修改：提高迭代次数以解决高速穿透问题
-      // 默认值通常较低(6, 4)，提高后会牺牲一点性能但碰撞更精准
-      positionIterations: 10, 
-      velocityIterations: 8
+      // 性能优化：降低迭代次数
+      // 默认值 (6, 4) 对移动端 H5 小游戏通常足够。
+      // 之前设置的 (10, 8) 虽然更精确，但会显著增加 CPU 负担。
+      positionIterations: 6, 
+      velocityIterations: 4
     });
 
     // 创建运行器
@@ -44,6 +45,8 @@ export default class PhysicsEngine {
   applyStoppingFriction() {
     const config = GameConfig.physics.stoppingFriction;
     if (!config || !config.enabled) return;
+    
+    if (!this.engine) return; // 安全检查
 
     const bodies = Matter.Composite.allBodies(this.engine.world);
 
@@ -81,6 +84,7 @@ export default class PhysicsEngine {
    * @param {Matter.Body | Matter.Composite} body 
    */
   add(body) {
+    if (!this.engine) return;
     Matter.World.add(this.engine.world, body);
   }
 
@@ -91,6 +95,7 @@ export default class PhysicsEngine {
    * @returns {Matter.Body[]}
    */
   queryPoint(x, y) {
+    if (!this.engine) return [];
     const bodies = Matter.Composite.allBodies(this.engine.world);
     return Matter.Query.point(bodies, { x, y });
   }
@@ -99,6 +104,9 @@ export default class PhysicsEngine {
    * 判断世界是否静止 (用于回合判定)
    */
   isSleeping() {
+    // 关键修复：增加空值检查，防止 update 循环在 init 完成前调用导致报错
+    if (!this.engine) return true; 
+
     const bodies = Matter.Composite.allBodies(this.engine.world);
     // 这里使用配置中的 minSpeed 作为静止判断标准更准确
     const VELOCITY_THRESHOLD = GameConfig.physics.stoppingFriction.minSpeed || 0.1; 
@@ -114,6 +122,7 @@ export default class PhysicsEngine {
     if (this.engine) {
       Matter.World.clear(this.engine.world, false);
       Matter.Engine.clear(this.engine);
+      this.engine = null; // 显式置空
     }
   }
 }
