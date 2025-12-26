@@ -20,8 +20,10 @@ import { TeamId, CollisionCategory, Events } from '../constants.js';
 import AdBoard from '../ui/AdBoard.js';
 import GameMenuButton from '../ui/GameMenuButton.js';
 import GameHUD from '../ui/GameHUD.js';
-// 新增：引入进球条幅
+// 引入进球条幅
 import GoalBanner from '../ui/GoalBanner.js';
+// 新增：引入火星特效
+import SparkSystem from '../vfx/SparkSystem.js';
 // 修复报错：引入 MenuScene
 import MenuScene from './MenuScene.js';
 
@@ -64,6 +66,7 @@ export default class GameScene extends BaseScene {
     // HUD 组件引用
     this.hud = null;
     this.goalBanner = null; // 进球条幅引用
+    this.sparkSystem = null; // 粒子特效引用
     
     this.isLoading = true;
     
@@ -326,6 +329,10 @@ export default class GameScene extends BaseScene {
     this.uiLayer.addChild(menuBtn);
 
     this.uiLayer.addChild(this.aimGraphics);
+    
+    // 新增：创建粒子特效系统，添加到 gameLayer 的最上层，使其位于足球之上，但位于 UI 之下
+    this.sparkSystem = new SparkSystem();
+    this.gameLayer.addChild(this.sparkSystem);
   }
 
   setupEvents() {
@@ -351,9 +358,14 @@ export default class GameScene extends BaseScene {
         AudioManager.playSFX('win');
         const winnerName = data.winner === TeamId.LEFT ? "红方" : "蓝方";
         Platform.showToast(`${winnerName} 获胜!`);
-        // 核心修复：原来传入的是 null，导致 SceneManager 执行 new null() 报错
-        // 现改为跳转回 MenuScene (主菜单)
         setTimeout(() => SceneManager.changeScene(MenuScene), 3000); 
+    }, this);
+
+    // 新增：监听碰撞火星事件
+    EventBus.on(Events.COLLISION_HIT, (data) => {
+        if (this.sparkSystem) {
+            this.sparkSystem.emit(data.x, data.y, data.intensity);
+        }
     }, this);
   }
 
@@ -610,6 +622,11 @@ export default class GameScene extends BaseScene {
         this.goalBanner.update(delta);
     }
 
+    // 更新粒子系统
+    if (this.sparkSystem) {
+        this.sparkSystem.update(delta);
+    }
+
     this.updateStrikerHighlights();
 
     this.checkTurnState();
@@ -816,6 +833,8 @@ export default class GameScene extends BaseScene {
     super.onExit();
     EventBus.off(Events.GOAL_SCORED, this);
     EventBus.off(Events.GAME_OVER, this);
+    // 新增：移除特效事件监听
+    EventBus.off(Events.COLLISION_HIT, this);
     this.physics.clear();
     if (this.aiTimer) clearTimeout(this.aiTimer);
   }

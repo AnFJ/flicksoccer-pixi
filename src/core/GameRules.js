@@ -25,16 +25,66 @@ export default class GameRules {
       const pairs = event.pairs;
 
       for (let i = 0; i < pairs.length; i++) {
-        const bodyA = pairs[i].bodyA;
-        const bodyB = pairs[i].bodyB;
+        const pair = pairs[i];
+        const bodyA = pair.bodyA;
+        const bodyB = pair.bodyB;
 
         // 1. 检查进球
         this.checkGoal(bodyA, bodyB);
 
         // 2. 检查撞网 (模拟网兜吸能)
         this.checkNetCollision(bodyA, bodyB);
+
+        // 3. 新增：检查 棋子 vs 足球 的碰撞，触发火星特效
+        this.checkStrikerBallCollision(pair);
       }
     });
+  }
+
+  checkStrikerBallCollision(pair) {
+    const { bodyA, bodyB } = pair;
+
+    let ball = null;
+    let striker = null;
+
+    if (bodyA.label === 'Ball' && bodyB.label === 'Striker') {
+        ball = bodyA;
+        striker = bodyB;
+    } else if (bodyB.label === 'Ball' && bodyA.label === 'Striker') {
+        ball = bodyB;
+        striker = bodyA;
+    }
+
+    if (ball && striker) {
+        // 1. 计算碰撞力度 (相对速度 magnitude)
+        // 这是一个近似值，对于视觉效果足够了
+        const relativeVelocity = Matter.Vector.sub(ball.velocity, striker.velocity);
+        const intensity = Matter.Vector.magnitude(relativeVelocity);
+
+        // 只有达到一定速度才产生火星 (避免静止接触时不断闪烁)
+        if (intensity > 1.0) {
+            // 2. 获取碰撞点 (Contact Point)
+            // Matter.js 通常提供 supports 数组
+            let contactX, contactY;
+            
+            if (pair.collision.supports && pair.collision.supports.length > 0) {
+                const contact = pair.collision.supports[0];
+                contactX = contact.x;
+                contactY = contact.y;
+            } else {
+                // 如果没有接触点信息，取两者中心的中点
+                contactX = (ball.position.x + striker.position.x) / 2;
+                contactY = (ball.position.y + striker.position.y) / 2;
+            }
+
+            // 3. 发送事件
+            EventBus.emit(Events.COLLISION_HIT, {
+                x: contactX,
+                y: contactY,
+                intensity: intensity
+            });
+        }
+    }
   }
 
   /**

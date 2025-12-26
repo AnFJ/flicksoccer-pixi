@@ -1,3 +1,4 @@
+
 // 场景枚举
 export const SceneNames = {
   LOGIN: 'LoginScene',
@@ -26,5 +27,6 @@ export const Events = {
   TURN_CHANGE: 'turn_change',
   GOAL_SCORED: 'goal_scored',
   GAME_OVER: 'game_over',
-  SYNC_STATE: 'sync_state' // 网络同步
+  SYNC_STATE: 'sync_state', // 网络同步
+  COLLISION_HIT: 'collision_hit' // 新增：物理碰撞产生火花
 };
