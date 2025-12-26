@@ -4,8 +4,6 @@ export const GameConfig = {
   // 屏幕参考尺寸 (横屏设计稿 1080*2400)
   designWidth: 2400,
   designHeight: 1080,
-  // designWidth: 1440,
-  // designHeight: 720,
   
   // 调试配置 (新增)
   debug: {
@@ -41,6 +39,15 @@ export const GameConfig = {
     // --- 旋转控制 (新增) ---
     strikerFixedRotation: true, // 棋子是否锁定旋转 (true=不转, false=会转)。建议 true，保持头像直立。
     ballFixedRotation: false,   // 足球是否锁定旋转 (true=不转, false=会转)。建议 false，更真实。
+
+    // --- 低速急停配置 (新增) ---
+    // 解决物体快停下时"飘"的问题
+    stoppingFriction: {
+        enabled: true,
+        threshold: 1.2,      // [速度阈值] 当速度小于此值(px/frame)时，开始施加额外阻力
+        damping: 0.95,       // [刹车力度] 每帧速度乘以该系数 (越小停得越快, 0.8~0.95之间)
+        minSpeed: 0.001       // [强制静止] 速度小于此值时直接设为0
+    },
 
     // --- 棋子(Striker)物理参数 ---
     // [手感调整] 阻力从 0.04 降至 0.02。阻力越小，滑行越顺滑。配合力度减小，实现"慢速长距离"。

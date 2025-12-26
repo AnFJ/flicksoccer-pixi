@@ -34,9 +34,21 @@ export default class GameScene extends BaseScene {
     this.isGameOver = false;
 
     this.selectedBody = null;
+    
+    // --- 瞄准核心数据 ---
+    // 拖拽起始点（棋子中心）
     this.dragStartPos = { x: 0, y: 0 };
-    this.currentPointerPos = { x: 0, y: 0 }; 
+    // 当前的瞄准向量 (x, y)，代表力度的方向和大小
+    this.aimVector = { x: 0, y: 0 };
+    
+    // --- 双指接管数据 ---
+    this.isDualControl = false; // 是否处于第二指接管模式
+    this.controlStartPos = { x: 0, y: 0 }; // 第二指按下的起始位置
+    this.baseAimVector = { x: 0, y: 0 };   // 第二指按下瞬间的瞄准向量快照
+
     this.isDragging = false;
+    this.aimingPointerId = null; 
+
     this.aimGraphics = new PIXI.Graphics();
     
     this.scoreText = null;
@@ -54,7 +66,6 @@ export default class GameScene extends BaseScene {
     this.container.addChild(this.gameLayer);
     this.container.addChild(this.overLayer);
     this.container.addChild(this.uiLayer);
-    this.isMiniGame = (typeof wx !== 'undefined' || typeof tt !== 'undefined');
   }
 
   async onEnter(params = {}) {
@@ -416,35 +427,110 @@ export default class GameScene extends BaseScene {
   }
 
   onPointerDown(e) {
-    if (this.isMoving || this.isGameOver || this.isLoading) return;
-    
-    if (this.ai && this.currentTurn === this.ai.teamId) return;
-    console.log("Pointer Down", e);
-    // v6 中 e.data.global 返回 Point，toLocal 参数也是 Point
-    const local = this.container.toLocal(e.data.global); 
-    const bodies = this.physics.queryPoint(local.x, local.y);
+    const global = e.data.global;
+    const local = this.container.toLocal(global); 
+    const pointerId = e.id; 
 
-    if (bodies.length > 0) {
-      const clickedBody = bodies.find(b => b.label === 'Striker');
-      
-      if (clickedBody) {
-        const entity = clickedBody.entity;
-        if (entity instanceof Striker && entity.teamId === this.currentTurn) {
-          this.selectedBody = clickedBody;
-          this.isDragging = true;
-          this.dragStartPos = { x: clickedBody.position.x, y: clickedBody.position.y };
-          this.currentPointerPos = { x: local.x, y: local.y };
-          this.drawAimingLine();
+    if (this.isMoving || this.isGameOver || this.isLoading) {
+        return;
+    }
+    
+    if (this.ai && this.currentTurn === this.ai.teamId) {
+        return;
+    }
+
+    // --- 双指/多指接管逻辑 (Direct Manipulation) ---
+    // 逻辑：第二指按下时，记录当前向量状态，后续移动直接叠加到这个向量上
+    if (this.isDragging && this.selectedBody) {
+        console.log(`[GameScene] Switching control to new pointer: ${pointerId}`);
+        
+        // 1. 切换控制权
+        this.aimingPointerId = pointerId;
+        
+        // 2. 标记进入双指模式
+        this.isDualControl = true;
+
+        // 3. 记录初始状态
+        // 记录按下时的位置
+        this.controlStartPos = { x: local.x, y: local.y };
+        // 记录按下时，当前的瞄准向量 (快照)
+        this.baseAimVector = { ...this.aimVector };
+
+        // 不需要 drawAimingLine，因为此时 delta 为 0，aimVector 应该等于 baseAimVector，画面不动
+        return; 
+    }
+
+    // --- 第一指操作 (Slingshot / Pull-back) ---
+    
+    let visualTarget = e.target;
+    let selectedStriker = null;
+
+    console.log(`[GameScene] Visual Click Target:`, visualTarget ? (visualTarget.name || visualTarget.constructor.name) : 'null');
+
+    while (visualTarget && visualTarget !== this.container) {
+        if (visualTarget.entity && typeof visualTarget.entity.teamId !== 'undefined') {
+            selectedStriker = visualTarget.entity;
+            break;
         }
-      }
+        visualTarget = visualTarget.parent;
+    }
+
+    if (!selectedStriker) {
+        const bodies = this.physics.queryPoint(local.x, local.y);
+        const clickedBody = bodies.find(b => b.label === 'Striker');
+        if (clickedBody) {
+             selectedStriker = clickedBody.entity;
+        }
+    }
+
+    if (selectedStriker) {
+        if (selectedStriker.teamId === this.currentTurn) {
+            this.selectedBody = selectedStriker.body;
+            this.isDragging = true;
+            this.aimingPointerId = pointerId;
+            
+            // 初始状态：单指拉弓模式
+            this.isDualControl = false;
+            this.dragStartPos = { x: selectedStriker.body.position.x, y: selectedStriker.body.position.y };
+            
+            // 初始向量为 0
+            this.aimVector = { x: 0, y: 0 };
+            
+            this.drawAimingLine();
+        } else {
+             console.log("[GameScene] Not your turn.");
+        }
     }
   }
 
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
-    console.log("Pointer Move", e);
+
+    // 核心过滤：只响应当前负责瞄准的手指
+    if (e.id !== this.aimingPointerId) return;
+
     const local = this.container.toLocal(e.data.global); 
-    this.currentPointerPos = { x: local.x, y: local.y };
+    
+    if (this.isDualControl) {
+        // --- 模式2：同向接管 (右手) ---
+        // 向量 = 初始向量 + (当前位置 - 初始位置)
+        // 效果：手指往右移，箭头往右移；手指往上移，箭头往上移
+        const deltaX = local.x - this.controlStartPos.x;
+        const deltaY = local.y - this.controlStartPos.y;
+
+        this.aimVector = {
+            x: this.baseAimVector.x + deltaX,
+            y: this.baseAimVector.y + deltaY
+        };
+    } else {
+        // --- 模式1：反向拉弓 (左手) ---
+        // 向量 = 棋子位置 - 手指位置
+        // 效果：手指往左下移，箭头往右上指
+        this.aimVector = {
+            x: this.dragStartPos.x - local.x,
+            y: this.dragStartPos.y - local.y
+        };
+    }
     
     this.drawAimingLine();
   }
@@ -457,11 +543,10 @@ export default class GameScene extends BaseScene {
     const startX = this.dragStartPos.x;
     const startY = this.dragStartPos.y;
     
-    const rawEndX = this.currentPointerPos.x;
-    const rawEndY = this.currentPointerPos.y;
-
-    const dx = startX - rawEndX;
-    const dy = startY - rawEndY;
+    // 使用 aimVector 计算终点
+    const dx = this.aimVector.x;
+    const dy = this.aimVector.y;
+    
     const rawDist = Math.sqrt(dx*dx + dy*dy);
 
     if (rawDist < 10) return;
@@ -473,15 +558,19 @@ export default class GameScene extends BaseScene {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    const visualEndX = startX - cos * displayDist;
-    const visualEndY = startY - sin * displayDist;
+    const visualEndX = startX - cos * displayDist; // 注意：这里还是画在反方向吗？
+    // 不，aimVector 已经是"射出方向"了。
+    // 在反向拉弓模式下：aimVector = Start - Finger. 如果手指在左下，aimVector 指向右上。
+    // 所以视觉上，箭头应该画在 aimVector 的方向上。
+    
+    // 修正绘制逻辑：直接沿着 aimVector 方向画
+    const arrowEndX = startX + cos * displayDist * 3; // 箭头拉长一点好看
+    const arrowEndY = startY + sin * displayDist * 3;
 
-    // 先画虚线
-    this.drawDashedLine(this.aimGraphics, startX, startY, visualEndX, visualEndY, 10, 5);
-
-    const arrowLen = displayDist * 3; 
-    const arrowEndX = startX + cos * arrowLen;
-    const arrowEndY = startY + sin * arrowLen;
+    // 虚线画在相反方向 (模拟拉开的弦)
+    const backX = startX - cos * displayDist;
+    const backY = startY - sin * displayDist;
+    this.drawDashedLine(this.aimGraphics, startX, startY, backX, backY, 10, 5);
 
     const powerRatio = displayDist / maxDist;
     const startColor = GameConfig.visuals.aimLineColorStart; 
@@ -539,18 +628,22 @@ export default class GameScene extends BaseScene {
 
   onPointerUp(e) {
     if (this.isDragging && this.selectedBody) {
-      console.log("Pointer Up", e);
-      const local = this.container.toLocal(e.data.global); 
       
-      const dx = this.dragStartPos.x - local.x;
-      const dy = this.dragStartPos.y - local.y;
+      if (e.id !== this.aimingPointerId) {
+          console.log("Ignored pointer up from non-aiming finger");
+          return;
+      }
+
+      // 直接使用 aimVector 计算力度
+      const dx = this.aimVector.x;
+      const dy = this.aimVector.y;
       
       const currentLen = Math.sqrt(dx*dx + dy*dy);
       const maxLen = GameConfig.gameplay.maxDragDistance;
       
       const effectiveDist = Math.min(currentLen, maxLen);
-      
       const angle = Math.atan2(dy, dx);
+      
       const forceMultiplier = GameConfig.gameplay.forceMultiplier;
       
       const force = {
@@ -571,7 +664,13 @@ export default class GameScene extends BaseScene {
     this.aimGraphics.clear();
     this.isDragging = false;
     this.selectedBody = null;
-    this.currentPointerPos = { x:0, y:0 };
+    this.aimingPointerId = null; 
+    
+    // 重置双指状态
+    this.isDualControl = false;
+    this.aimVector = { x: 0, y: 0 };
+    this.baseAimVector = { x: 0, y: 0 };
+    this.controlStartPos = { x: 0, y: 0 };
   }
 
   onTurnActionComplete() {
