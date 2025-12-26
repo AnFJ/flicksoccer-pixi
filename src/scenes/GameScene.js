@@ -419,14 +419,6 @@ export default class GameScene extends BaseScene {
     if (this.isMoving || this.isGameOver || this.isLoading) return;
     
     if (this.ai && this.currentTurn === this.ai.teamId) return;
-    if(this.isMiniGame) {
-      e.data = {
-        global:{
-          x: e.x,
-          y: e.y
-        }
-      }
-    }
     console.log("Pointer Down", e);
     // v6 中 e.data.global 返回 Point，toLocal 参数也是 Point
     const local = this.container.toLocal(e.data.global); 
@@ -450,14 +442,6 @@ export default class GameScene extends BaseScene {
 
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
-    if(this.isMiniGame) {
-      e.data = {
-        global:{
-          x: e.x,
-          y: e.y
-        }
-      }
-    }
     console.log("Pointer Move", e);
     const local = this.container.toLocal(e.data.global); 
     this.currentPointerPos = { x: local.x, y: local.y };
@@ -555,14 +539,6 @@ export default class GameScene extends BaseScene {
 
   onPointerUp(e) {
     if (this.isDragging && this.selectedBody) {
-      if(this.isMiniGame) {
-        e.data = {
-          global:{
-            x: e.x,
-            y: e.y
-          }
-        }
-      }
       console.log("Pointer Up", e);
       const local = this.container.toLocal(e.data.global); 
       

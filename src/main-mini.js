@@ -8,12 +8,15 @@ import { GameConfig } from './config.js';
 import '@iro/wechat-adapter'
 import * as PIXI from 'pixi.js'
 import { install } from '@pixi/unsafe-eval'
-// @ts-expect-error
-import Interaction from '@iro/interaction'
+
+// 核心修改：引入本地的 Interaction 类
+// @ts-ignore
+import Interaction from './adapter/pixi-interaction.js'
+// import Interaction from '@iro/interaction'
 
 // PixiJS 设置
 PIXI.settings.SORTABLE_CHILDREN = true
-PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL_LEGACY  // 根据目标环境调整
+PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL_LEGACY 
 PIXI.settings.PRECISION_VERTEX = PIXI.PRECISION.HIGH
 PIXI.settings.PRECISION_FRAGMENT = PIXI.PRECISION.HIGH
 PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR
@@ -21,29 +24,25 @@ PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR
 // 安装 unsafe-eval
 install(PIXI)
 
-// 更安全地移除默认的 interaction 插件
-const extensions = PIXI.extensions._queue["renderer-canvas-plugin"];
-for (let i = extensions.length - 1; i >= 0; i--) {
-  const ext = extensions[i]
-  if (ext.name === 'interaction') {
-    let a = PIXI.extensions.remove(ext);
-    console.log('Removed default interaction plugin:', a, PIXI.extensions._queue["renderer-canvas-plugin"]);
+// 移除默认的 interaction 插件
+if (PIXI.extensions && PIXI.extensions._queue) {
+  const extensions = PIXI.extensions._queue["renderer-canvas-plugin"];
+  if (extensions) {
+    for (let i = extensions.length - 1; i >= 0; i--) {
+      const ext = extensions[i]
+      if (ext.name === 'interaction') {
+        PIXI.extensions.remove(ext);
+        console.log('Removed default interaction plugin successfully.');
+      }
+    }
   }
 }
-console.log('PIXI.extensions before remove:', PIXI.extensions)
-// PIXI.extensions.removeByName('interaction')
 
-// const interactionExt = PIXI.extensions.get('interaction')
-// if (interactionExt) {
-//     PIXI.extensions.remove(interactionExt)
-// }
-
-
-// 添加 @iro/interaction
+// 注册本地的 Interaction 类
 PIXI.extensions.add(
   {
     name: 'interaction',
-    ref: Interaction,
+    ref: Interaction, 
     type: [PIXI.ExtensionType.RendererPlugin, PIXI.ExtensionType.CanvasRendererPlugin]
   }
 )
@@ -56,28 +55,26 @@ async function initGame() {
     if (isMiniGame) {
       // @ts-ignore
       canvasTarget = window.canvas || canvas;
-    } else {
-      canvasTarget = undefined; // Web 端让 Pixi 自己创建 Canvas
     }
-    const {
-      devicePixelRatio,
-      windowWidth: width,
-      windowHeight: height,
-    } = wx.getSystemInfoSync()
-    console.log('[System Info]', wx.getSystemInfoSync(), {
-      width,
-      height, devicePixelRatio
-    });
-    // 初始化 Pixi 应用 (v6.5.10 标准写法)
+
+    // --- 核心修复 ---
+    // 获取真机系统信息
+    const systemInfo = wx.getSystemInfoSync();
+    const screenWidth = systemInfo.windowWidth;   // 逻辑宽度 (e.g. 375 / 414)
+    const screenHeight = systemInfo.windowHeight; // 逻辑高度 (e.g. 667 / 896)
+    const dpr = systemInfo.devicePixelRatio;
+
+    console.log(`[Main] Screen: ${screenWidth}x${screenHeight}, DPR: ${dpr}`);
+
+    // 初始化 Pixi 应用
+    // 关键点：使用【屏幕实际逻辑宽高】初始化，而不是设计稿宽高
     const app = new PIXI.Application({
-      view: canvasTarget, // 指定 canvas 元素
-      width: GameConfig.designWidth,
-      height: GameConfig.designHeight,
-      // width: width,
-      // height: height,
-      backgroundColor: 0x1a1a1a, // 背景色
-      resolution: devicePixelRatio || 2,
-      autoDensity: true, // CSS 像素校正
+      view: canvasTarget, 
+      width: screenWidth,   // <--- 使用屏幕宽
+      height: screenHeight, // <--- 使用屏幕高
+      backgroundColor: 0x1a1a1a,
+      resolution: dpr,      // <--- 使用设备像素比
+      autoDensity: true,
       antialias: true
     });
 
@@ -87,46 +84,22 @@ async function initGame() {
         globalThis.__PIXI_APP__ = app;
     }
 
-    if (!isMiniGame && document.body) {
-      document.body.appendChild(app.view);
-      resizeWebCanvas(app);
-      window.addEventListener('resize', () => resizeWebCanvas(app));
-    }
-
+    // 初始化场景管理器，并告知应用
     SceneManager.init(app);
 
     app.ticker.add((delta) => {
-      // v6 ticker 回调参数 delta 是帧率系数 (frame-dependent)
-      // 使用 app.ticker.deltaMS 获取两帧之间的毫秒数，更适合物理计算
       SceneManager.update(app.ticker.deltaMS);
     });
 
     // 默认进入登录场景
     await SceneManager.changeScene(LoginScene);
-    // SceneManager.changeScene(GameScene, { mode: 'pve' }) 
     
-    console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'}, Pixi v${PIXI.VERSION})`);
+    console.log(`[Main] Game Initialized (Pixi v${PIXI.VERSION})`);
 
   } catch (err) {
     console.error('Game Init Failed:', err);
   }
 }
 
-/**
- * H5 端的 Canvas 适配逻辑
- */
-function resizeWebCanvas(app) {
-  const canvas = app.view;
-  if (!canvas) return;
-
-  const wWidth = window.innerWidth;
-  const wHeight = window.innerHeight;
-
-  // Fit Height 策略：保持高度充满，宽度按比例缩放
-  const scale = wHeight / GameConfig.designHeight;
-  
-  canvas.style.width = `${GameConfig.designWidth * scale}px`;
-  canvas.style.height = `${wHeight}px`; 
-}
-
+// H5 逻辑在此文件已移除，由 main.js 处理
 initGame();

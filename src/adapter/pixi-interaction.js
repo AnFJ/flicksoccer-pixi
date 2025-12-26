@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import * as PIXI from 'pixi.js'
 
@@ -24,10 +25,14 @@ export default class extends PIXI.utils.EventEmitter {
 
     this._renderer = renderer
     this._view = renderer.view
-    this._view.style.touchAction = 'none'
+    // 小游戏中可能不支持 style 操作，做个保护
+    if (this._view.style) {
+        this._view.style.touchAction = 'none'
+        this._cursor = renderer.view.style.cursor
+    }
+    
     this._resolution = renderer.resolution
-    this._cursor = renderer.view.style.cursor
-
+    
     this.addEvents()
   }
 
@@ -35,10 +40,35 @@ export default class extends PIXI.utils.EventEmitter {
     const view = this._view
     const resolution = this._resolution
     const resolutionMultiplier = 1 / resolution
-    const rect = view.parentElement ? view.getBoundingClientRect() : {x: 0, y: 0, width: 0, height: 0}
 
-    point.x = ((x - rect.left) * (view.width / rect.width)) * resolutionMultiplier
-    point.y = ((y - rect.top) * (view.height / rect.height)) * resolutionMultiplier
+    // 1. 尝试获取 rect
+    // 在浏览器中，我们需要 getBoundingClientRect 来处理 Canvas 不是全屏或者有 margin 的情况
+    // 在微信小游戏中，canvas 通常就是全屏，且没有 parentElement
+    let rect;
+    
+    if (view.getBoundingClientRect) {
+        rect = view.getBoundingClientRect();
+    }
+
+    // 2. 兜底处理 (核心修复：真机 rect 为 0 的情况)
+    // 如果没有 rect，或者 rect 宽高为 0 (例如因为没有 parentElement 导致之前的逻辑 fallback 到了 0)
+    // 我们假定它是全屏匹配 window 尺寸
+    if (!rect || rect.width === 0 || rect.height === 0) {
+        rect = {
+            left: 0,
+            top: 0,
+            width: (typeof window !== 'undefined' ? window.innerWidth : 0) || view.width / resolution,
+            height: (typeof window !== 'undefined' ? window.innerHeight : 0) || view.height / resolution
+        };
+    }
+
+    // 3. 计算缩放比
+    // 防止除以 0
+    const rectWidth = rect.width || 1;
+    const rectHeight = rect.height || 1;
+
+    point.x = ((x - rect.left) * (view.width / rectWidth)) * resolutionMultiplier
+    point.y = ((y - rect.top) * (view.height / rectHeight)) * resolutionMultiplier
   }
 
   copyEvent(ev) {
@@ -74,6 +104,7 @@ export default class extends PIXI.utils.EventEmitter {
 
   onDown(ev) {
     const event = this._event
+    console.log("pixi-interaction pointerdown onDown", {ev, event})
     event.target = null
     event.stopped = false
     event.currentTarget = null
@@ -96,6 +127,7 @@ export default class extends PIXI.utils.EventEmitter {
     event.stopped = false
     event.currentTarget = null
     event.type = 'pointermove'
+    console.log('pixi-interaction onMove', {ev, event})
     this.copyEvent(ev)
   }
 
@@ -190,7 +222,7 @@ export default class extends PIXI.utils.EventEmitter {
     touch[id][type] = target
 
     // set custom cursor
-    if (type === 'pointermove' && last !== target) {
+    if (this._view.style && type === 'pointermove' && last !== target) {
       this._view.style.cursor = target?.cursor || this._cursor
     }
 
@@ -231,7 +263,12 @@ export default class extends PIXI.utils.EventEmitter {
 
   dispatch(ev) {
     let {target, x, y} = ev
-
+    ev.data = {
+      global: {
+        x,
+        y,
+      }
+    }
     while(target && !ev.stopped) {
       ev.currentTarget = target
       target.interactive &&
@@ -253,7 +290,10 @@ export default class extends PIXI.utils.EventEmitter {
     const view = this._view
 
     this._onClick = this.onClick.bind(this)
-    view.addEventListener('click', this._onClick)
+    // 小游戏环境可能没有 addEventListener (虽然 adapter 通常会模拟，但为了稳健)
+    if (view.addEventListener) {
+        view.addEventListener('click', this._onClick)
+    }
 
     if (pointerable) {
       this._onDown = this.onDown.bind(this)
@@ -269,24 +309,30 @@ export default class extends PIXI.utils.EventEmitter {
       this._onUp = this.onUp.bind(this)
       this._onMove = this.onMove.bind(this)
       this._onCancel = this.onCancel.bind(this)
-      view.addEventListener('touchstart', this._onDown)
-      view.addEventListener('touchend', this._onUp)
-      view.addEventListener('touchmove', this._onMove)
-      view.addEventListener('touchcancel', this._onCancel)
+      
+      if (view.addEventListener) {
+        view.addEventListener('touchstart', this._onDown)
+        view.addEventListener('touchend', this._onUp)
+        view.addEventListener('touchmove', this._onMove)
+        view.addEventListener('touchcancel', this._onCancel)
+      }
     } else {
       this._onDown = this.onDown.bind(this)
       this._onUp = this.onUp.bind(this)
       this._onMove = this.onMove.bind(this)
-      view.addEventListener('mousedown', this._onDown)
-      view.addEventListener('mouseup', this._onUp)
-      view.addEventListener('mousemove', this._onMove)
+      if (view.addEventListener) {
+        view.addEventListener('mousedown', this._onDown)
+        view.addEventListener('mouseup', this._onUp)
+        view.addEventListener('mousemove', this._onMove)
+      }
     }
-
   }
 
   destroy() {
     const view = this._view
     this._view = undefined
+    if (!view || !view.removeEventListener) return;
+
     view.removeEventListener('click', this._onClick)
     if (pointerable) {
       view.removeEventListener('pointerdown', this._onDown)
