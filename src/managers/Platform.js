@@ -1,4 +1,5 @@
 
+
 class Platform {
   constructor() {
     this.env = this.detectEnv();
@@ -20,12 +21,8 @@ class Platform {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   }
 
-  /**
-   * 请求进入全屏 (仅 Web 有效，需在用户交互回调中调用)
-   */
   enterFullscreen() {
     if (this.env !== 'web') return;
-    
     try {
       const docEl = document.documentElement;
       const requestFull = docEl.requestFullscreen || 
@@ -44,53 +41,63 @@ class Platform {
   }
 
   /**
-   * 登录
-   * @returns {Promise<{code: string, userInfo: any}>}
+   * 获取登录凭证
+   * Web: 返回 UUID (存储在 localStorage)
+   * MiniGame: 返回 code
    */
-  login() {
-    return new Promise((resolve, reject) => {
-      const provider = this.getProvider();
-      if (!provider) {
-        // Web 模拟登录
-        resolve({ code: 'mock_code', userInfo: { nickName: 'Player1' } });
-        return;
-      }
-
-      provider.login({
-        success: (res) => {
-          resolve(res);
-        },
-        fail: (err) => {
-          reject(err);
+  async getLoginCredentials() {
+    if (this.env === 'web') {
+        let uuid = localStorage.getItem('finger_soccer_uuid');
+        if (!uuid) {
+            // 简单生成 UUID
+            uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            localStorage.setItem('finger_soccer_uuid', uuid);
         }
-      });
-    });
+        return { type: 'h5', deviceId: uuid };
+    } 
+    else {
+        // 小游戏环境 (微信/抖音)
+        const provider = this.getProvider();
+        return new Promise((resolve, reject) => {
+            provider.login({
+                success: (res) => {
+                    resolve({ 
+                        type: this.env, 
+                        code: res.code 
+                    });
+                },
+                fail: (err) => {
+                    console.error('Login failed', err);
+                    reject(err);
+                }
+            });
+        });
+    }
   }
 
   /**
-   * 获取用户信息
+   * 获取用户信息 (尝试)
+   * 微信现在很难静默获取，抖音可以直接获取
    */
   getUserProfile() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const provider = this.getProvider();
-      if (this.env === 'wechat') {
-        // 微信新版通常不需要 getUserProfile 即可玩游戏，这里仅作示例
-        // 实际开发建议使用头像昵称填写能力
-        resolve({ nickName: '微信玩家', avatarUrl: '' });
-      } else if (this.env === 'douyin') {
+      
+      if (this.env === 'douyin') {
         provider.getUserInfo({
           success: (res) => resolve(res.userInfo),
-          fail: reject
+          fail: () => resolve(null)
         });
       } else {
-        resolve({ nickName: 'Web玩家', avatarUrl: '' });
+        // Web 或 微信 (默认不弹窗，等待用户进入游戏后手动同步，或直接用服务器默认值)
+        resolve(null); 
       }
     });
   }
 
-  /**
-   * 短震动反馈
-   */
   vibrateShort() {
     const provider = this.getProvider();
     if (provider && provider.vibrateShort) {
@@ -98,9 +105,6 @@ class Platform {
     }
   }
 
-  /**
-   * 显示 Toast
-   */
   showToast(title) {
     const provider = this.getProvider();
     if (provider && provider.showToast) {

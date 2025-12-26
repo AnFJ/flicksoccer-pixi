@@ -51,7 +51,7 @@ async function initGame() {
     });
 
     // 默认进入登录场景
-    await SceneManager.changeScene(GameScene);
+    await SceneManager.changeScene(LoginScene);
     
     console.log(`[Main] Game Initialized (Environment: ${isMiniGame ? 'MiniGame' : 'Web'}, Pixi v${PIXI.VERSION})`);
 

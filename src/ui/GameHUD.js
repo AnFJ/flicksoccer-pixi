@@ -97,11 +97,28 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(this.rightScoreText);
 
     // 3. 头像 (Avatars)
+    // 导入 AccountMgr 获取真实信息
+    const AccountMgr = require('../managers/AccountMgr.js').default;
+    const myInfo = AccountMgr.userInfo;
+
     const avatarSpacing = 380; 
-    const leftName = this.gameMode === 'pve' ? "AI" : "P2";
     
-    this.createAvatar(centerX - avatarSpacing, 60, TeamId.LEFT, leftName);
-    this.createAvatar(centerX + avatarSpacing, 60, TeamId.RIGHT, "You");
+    // PVE 模式：左边是 AI，右边是玩家
+    // PVP 本地：左边是 P2，右边是 P1(玩家)
+    // TODO: 联网对战时需要传入对手信息
+
+    const leftInfo = {
+        name: this.gameMode === 'pve' ? "Easy AI" : "Player 2",
+        avatar: '' // 默认
+    };
+    
+    const rightInfo = {
+        name: myInfo.nickname || "You",
+        avatar: myInfo.avatarUrl
+    };
+
+    this.createAvatar(centerX - avatarSpacing, 60, TeamId.LEFT, leftInfo);
+    this.createAvatar(centerX + avatarSpacing, 60, TeamId.RIGHT, rightInfo);
 
     // 4. 回合提示文本
     this.turnText = new PIXI.Text('等待开球...', {
@@ -113,7 +130,7 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(this.turnText);
   }
 
-  createAvatar(x, y, teamId, name) {
+  createAvatar(x, y, teamId, info) {
     const container = new PIXI.Container();
     container.position.set(x, y);
 
@@ -132,36 +149,61 @@ export default class GameHUD extends PIXI.Container {
     frame.drawRoundedRect(-size/2 + 2, -size/2 + 2, size - 4, size - 4, 8);
     frame.endFill();
 
-    // --- 2. 头像背景 ---
+    // --- 2. 头像背景 (兜底) ---
+    const innerSize = size - 12; 
     const bg = new PIXI.Graphics();
-    const innerSize = size - 12; // 留出金色边框
     bg.beginFill(teamColor);
     bg.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     bg.endFill();
+    
+    // --- 3. 头像内容 (Icon/Image) ---
+    let avatarNode;
+    
+    // 如果有远程 URL，尝试加载
+    if (info.avatar && info.avatar.startsWith('http')) {
+        const sprite = new PIXI.Sprite(); // 先创建空 Sprite
+        sprite.anchor.set(0.5);
+        sprite.width = innerSize;
+        sprite.height = innerSize;
+        
+        // 异步加载
+        PIXI.Texture.fromURL(info.avatar).then(tex => {
+            sprite.texture = tex;
+            // 保持尺寸 (Texture加载后会重置尺寸，需再次强制设置)
+            const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
+            sprite.scale.set(scale); 
+        }).catch(e => {
+            console.warn('Avatar load failed, using default.', e);
+        });
+        
+        // 创建一个遮罩让图片变成圆角
+        const avatarMask = new PIXI.Graphics();
+        avatarMask.beginFill(0xffffff);
+        avatarMask.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
+        avatarMask.endFill();
+        sprite.mask = avatarMask;
+        sprite.addChild(avatarMask); // 也可以把 mask 加上去
 
-    // --- 3. 简单的用户图标 ---
-    const icon = new PIXI.Text('?', { fontSize: 45, fill: 0xffffff, fontWeight: 'bold' });
-    icon.anchor.set(0.5);
+        avatarNode = sprite;
+    } else {
+        // 默认文字头像
+        avatarNode = new PIXI.Text(info.name.substring(0,1).toUpperCase() || '?', { 
+            fontSize: 45, fill: 0xffffff, fontWeight: 'bold' 
+        });
+        avatarNode.anchor.set(0.5);
+    }
 
     // --- 4. 倒计时蒙版 (Timer Mask) ---
-    // 关键修改：使用遮罩实现“正方形内的扇形消除”
-    // 我们绘制一个巨大的扇形，但只显示它与“头像圆角矩形”重叠的部分
-    
-    // A. 倒计时内容的容器
     const timerG = new PIXI.Graphics();
-    timerG.angle = -90; // 从12点钟方向开始
+    timerG.angle = -90; 
     this.timerGraphics[teamId] = timerG;
 
-    // B. 创建遮罩图形 (形状与头像背景一致)
+    // 遮罩
     const maskG = new PIXI.Graphics();
     maskG.beginFill(0xffffff);
     maskG.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     maskG.endFill();
-    
-    // 将遮罩加入容器 (必须在显示列表里 mask 才能生效)
     container.addChild(maskG);
-    
-    // 应用遮罩
     timerG.mask = maskG;
 
     // --- 5. 名字标签 ---
@@ -172,12 +214,15 @@ export default class GameHUD extends PIXI.Container {
     nameTag.drawRoundedRect(-tagW/2, size/2 + 5, tagW, tagH, 15);
     nameTag.endFill();
 
-    const nameText = new PIXI.Text(name, { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
+    // 截断过长的名字
+    let displayName = info.name;
+    if (displayName.length > 8) displayName = displayName.substring(0, 7) + '..';
+
+    const nameText = new PIXI.Text(displayName, { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
     nameText.anchor.set(0.5);
     nameText.position.set(0, size/2 + 20);
 
-    // 注意顺序：timerG 在 icon 之上，nameTag 之下
-    container.addChild(frame, bg, icon, timerG, nameTag, nameText);
+    container.addChild(frame, bg, avatarNode, timerG, nameTag, nameText);
     this.addChild(container);
   }
 
@@ -186,29 +231,18 @@ export default class GameHUD extends PIXI.Container {
     if (this.rightScoreText) this.rightScoreText.text = rightScore;
   }
 
-  /**
-   * 更新倒计时视觉
-   */
   updateTimerVisuals(activeTeamId, ratio) {
     for (const teamId in this.timerGraphics) {
         const g = this.timerGraphics[teamId];
         g.clear();
 
         if (parseInt(teamId) === activeTeamId && ratio > 0) {
-            // 绘制一个比头像大得多的扇形 (确保覆盖矩形的四个角)
             const bigRadius = 200; 
-            
-            // 绿色半透明
             g.beginFill(0x00FF00, 0.4);
             g.moveTo(0, 0);
-            
-            // 顺时针消除效果：画出剩余时间的扇形
             g.arc(0, 0, bigRadius, 0, Math.PI * 2 * ratio);
             g.lineTo(0, 0);
             g.endFill();
-            
-            // 因为 g 被设置了 mask (圆角矩形)，所以超出矩形部分的扇形会被自动切掉，
-            // 视觉效果就是一个绿色的正方形像钟表一样被擦除。
         }
     }
   }
