@@ -446,47 +446,82 @@ export default class GameScene extends BaseScene {
     if (rawDist < 10) return;
 
     const maxDist = GameConfig.gameplay.maxDragDistance;
-    const displayDist = Math.min(rawDist, maxDist);
+    // 使用统一的 displayDist 作为视觉长度（半径）
+    const displayDist = Math.min(rawDist, maxDist); 
     
     const angle = Math.atan2(dy, dx); 
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
-    const arrowEndX = startX + cos * displayDist * 3; 
-    const arrowEndY = startY + sin * displayDist * 3;
+    // --- 1. 绘制阴影圆圈 (Range Circle) ---
+    // 箭头长度 + 虚线长度 = 2 * displayDist = 直径
+    // 所以半径就是 displayDist
+    this.aimGraphics.beginFill(0x000000, 0.2); 
+    this.aimGraphics.drawCircle(startX, startY, displayDist);
+    this.aimGraphics.endFill();
 
+    // --- 2. 绘制反向虚线 (Back Line) ---
+    // 长度与箭头一致
     const backX = startX - cos * displayDist;
     const backY = startY - sin * displayDist;
-    this.drawDashedLine(this.aimGraphics, startX, startY, backX, backY, 10, 5);
+    this.drawDashedLine(this.aimGraphics, startX, startY, backX, backY, 15, 8); // 加粗虚线
 
-    const powerRatio = displayDist / maxDist;
-    const startColor = GameConfig.visuals.aimLineColorStart; 
-    const endColor = GameConfig.visuals.aimLineColorEnd;     
-    const color = powerRatio > 0.8 ? endColor : startColor;
+    // --- 3. 绘制前向箭头 (Forward Arrow) ---
+    
+    const arrowTipX = startX + cos * displayDist;
+    const arrowTipY = startY + sin * displayDist;
 
-    this.aimGraphics.lineStyle(6, color);
+    // 箭头头部几何参数
+    const headSize = 35;
+    // 头部在轴线上的投影长度 = size * cos(30°) ≈ size * 0.866
+    const headDepth = headSize * Math.cos(Math.PI / 6); 
+    
+    // 关键修改：计算箭杆终点
+    // 让箭杆只画到箭头头部的底部，稍微多一点重叠(+5)避免缝隙，但不画到尖端
+    const shaftLen = Math.max(0, displayDist - headDepth + 5); 
+
+    const shaftEndX = startX + cos * shaftLen;
+    const shaftEndY = startY + sin * shaftLen;
+
+    // A. 箭杆 - 底层轮廓 (深褐色)
+    this.aimGraphics.lineStyle(11, 0xB8860B); // DarkGoldenRod
     this.aimGraphics.moveTo(startX, startY);
-    this.aimGraphics.lineTo(arrowEndX, arrowEndY);
+    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
 
-    const headLen = 20;
-    this.aimGraphics.lineStyle(0); 
-    this.aimGraphics.beginFill(color);
-    this.aimGraphics.drawPolygon([
-        arrowEndX, arrowEndY,
-        arrowEndX - headLen * Math.cos(angle - Math.PI/6), arrowEndY - headLen * Math.sin(angle - Math.PI/6),
-        arrowEndX - headLen * Math.cos(angle + Math.PI/6), arrowEndY - headLen * Math.sin(angle + Math.PI/6)
-    ]);
-    this.aimGraphics.endFill();
+    // B. 箭杆 - 主体 (纯金色)
+    this.aimGraphics.lineStyle(7, 0xFFD700); // Gold
+    this.aimGraphics.moveTo(startX, startY);
+    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
 
-    this.aimGraphics.lineStyle(4, 0xffffff, 0.3 + powerRatio * 0.7);
-    this.aimGraphics.beginFill(0x000000, 0); 
-    this.aimGraphics.drawCircle(startX, startY, 60);
+    // C. 箭杆 - 高光 (中心亮条，模拟立体感)
+    this.aimGraphics.lineStyle(2, 0xFFFACD, 0.8); // LemonChiffon
+    this.aimGraphics.moveTo(startX, startY);
+    this.aimGraphics.lineTo(shaftEndX, shaftEndY);
+
+    // --- 4. 绘制箭头头部 (Arrow Head) ---
+    // 绘制一个填充的三角形
+    
+    // 头部顶点
+    const p1x = arrowTipX + cos * 5; // 稍微突出一丢丢
+    const p1y = arrowTipY + sin * 5;
+    
+    // 两个底角
+    const p2x = arrowTipX - headSize * Math.cos(angle - Math.PI/6);
+    const p2y = arrowTipY - headSize * Math.sin(angle - Math.PI/6);
+    
+    const p3x = arrowTipX - headSize * Math.cos(angle + Math.PI/6);
+    const p3y = arrowTipY - headSize * Math.sin(angle + Math.PI/6);
+
+    this.aimGraphics.lineStyle(3, 0xB8860B); // 头部描边
+    this.aimGraphics.beginFill(0xFFA500);    // 头部填充 (Orange Gold)
+    this.aimGraphics.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
     this.aimGraphics.endFill();
     
-    if (rawDist >= maxDist) {
-        this.aimGraphics.lineStyle(2, 0xFF0000, 0.8);
-        this.aimGraphics.drawCircle(startX, startY, 65);
-    }
+    // 头部高光点
+    this.aimGraphics.lineStyle(0);
+    this.aimGraphics.beginFill(0xFFFFFF, 0.5);
+    this.aimGraphics.drawCircle(arrowTipX - cos*10, arrowTipY - sin*10, 5);
+    this.aimGraphics.endFill();
   }
 
   drawDashedLine(g, x1, y1, x2, y2, dashLen, gapLen) {
@@ -499,7 +534,8 @@ export default class GameScene extends BaseScene {
     
     let currDist = 0;
     
-    g.lineStyle(2, GameConfig.visuals.dashedLineColor, 0.6);
+    // 虚线样式：加粗，白色带透明度
+    g.lineStyle(4, 0xFFFFFF, 0.6);
 
     while (currDist < dist) {
         const nextDist = Math.min(currDist + dashLen, dist);

@@ -80,8 +80,8 @@ export const GameConfig = {
   // 玩法规则
   gameplay: {
     maxScore: 2,             
-    maxDragDistance: 80,    
-    forceMultiplier: 0.0040,   
+    maxDragDistance: 160,      // [修改] 增加一倍 (80 -> 160)，让瞄准线更长
+    forceMultiplier: 0.0020,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
     turnTimeLimit: 30        
   },
 
