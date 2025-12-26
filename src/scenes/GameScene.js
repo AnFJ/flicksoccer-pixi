@@ -20,6 +20,8 @@ import { TeamId, CollisionCategory, Events } from '../constants.js';
 import AdBoard from '../ui/AdBoard.js';
 import GameMenuButton from '../ui/GameMenuButton.js';
 import GameHUD from '../ui/GameHUD.js';
+// 修复报错：引入 MenuScene
+import MenuScene from './MenuScene.js';
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -333,7 +335,9 @@ export default class GameScene extends BaseScene {
         AudioManager.playSFX('win');
         const winnerName = data.winner === TeamId.LEFT ? "红方" : "蓝方";
         Platform.showToast(`${winnerName} 获胜!`);
-        setTimeout(() => SceneManager.changeScene(null), 3000); 
+        // 核心修复：原来传入的是 null，导致 SceneManager 执行 new null() 报错
+        // 现改为跳转回 MenuScene (主菜单)
+        setTimeout(() => SceneManager.changeScene(MenuScene), 3000); 
     }, this);
   }
 
@@ -568,6 +572,9 @@ export default class GameScene extends BaseScene {
     this.strikers.forEach(s => s.update());
     if (this.ball) this.ball.update();
 
+    // 新增：更新棋子高亮状态
+    this.updateStrikerHighlights();
+
     this.checkTurnState();
 
     // AI 逻辑 (如果是 PVE 且轮到 AI)
@@ -578,6 +585,33 @@ export default class GameScene extends BaseScene {
     else if (!this.isMoving && !this.isGameOver) {
         this.updateTurnTimer(delta);
     }
+  }
+
+  // 更新棋子光圈显隐
+  updateStrikerHighlights() {
+      // 核心逻辑修改：
+      // 1. 游戏必须处于等待状态 (canInteract)
+      // 2. 玩家当前没有选中任何棋子 (!isSelecting) -> 只要按住了一个，所有提示都消失
+      
+      const canInteract = !this.isMoving && !this.isGameOver && !this.isLoading;
+      const isSelecting = !!this.selectedBody; 
+      
+      // 最终决定是否显示光圈
+      const shouldShowAll = canInteract && !isSelecting;
+      
+      this.strikers.forEach(s => {
+          let shouldGlow = false;
+          
+          if (shouldShowAll) {
+              // 只有当前回合方的棋子才发光
+              if (s.teamId === this.currentTurn) {
+                  shouldGlow = true;
+              }
+          }
+          
+          // 设置高亮状态 (Striker 内部会处理淡入淡出)
+          s.setHighlight(shouldGlow);
+      });
   }
 
   updateTurnTimer(delta) {
