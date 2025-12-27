@@ -14,6 +14,7 @@ export default class TurnManager {
         this.currentTurn = TeamId.RIGHT;
         this.timer = 0;
         this.maxTime = GameConfig.gameplay.turnTimeLimit || 30;
+        this.isPaused = false; // 新增：暂停标记
         
         this.ai = null;
         this.aiTimer = null;
@@ -29,10 +30,32 @@ export default class TurnManager {
             this.currentTurn = TeamId.RIGHT;
         }
         this.resetTimer();
+        this.isPaused = false;
+    }
+
+    /**
+     * 暂停计时 (例如对手掉线时)
+     */
+    pause() {
+        this.isPaused = true;
+        // 如果有AI计时器，也要暂停或清除 (虽然PVP一般没AI，但为了健壮性)
+        if (this.aiTimer) {
+            clearTimeout(this.aiTimer);
+            this.aiTimer = null;
+        }
+    }
+
+    /**
+     * 恢复计时
+     */
+    resume() {
+        this.isPaused = false;
+        // AI逻辑在 update 中会自动重新触发，不需要手动恢复timer
     }
 
     update(delta) {
-        if (this.scene.isMoving || this.scene.isGameOver || this.scene.isLoading) return;
+        // 如果游戏处于暂停状态、移动中、结束或加载中，都不更新回合逻辑
+        if (this.isPaused || this.scene.isMoving || this.scene.isGameOver || this.scene.isLoading) return;
 
         // 更新倒计时
         this.timer -= delta / 1000;
@@ -83,7 +106,7 @@ export default class TurnManager {
 
     _triggerAI() {
         this.aiTimer = setTimeout(() => {
-            if (this.scene.isGameOver) return;
+            if (this.scene.isGameOver || this.isPaused) return;
             const decision = this.ai.think(this.scene.strikers.filter(s => s.teamId === this.ai.teamId), this.scene.ball);
             if (decision) {
                 Matter.Body.applyForce(decision.striker.body, decision.striker.body.position, decision.force);

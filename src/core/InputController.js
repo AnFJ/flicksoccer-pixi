@@ -41,6 +41,9 @@ export default class InputController {
     }
 
     onPointerDown(e) {
+        // 新增：如果游戏处于全局暂停状态 (如等待掉线重连)，禁止输入
+        if (this.scene.isGamePaused) return;
+
         if (this.scene.isMoving || this.scene.isGameOver || this.scene.isLoading) return;
         
         // 权限校验：联网模式只能操作自己，单机模式只能操作当前回合方

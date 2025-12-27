@@ -15,6 +15,9 @@ export default class GameHUD extends PIXI.Container {
     
     // 存储倒计时图形的引用 { [TeamId]: PIXI.Graphics }
     this.timerGraphics = {};
+    
+    // 存储头像相关组件引用，用于更新掉线状态
+    this.avatarComponents = {}; // { [TeamId]: { container, overlay, statusText } }
 
     this.init();
   }
@@ -157,24 +160,20 @@ export default class GameHUD extends PIXI.Container {
     
     // --- 3. 头像内容 (Icon/Image) ---
     let avatarNode;
-    let avatarMask = null; // 用于跟踪遮罩，稍后添加到容器
+    let avatarMask = null; 
     
-    // 如果有远程 URL，尝试加载
     if (info.avatar && info.avatar.startsWith('http')) {
-        const sprite = new PIXI.Sprite(); // 先创建空 Sprite
+        const sprite = new PIXI.Sprite(); 
         sprite.anchor.set(0.5);
         
-        // 异步加载
         PIXI.Texture.fromURL(info.avatar).then(tex => {
             sprite.texture = tex;
-            // [修复] 使用 Math.max 确保宽或高填满 (Cover模式)
             const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
             sprite.scale.set(scale); 
         }).catch(e => {
             console.warn('Avatar load failed, using default.', e);
         });
         
-        // [修复] 创建遮罩，但不 addChild 到 sprite
         avatarMask = new PIXI.Graphics();
         avatarMask.beginFill(0xffffff);
         avatarMask.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
@@ -183,7 +182,6 @@ export default class GameHUD extends PIXI.Container {
 
         avatarNode = sprite;
     } else {
-        // 默认文字头像
         avatarNode = new PIXI.Text(info.name.substring(0,1).toUpperCase() || '?', { 
             fontSize: 45, fill: 0xffffff, fontWeight: 'bold' 
         });
@@ -211,7 +209,6 @@ export default class GameHUD extends PIXI.Container {
     nameTag.drawRoundedRect(-tagW/2, size/2 + 5, tagW, tagH, 15);
     nameTag.endFill();
 
-    // 截断过长的名字
     let displayName = info.name;
     if (displayName.length > 8) displayName = displayName.substring(0, 7) + '..';
 
@@ -219,13 +216,67 @@ export default class GameHUD extends PIXI.Container {
     nameText.anchor.set(0.5);
     nameText.position.set(0, size/2 + 20);
 
+    // --- 新增：6. 掉线灰色蒙层 (Overlay) ---
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(0x333333, 0.7); // 深灰色半透明
+    overlay.drawRoundedRect(-size/2, -size/2, size, size, 10);
+    overlay.endFill();
+    overlay.visible = false; // 默认隐藏
+
+    // --- 新增：7. 掉线提示文字 (Offline Text) ---
+    // 放在头像的“外侧”
+    // 左边队伍(LEFT=0) 文字在左边，右边队伍(RIGHT=1) 文字在右边
+    const isLeft = teamId === TeamId.LEFT;
+    const offTextX = isLeft ? (-size/2 - 20) : (size/2 + 20);
+    const offTextAnchor = isLeft ? 1 : 0; // 左队右对齐，右队左对齐
+
+    const offlineText = new PIXI.Text('玩家已掉线\n请等待...', {
+        fontFamily: 'Arial',
+        fontSize: 24,
+        fill: 0xFF0000,
+        stroke: 0xFFFFFF,
+        strokeThickness: 3,
+        fontWeight: 'bold',
+        align: isLeft ? 'right' : 'left'
+    });
+    offlineText.anchor.set(offTextAnchor, 0.5);
+    offlineText.position.set(offTextX, 0);
+    offlineText.visible = false;
+
     // 添加所有子节点
-    // [修复] 确保 avatarMask 被添加到容器中
     container.addChild(frame, bg, avatarNode);
     if (avatarMask) container.addChild(avatarMask);
     container.addChild(timerG, nameTag, nameText);
     
+    // 添加掉线相关UI (在最上层)
+    container.addChild(overlay, offlineText);
+    
     this.addChild(container);
+
+    // 存储引用
+    this.avatarComponents[teamId] = {
+        container,
+        overlay,
+        offlineText
+    };
+  }
+
+  /**
+   * 设置指定玩家的掉线状态
+   * @param {number} teamId 
+   * @param {boolean} isOffline 
+   */
+  setPlayerOffline(teamId, isOffline) {
+      const comps = this.avatarComponents[teamId];
+      if (comps) {
+          comps.overlay.visible = isOffline;
+          comps.offlineText.visible = isOffline;
+          
+          // 如果掉线，显示红色的闪烁效果提示（可选优化）
+          if (isOffline) {
+              comps.offlineText.alpha = 1;
+          }
+      }
   }
 
   updateScore(leftScore, rightScore) {

@@ -43,5 +43,6 @@ export const NetMsg = {
   TURN_SYNC: 'TURN_SYNC', // 回合同步
   GAME_OVER: 'GAME_OVER', // 游戏结束
   ERROR: 'ERROR',     // 错误
-  LEAVE: 'LEAVE'      // 离开
+  LEAVE: 'LEAVE',      // 离开
+  PLAYER_OFFLINE: 'PLAYER_OFFLINE' // 新增：玩家掉线/离线通知
 };

@@ -43,6 +43,7 @@ export default class GameScene extends BaseScene {
     this.isMoving = false; 
     this.isGameOver = false;
     this.isLoading = true;
+    this.isGamePaused = false; // 新增：全局游戏暂停标志（用于掉线等待）
     this.myTeamId = TeamId.LEFT;
 
     this.hud = null;
@@ -84,6 +85,7 @@ export default class GameScene extends BaseScene {
     this._setupEvents();
 
     this.isGameOver = false;
+    this.isGamePaused = false;
   }
 
   _createUI() {
@@ -197,15 +199,50 @@ export default class GameScene extends BaseScene {
               Matter.Body.setPosition(this.ball.body, msg.payload.ball);
               Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
           }
+      } else if (msg.type === NetMsg.PLAYER_OFFLINE) {
+          // 处理玩家掉线事件
+          const offlineTeamId = msg.payload.teamId; 
+          console.log(`[GameScene] Player offline: Team ${offlineTeamId}`);
+          
+          if (offlineTeamId !== undefined) {
+              // 1. UI 显示：头像变灰，显示文字
+              this.hud?.setPlayerOffline(offlineTeamId, true);
+              
+              // 2. 游戏逻辑暂停：倒计时停止，禁止操作
+              this.isGamePaused = true;
+              this.turnMgr.pause();
+              
+              // 取消当前可能正在进行的瞄准
+              this.input.reset();
+              
+              Platform.showToast("对方连接断开，等待重连...");
+          }
       } else if (msg.type === NetMsg.LEAVE) {
-          Platform.showToast("对方离线");
+          Platform.showToast("对方已离开游戏");
           setTimeout(() => SceneManager.changeScene(LobbyScene), 2000);
       }
+      
+      // 注意：如果服务器实现了重连逻辑，需要在这里处理 RECONNECT 消息来解除暂停
+      // 例如：
+      /*
+      else if (msg.type === 'PLAYER_RECONNECT') {
+          const reconnectTeamId = msg.payload.teamId;
+          this.hud?.setPlayerOffline(reconnectTeamId, false);
+          this.isGamePaused = false;
+          this.turnMgr.resume();
+          Platform.showToast("玩家已重连");
+      }
+      */
   }
 
   update(delta) {
     if (this.isLoading || !this.physics.engine) return;
     
+    // 如果处于掉线等待的暂停状态，仅渲染静态画面，不更新物理和倒计时
+    if (this.isGamePaused) {
+        return;
+    }
+
     // 物理仿真
     this.physics.update(16.66);
 
