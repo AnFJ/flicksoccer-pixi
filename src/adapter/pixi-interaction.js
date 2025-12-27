@@ -127,7 +127,6 @@ export default class extends PIXI.utils.EventEmitter {
     event.stopped = false
     event.currentTarget = null
     event.type = 'pointermove'
-    console.log('pixi-interaction onMove', {ev, event})
     this.copyEvent(ev)
   }
 

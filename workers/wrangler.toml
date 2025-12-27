@@ -1,22 +1,22 @@
-name = "finger-soccer-backend"
+name = "flick-soccer"
 main = "src/index.js"
 compatibility_date = "2025-10-30"
 
 # 替换为你的 Cloudflare Account ID (在 Dashbord 右侧可以找到)
-account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+account_id = "d548e899f5e693a32d057535a9134e70"
 
 # D1 数据库绑定配置
 [[d1_databases]]
 binding = "DB" # 代码中通过 env.DB 访问
-database_name = "finger-soccer-db"
-database_id = "YOUR_D1_DATABASE_ID" # 运行 wrangler d1 create finger-soccer-db 后生成的 ID
+database_name = "flicksoccer-db"
+database_id = "ac1adcc6-d03c-4091-a906-2399beb9af2c" # 运行 wrangler d1 create flicksoccer-db 后生成的 ID
 
 # 环境变量 (AppID 和 Secret)
 # 为了安全，建议生产环境使用 `wrangler secret put` 设置密钥
 # 开发测试可以直接写在这里
 [vars]
-WX_APP_ID = ""
-WX_APP_SECRET = ""
+WX_APP_ID = "wxbb12178265bc883c"
+WX_APP_SECRET = "0a61baa8d8274a5b8e81be80fac76ba2"
 DY_APP_ID = ""
 DY_APP_SECRET = ""
 

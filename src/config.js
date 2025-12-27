@@ -86,5 +86,5 @@ export const GameConfig = {
   },
 
   // API 地址
-  apiBaseUrl: "https://your-worker.your-name.workers.dev"
+  apiBaseUrl: "https://flicksoccer.afragin.dpdns.org"
 };
