@@ -37,10 +37,11 @@ export default {
 
         // 查询用户
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
+        let isNewUser = false;
 
         if (!user) {
+          isNewUser = true;
           // 注册新用户
-          // 注意：不再手动传入 created_at 和 last_login，让数据库默认值(北京时间)生效
           user = {
             user_id: deviceId,
             platform: 'web',
@@ -55,22 +56,19 @@ export default {
             'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items) VALUES (?, ?, ?, ?, ?, ?, ?)'
           ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items).run();
           
-          // 重新查询以获取数据库生成的准确时间
+          // 重新查询
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
-          // 更新登录时间为当前北京时间
+          // 更新登录时间
           await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours') WHERE user_id = ?").bind(deviceId).run();
-          
-          // 更新返回对象的 last_login (模拟值，或者重新查询)
-          // 简单起见我们就不重新查库了，前端通常只需要登录成功状态
         }
 
-        return response(user);
+        return response({ ...user, is_new_user: isNewUser });
       }
 
       // --- 2. 小游戏登录 (微信/抖音) ---
       if (path === '/api/login/minigame' && request.method === 'POST') {
-        const { platform, code, userInfo } = await request.json(); // userInfo 是前端传来的头像昵称(如果有)
+        const { platform, code, userInfo } = await request.json(); 
         if (!code || !platform) return response({ error: 'Missing code or platform' }, 400);
 
         let openId = null;
@@ -83,17 +81,20 @@ export default {
         }
 
         if (!openId) {
-            // 如果没配置 AppID，为了测试方便，我们直接用 code 当 openId (仅限开发环境!)
+            // 开发环境 Fallback
             openId = `dev_${platform}_${code}`; 
         }
 
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
+        let isNewUser = false;
 
         // 确定要存入的昵称和头像 (优先用前端传的，其次用数据库旧的，最后用默认)
+        // 注意：如果是静默登录(silent login)，userInfo 是空的，这里会保留数据库原值或生成随机名
         const newNick = userInfo?.nickName || user?.nickname || generateNickname();
         const newAvatar = userInfo?.avatarUrl || user?.avatar_url || '';
 
         if (!user) {
+          isNewUser = true;
           // 注册
           user = {
             user_id: openId,
@@ -109,32 +110,41 @@ export default {
             'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items) VALUES (?, ?, ?, ?, ?, ?, ?)'
           ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items).run();
           
-          // 重新查询以获取时间
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
         } else {
-          // 更新 (如果前端传了新的资料，同步更新到数据库，并更新登录时间)
-          await env.DB.prepare(
-              "UPDATE users SET last_login = datetime('now', '+8 hours'), nickname = ?, avatar_url = ? WHERE user_id = ?"
-          ).bind(newNick, newAvatar, openId).run();
+          // 更新
+          // 只有当 userInfo 传了新的有效值时，才更新资料；否则只更新登录时间
+          // 这样静默登录时不会覆盖掉用户之前已授权的头像
+          let sql = "UPDATE users SET last_login = datetime('now', '+8 hours')";
+          const args = [];
           
-          // 更新返回对象
-          user.nickname = newNick;
-          user.avatar_url = newAvatar;
+          if (userInfo && userInfo.nickName) {
+              sql += ", nickname = ?, avatar_url = ?";
+              args.push(userInfo.nickName, userInfo.avatarUrl);
+          }
+          
+          sql += " WHERE user_id = ?";
+          args.push(openId);
+          
+          await env.DB.prepare(sql).bind(...args).run();
+          
+          // 如果更新了资料，返回对象也要更新
+          if (userInfo && userInfo.nickName) {
+            user.nickname = userInfo.nickName;
+            user.avatar_url = userInfo.avatarUrl;
+          }
         }
 
-        return response(user);
+        return response({ ...user, is_new_user: isNewUser });
       }
 
-      // --- 3. 更新用户数据 (金币/等级/道具) ---
+      // --- 3. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
           const { userId, coins, level, items } = await request.json();
-          
-          // 动态构建更新语句
           await env.DB.prepare(
               'UPDATE users SET coins = ?, level = ?, items = ? WHERE user_id = ?'
           ).bind(coins, level, JSON.stringify(items || []), userId).run();
-
           return response({ success: true });
       }
 
@@ -169,6 +179,5 @@ async function fetchDouyinSession(code, env) {
         })
     });
     const data = await res.json();
-    // 抖音返回的是 data.data.openid
     return data.data?.openid;
 }

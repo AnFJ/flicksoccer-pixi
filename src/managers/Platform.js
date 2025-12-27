@@ -1,5 +1,4 @@
 
-
 class Platform {
   constructor() {
     this.env = this.detectEnv();
@@ -32,7 +31,7 @@ class Platform {
       
       if (requestFull) {
         requestFull.call(docEl).catch(err => {
-          console.warn('[Platform] Fullscreen request failed or rejected:', err);
+          console.warn('[Platform] Fullscreen API not supported');
         });
       }
     } catch (e) {
@@ -79,20 +78,42 @@ class Platform {
   }
 
   /**
-   * 获取用户信息 (尝试)
-   * 微信现在很难静默获取，抖音可以直接获取
+   * 获取用户信息
+   * 必须在用户点击按钮的回调中调用 (特别是微信)
    */
   getUserProfile() {
     return new Promise((resolve) => {
       const provider = this.getProvider();
       
-      if (this.env === 'douyin') {
+      if (this.env === 'wechat') {
+          // 微信: 必须使用 wx.getUserProfile 才能获取昵称头像
+          // 必须由点击事件触发
+          provider.getUserProfile({
+              desc: '用于展示玩家头像和昵称',
+              success: (res) => {
+                  console.log('[Platform] WeChat profile success:', res.userInfo);
+                  resolve(res.userInfo);
+              },
+              fail: (err) => {
+                  console.warn('[Platform] WeChat profile failed/rejected:', err);
+                  resolve(null);
+              }
+          });
+      }
+      else if (this.env === 'douyin') {
+        // 抖音: 使用 tt.getUserInfo (可能需要 scope 授权)
         provider.getUserInfo({
-          success: (res) => resolve(res.userInfo),
-          fail: () => resolve(null)
+          success: (res) => {
+              console.log('[Platform] Douyin profile success:', res.userInfo);
+              resolve(res.userInfo);
+          },
+          fail: (err) => {
+              console.warn('[Platform] Douyin profile failed:', err);
+              resolve(null);
+          }
         });
       } else {
-        // Web 或 微信 (默认不弹窗，等待用户进入游戏后手动同步，或直接用服务器默认值)
+        // Web 环境不获取真实资料
         resolve(null); 
       }
     });
