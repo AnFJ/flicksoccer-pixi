@@ -12,6 +12,52 @@ class Platform {
   }
 
   /**
+   * 跨平台持久化存储：设置
+   */
+  setStorage(key, value) {
+    const provider = this.getProvider();
+    if (provider) {
+      try {
+        provider.setStorageSync(key, value);
+      } catch (e) {
+        console.error('[Platform] setStorage failed', e);
+      }
+    } else {
+      localStorage.setItem(key, value);
+    }
+  }
+
+  /**
+   * 跨平台持久化存储：获取
+   */
+  getStorage(key) {
+    const provider = this.getProvider();
+    if (provider) {
+      try {
+        return provider.getStorageSync(key);
+      } catch (e) {
+        return null;
+      }
+    } else {
+      return localStorage.getItem(key);
+    }
+  }
+
+  /**
+   * 跨平台持久化存储：删除
+   */
+  removeStorage(key) {
+    const provider = this.getProvider();
+    if (provider) {
+      try {
+        provider.removeStorageSync(key);
+      } catch (e) { }
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+
+  /**
    * 判断是否为移动端 Web 环境
    */
   isMobileWeb() {
@@ -41,19 +87,17 @@ class Platform {
 
   /**
    * 获取登录凭证
-   * Web: 返回 UUID (存储在 localStorage)
-   * MiniGame: 返回 code
    */
   async getLoginCredentials() {
     if (this.env === 'web') {
-        let uuid = localStorage.getItem('finger_soccer_uuid');
+        let uuid = this.getStorage('finger_soccer_uuid');
         if (!uuid) {
             // 简单生成 UUID
             uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             });
-            localStorage.setItem('finger_soccer_uuid', uuid);
+            this.setStorage('finger_soccer_uuid', uuid);
         }
         return { type: 'h5', deviceId: uuid };
     } 
@@ -79,15 +123,12 @@ class Platform {
 
   /**
    * 获取用户信息
-   * 必须在用户点击按钮的回调中调用 (特别是微信)
    */
   getUserProfile() {
     return new Promise((resolve) => {
       const provider = this.getProvider();
       
       if (this.env === 'wechat') {
-          // 微信: 必须使用 wx.getUserProfile 才能获取昵称头像
-          // 必须由点击事件触发
           provider.getUserProfile({
               desc: '用于展示玩家头像和昵称',
               success: (res) => {
@@ -101,7 +142,6 @@ class Platform {
           });
       }
       else if (this.env === 'douyin') {
-        // 抖音: 使用 tt.getUserInfo (可能需要 scope 授权)
         provider.getUserInfo({
           success: (res) => {
               console.log('[Platform] Douyin profile success:', res.userInfo);
@@ -113,7 +153,6 @@ class Platform {
           }
         });
       } else {
-        // Web 环境不获取真实资料
         resolve(null); 
       }
     });
