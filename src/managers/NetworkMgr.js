@@ -1,5 +1,6 @@
 
 import { GameConfig } from '../config.js';
+import Platform from './Platform.js';
 
 class NetworkMgr {
   constructor() {
@@ -17,32 +18,70 @@ class NetworkMgr {
     console.log(`[Network] POST ${url}`, data);
 
     try {
-      // 适配：小游戏环境通常有 wx.request 或 tt.request，但现在大多数 adapter 都支持 fetch
-      // 如果你的 adapter 没有 polyfill fetch，需要在这里做环境判断
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
+      let resData;
 
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      // 1. 微信小游戏环境
+      if (Platform.env === 'wechat') {
+        resData = await this._requestMinigame(wx, url, data);
+      } 
+      // 2. 抖音小游戏环境
+      else if (Platform.env === 'douyin') {
+        resData = await this._requestMinigame(tt, url, data);
+      } 
+      // 3. H5 / Web 环境 (使用 fetch)
+      else {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        resData = await response.json();
       }
 
-      const resData = await response.json();
       return resData;
 
     } catch (err) {
       console.error(`[Network] Request failed: ${url}`, err);
       
-      // 为了演示，如果后端连不上，返回一个 Mock 数据防止游戏卡死
-      // 实际生产环境应抛出错误让上层处理 UI 提示
+      // 如果后端连不上，返回 null，上层业务(AccountMgr)会处理成离线模式
       console.warn('[Network] Falling back to local mock data due to network error.');
       return null;
     }
+  }
+
+  /**
+   * 内部方法：将小游戏的 request 回调封装为 Promise
+   * 微信和抖音的 request 签名基本一致
+   */
+  _requestMinigame(provider, url, data) {
+      return new Promise((resolve, reject) => {
+          provider.request({
+              url: url,
+              method: 'POST',
+              data: data,
+              header: {
+                  'Content-Type': 'application/json'
+              },
+              success: (res) => {
+                  // 小游戏 API 返回的 res.data 通常已经是解析好的 JSON 对象
+                  if (res.statusCode >= 200 && res.statusCode < 300) {
+                      resolve(res.data);
+                  } else {
+                      reject(new Error(`HTTP Error: ${res.statusCode}`));
+                  }
+              },
+              fail: (err) => {
+                  // err 通常包含 errMsg
+                  reject(err);
+              }
+          });
+      });
   }
 }
 

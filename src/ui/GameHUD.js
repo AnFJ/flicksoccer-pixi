@@ -2,6 +2,7 @@
 import * as PIXI from 'pixi.js';
 import { GameConfig } from '../config.js';
 import { TeamId } from '../constants.js';
+import AccountMgr from '../managers/AccountMgr.js';
 
 export default class GameHUD extends PIXI.Container {
   constructor(gameMode) {
@@ -97,8 +98,6 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(this.rightScoreText);
 
     // 3. 头像 (Avatars)
-    // 导入 AccountMgr 获取真实信息
-    const AccountMgr = require('../managers/AccountMgr.js').default;
     const myInfo = AccountMgr.userInfo;
 
     const avatarSpacing = 380; 
