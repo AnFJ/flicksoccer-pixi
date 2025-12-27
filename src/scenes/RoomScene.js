@@ -68,15 +68,16 @@ export default class RoomScene extends BaseScene {
     this.p1Container = this.createPlayerSlot(designWidth * 0.25, designHeight / 2);
     this.p2Container = this.createPlayerSlot(designWidth * 0.75, designHeight / 2);
 
-    // 准备按钮
+    // 准备按钮 (初始隐藏，连接成功后显示)
     this.readyBtn = new Button({
         text: '准备', width: 300, height: 100, color: 0x27ae60,
         onClick: () => this.toggleReady()
     });
     this.readyBtn.position.set(designWidth / 2 - 150, designHeight - 200);
+    this.readyBtn.visible = false; // 还没连接成功
     this.container.addChild(this.readyBtn);
 
-    this.statusText = new PIXI.Text('等待玩家...', { fontFamily: 'Arial', fontSize: 30, fill: 0xaaaaaa });
+    this.statusText = new PIXI.Text('正在连接服务器...', { fontFamily: 'Arial', fontSize: 36, fill: 0x00FF00 });
     this.statusText.anchor.set(0.5);
     this.statusText.position.set(designWidth / 2, designHeight - 250);
     this.container.addChild(this.statusText);
@@ -171,7 +172,12 @@ export default class RoomScene extends BaseScene {
   }
 
   onNetMessage(msg) {
+      // 1. 处理连接成功/状态更新
       if (msg.type === NetMsg.PLAYER_JOINED) {
+          this.statusText.text = "等待玩家准备...";
+          this.statusText.style.fill = 0xaaaaaa;
+          this.readyBtn.visible = true; // 连接成功，显示按钮
+
           const players = msg.payload.players;
           this.players = players;
           
@@ -188,11 +194,16 @@ export default class RoomScene extends BaseScene {
           if (me) {
               this.isReady = me.ready; // 同步状态
               this.readyBtn.label.text = this.isReady ? '取消准备' : '准备';
+              // 更新颜色
+              this.readyBtn.bg.clear();
+              this.readyBtn.bg.beginFill(this.isReady ? 0xe67e22 : 0x27ae60);
+              this.readyBtn.bg.drawRoundedRect(0, 0, 300, 100, 20);
+              this.readyBtn.bg.endFill();
           }
       }
+      // 2. 处理游戏开始
       else if (msg.type === NetMsg.START) {
           Platform.showToast('游戏开始！');
-          // 延迟一点点跳转
           setTimeout(() => {
               SceneManager.changeScene(GameScene, { 
                   mode: 'pvp_online',
@@ -201,9 +212,24 @@ export default class RoomScene extends BaseScene {
               });
           }, 1000);
       }
+      // 3. 处理离开/断开
       else if (msg.type === NetMsg.LEAVE) {
-          Platform.showToast('连接断开');
-          SceneManager.changeScene(LobbyScene);
+          // 如果是正常离开(自己点的) SceneManager 已经切走了
+          // 如果是被动断开
+          this.statusText.text = "连接已断开";
+      }
+      // 4. 处理错误 (新增)
+      else if (msg.type === 'ERROR') {
+          // 网络错误
+          console.warn('Room Error:', msg.payload);
+          Platform.showToast('连接失败或房间已满');
+          this.statusText.text = "连接失败";
+          
+          // 延迟退回
+          setTimeout(() => {
+              NetworkMgr.close();
+              SceneManager.changeScene(LobbyScene);
+          }, 1500);
       }
   }
 

@@ -11,6 +11,33 @@ binding = "DB" # 代码中通过 env.DB 访问
 database_name = "flicksoccer-db"
 database_id = "ac1adcc6-d03c-4091-a906-2399beb9af2c" # 运行 wrangler d1 create flicksoccer-db 后生成的 ID
 
+# --- Durable Objects 配置 ---
+[durable_objects]
+bindings = [
+  { name = "GAME_ROOM", class_name = "GameRoom" }
+]
+
+# --- 迁移规则 (修复版) ---
+# Cloudflare 免费版要求 DO 使用 SQLite 后端
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
 # 环境变量 (AppID 和 Secret)
 # 为了安全，建议生产环境使用 `wrangler secret put` 设置密钥
 # 开发测试可以直接写在这里

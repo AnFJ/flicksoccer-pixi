@@ -16,7 +16,9 @@ class NetworkMgr {
    * 发送 POST 请求 (用于登录等 HTTP 接口)
    */
   async post(endpoint, data = {}) {
-    const url = `${this.baseUrl}${endpoint}`;
+    // 移除 baseUrl 尾部可能多余的 /
+    const baseUrl = this.baseUrl.replace(/\/$/, '');
+    const url = `${baseUrl}${endpoint}`;
     console.log(`[Network] POST ${url}`, data);
 
     try {
@@ -71,7 +73,7 @@ class NetworkMgr {
     // 构造 WS URL
     // 注意：Cloudflare Worker 如果是 https，ws 需要是 wss
     const protocol = this.baseUrl.startsWith('https') ? 'wss' : 'ws';
-    const host = this.baseUrl.replace(/^https?:\/\//, '');
+    const host = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''); // 去掉协议头和尾部斜杠
     const wsUrl = `${protocol}://${host}/api/room/${roomId}/websocket?userId=${userId}&nickname=${encodeURIComponent(userInfo.nickname)}&avatar=${encodeURIComponent(userInfo.avatarUrl)}`;
 
     console.log(`[Network] Connecting WS: ${wsUrl}`);
@@ -109,8 +111,16 @@ class NetworkMgr {
 
   close() {
       if (this.socket) {
-          if (Platform.env === 'web') this.socket.close();
-          else this.socket.close({});
+          // 清理旧回调，防止内存泄漏或错误触发
+          if (Platform.env === 'web') {
+              this.socket.onopen = null;
+              this.socket.onmessage = null;
+              this.socket.onclose = null;
+              this.socket.onerror = null;
+              this.socket.close();
+          } else {
+              this.socket.close({});
+          }
           this.socket = null;
       }
       this.isConnected = false;
@@ -125,8 +135,15 @@ class NetworkMgr {
       try {
           const msg = JSON.parse(raw);
           console.log('[Network] Recv:', msg);
-          // 广播到事件总线，场景可以监听
-          EventBus.emit(Events.NET_MESSAGE, msg);
+          
+          if (msg.type === 'ERROR') {
+              console.warn('[Network] Server reported error:', msg.payload);
+              // 广播业务错误
+              EventBus.emit(Events.NET_MESSAGE, msg);
+          } else {
+              // 广播普通消息
+              EventBus.emit(Events.NET_MESSAGE, msg);
+          }
       } catch (e) {
           console.error('[Network] Msg parse error:', e);
       }
@@ -135,11 +152,13 @@ class NetworkMgr {
   _onClose() {
       console.log('[Network] WebSocket Closed');
       this.isConnected = false;
-      EventBus.emit(Events.NET_MESSAGE, { type: 'LEAVE' }); // 模拟一个断开事件
+      EventBus.emit(Events.NET_MESSAGE, { type: 'LEAVE' }); 
   }
 
   _onError(err) {
       console.error('[Network] WebSocket Error:', err);
+      // 关键：广播错误事件，让 UI 层可以处理
+      EventBus.emit(Events.NET_MESSAGE, { type: 'ERROR', payload: err });
   }
 }
 
