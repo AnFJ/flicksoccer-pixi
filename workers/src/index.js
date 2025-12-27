@@ -1,5 +1,15 @@
 
 /**
+ * 跨域配置头
+ */
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400', // 缓存预检结果24小时
+};
+
+/**
  * 辅助函数：生成标准响应
  */
 const response = (data, status = 200) => {
@@ -7,9 +17,7 @@ const response = (data, status = 200) => {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*', // 允许跨域
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      ...corsHeaders
     }
   });
 };
@@ -23,7 +31,11 @@ export default {
   async fetch(request, env, ctx) {
     // 处理预检请求 (CORS)
     if (request.method === 'OPTIONS') {
-      return response(null, 204);
+      // 预检请求直接返回 204 No Content，且不带 body
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders
+      });
     }
 
     const url = new URL(request.url);
