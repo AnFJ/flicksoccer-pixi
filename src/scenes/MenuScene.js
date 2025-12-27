@@ -43,35 +43,49 @@ export default class MenuScene extends BaseScene {
     // 用户信息 (左上角，包含等级)
     this.createUserInfo(user);
 
-    // 标题
-    const title = new PIXI.Text('弹指足球', {
-        fontFamily: 'Arial', fontSize: 100, fill: 0xFFD700, stroke: 0xffffff, strokeThickness: 4 
-    });
-    title.anchor.set(0.5);
-    title.position.set(designWidth / 4, designHeight / 2);
-    this.container.addChild(title);
+    // 获取按钮纹理
+    const btnTexture = ResourceManager.get('btn_menu');
 
     // 按钮组 (右侧垂直排列)
-    const btnX = designWidth * 0.7;
+    // 稍微调整布局，因为图片按钮可能视觉重心更重
+    const btnX = designWidth * 0.75;
     const startY = designHeight * 0.35;
-    const gap = 120;
+    const gap = 160; // 图片按钮通常较大，增加间距
 
+    // 通用按钮配置
+    const btnConfig = {
+        width: 560,  // 稍微加大宽度
+        height: 144, // 稍微加大高度以容纳图片细节
+        texture: btnTexture, // 传入图片纹理
+        color: 0x3498db,     // 兜底颜色 (如果图片没加载)
+        fontSize: 50,        // 字号加大
+        textColor: 0xFFFFFF  // 白色文字配合大多数游戏按钮背景都好看
+    };
+
+    // 1. PVE 按钮
     const pveBtn = new Button({ 
+        ...btnConfig,
         text: '单人挑战 (AI)', 
-        width: 400, height: 90, color: 0x3498db, 
         onClick: () => SceneManager.changeScene(GameScene, { mode: 'pve' }) 
     });
-    pveBtn.position.set(btnX - 200, startY);
+    // Button 锚点在左上角，为了居中对齐 btnX，我们需要减去一半宽度
+    pveBtn.position.set(btnX - 210, startY);
     
+    // 2. 本地双人 按钮
     const pvpLocalBtn = new Button({ 
+        ...btnConfig,
         text: '本地双人', 
-        width: 400, height: 90, color: 0x9b59b6, 
         onClick: () => SceneManager.changeScene(GameScene, { mode: 'pvp_local' }) 
     });
-    pvpLocalBtn.position.set(btnX - 200, startY + gap);
+    pvpLocalBtn.position.set(btnX - 210, startY + gap);
 
-    const pvpOnlineBtn = new Button({ text: '网络对战', width: 400, height: 90, color: 0xe67e22, onClick: () => SceneManager.changeScene(LobbyScene) });
-    pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
+    // 3. 网络对战 按钮
+    const pvpOnlineBtn = new Button({ 
+        ...btnConfig,
+        text: '网络对战', 
+        onClick: () => SceneManager.changeScene(LobbyScene) 
+    });
+    pvpOnlineBtn.position.set(btnX - 210, startY + gap * 2);
 
     this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
 

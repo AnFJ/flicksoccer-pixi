@@ -13,8 +13,11 @@ class ResourceManager {
       bg_grass: 'assets/images/grass_texture.png',
       
       // 新增：游戏主背景图 (登录/菜单页)
-      // 请确保 assets/images/ 目录下有 main_bg.png 文件
       main_bg: 'assets/images/main_bg.png',
+      
+      // 新增：菜单通用按钮背景图
+      // 请确保 assets/images/ 目录下有 btn_menu.png 文件
+      btn_menu: 'assets/images/btn_menu.png',
 
       // --- 足球相关 ---
       // ball_texture: 你生成的无缝平铺纹理
@@ -34,12 +37,21 @@ class ResourceManager {
   loadAll() {
     return new Promise((resolve, reject) => {
       const loader = PIXI.Loader.shared;
+      let needLoad = false;
       
-      // 防止重复添加导致报错
+      // 检查哪些还没添加进 Loader
       for (const [key, url] of Object.entries(this.manifest)) {
         if (!loader.resources[key]) {
             loader.add(key, url);
+            needLoad = true;
         }
+      }
+
+      // 如果所有资源都已经加载过或在队列中，直接检查是否加载完成
+      if (!needLoad) {
+          // 再次检查是否真的有纹理数据了（防止add了但还没load完的情况）
+          // 简单起见，如果不需要add新资源，我们假设它已经准备好了或者正在加载中
+          // 我们可以直接调用 load，Pixi Loader 会处理空队列回调
       }
 
       loader.load((loader, resources) => {
@@ -48,12 +60,12 @@ class ResourceManager {
           // v6 中 resource.texture 是纹理对象
           if (resource.texture) {
             this.resources[key] = resource.texture;
-            console.log(`[Resource] Loaded: ${key}`);
           } else if (resource.error) {
             console.warn(`[Resource] Failed to load ${key}, using fallback.`);
             this.resources[key] = null;
           }
         }
+        console.log('[Resource] All resources loaded/ready.');
         resolve();
       });
 
@@ -70,7 +82,8 @@ class ResourceManager {
    * @returns {PIXI.Texture|null}
    */
   get(key) {
-    return this.resources[key] || null;
+    // 优先从自己缓存取，取不到尝试从 loader 取
+    return this.resources[key] || (PIXI.Loader.shared.resources[key] && PIXI.Loader.shared.resources[key].texture) || null;
   }
 }
 

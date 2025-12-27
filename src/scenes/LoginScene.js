@@ -10,11 +10,33 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class LoginScene extends BaseScene {
-  onEnter() {
+  async onEnter() {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
-    // 1. 背景 (优先使用图片，失败则回退到纯色)
+    // 0. 显示临时的加载提示 (防止加载资源时黑屏)
+    const loadingText = new PIXI.Text('Loading resources...', {
+        fontFamily: 'Arial', fontSize: 30, fill: 0x888888
+    });
+    loadingText.anchor.set(0.5);
+    loadingText.position.set(designWidth / 2, designHeight / 2);
+    this.container.addChild(loadingText);
+
+    // 1. 等待资源加载完成 (关键修复：必须等待加载完才能获取图片)
+    await ResourceManager.loadAll();
+    
+    // 资源加载完毕，移除 loading 提示
+    this.container.removeChild(loadingText);
+
+    // 2. 初始化 UI
+    this.initUI(designWidth, designHeight);
+
+    // 3. 执行登录流程
+    this.startLoginProcess(designWidth, designHeight);
+  }
+
+  initUI(designWidth, designHeight) {
+    // A. 背景 (优先使用图片，失败则回退到纯色)
     const bgTex = ResourceManager.get('main_bg');
     if (bgTex) {
         const bg = new PIXI.Sprite(bgTex);
@@ -40,25 +62,13 @@ export default class LoginScene extends BaseScene {
         this.container.addChild(bg);
     }
 
-    // 2. 标题
-    const title = new PIXI.Text('弹指足球', { 
-        fontFamily: 'Arial', fontSize: 120, fontWeight: 'bold', fill: 0xFFD700,
-        stroke: '#FFFFFF', strokeThickness: 6, dropShadow: true, dropShadowDistance: 6
-    });
-    title.anchor.set(0.5);
-    title.position.set(designWidth / 2, designHeight * 0.4);
-    this.container.addChild(title);
-
-    // 3. 状态提示文本
+    // B. 状态提示文本 (保存引用，后续登录流程会修改它)
     this.statusText = new PIXI.Text('正在登录...', {
         fontFamily: 'Arial', fontSize: 40, fill: 0xAAAAAA
     });
     this.statusText.anchor.set(0.5);
     this.statusText.position.set(designWidth / 2, designHeight * 0.7);
     this.container.addChild(this.statusText);
-
-    // 4. 执行登录流程
-    this.startLoginProcess(designWidth, designHeight);
   }
 
   async startLoginProcess(w, h) {
@@ -86,21 +96,21 @@ export default class LoginScene extends BaseScene {
                   this.enterLobby();
               } else {
                   // 新用户：显示授权按钮
-                  this.statusText.text = "欢迎新玩家！";
+                  if (this.statusText) this.statusText.text = "欢迎新玩家！";
                   this.createAuthButton(w, h);
               }
           }
 
       } catch (err) {
           console.error(err);
-          this.statusText.text = "登录失败，请重试";
+          if (this.statusText) this.statusText.text = "登录失败，请重试";
           // 显示重试按钮 (直接复用授权按钮的逻辑，但文字改为重试)
           this.createRetryButton(w, h);
       }
   }
 
   enterLobby() {
-      this.statusText.text = "登录成功！";
+      if (this.statusText) this.statusText.text = "登录成功！";
       setTimeout(() => {
           SceneManager.changeScene(MenuScene);
       }, 500);
@@ -117,7 +127,7 @@ export default class LoginScene extends BaseScene {
           color: 0x07c160, // 微信绿
           onClick: async () => {
               btn.alpha = 0.5; // 禁用点击防止连点
-              this.statusText.text = "正在获取资料...";
+              if (this.statusText) this.statusText.text = "正在获取资料...";
               
               // 1. 调起平台授权弹窗/确认
               const profile = await Platform.getUserProfile();
@@ -125,9 +135,9 @@ export default class LoginScene extends BaseScene {
               // 2. 如果获取成功，同步给后端更新名字头像
               if (profile) {
                   await AccountMgr.updateUserProfile(profile);
-                  this.statusText.text = `欢迎, ${profile.nickName}`;
+                  if (this.statusText) this.statusText.text = `欢迎, ${profile.nickName}`;
               } else {
-                  this.statusText.text = "使用随机账号进入...";
+                  if (this.statusText) this.statusText.text = "使用随机账号进入...";
               }
 
               // 3. 无论授权成功与否，都进入游戏
@@ -146,11 +156,11 @@ export default class LoginScene extends BaseScene {
           width: 300, height: 100, color: 0xe74c3c,
           onClick: () => {
               this.container.removeChild(btn);
-              this.statusText.text = "正在登录...";
+              if (this.statusText) this.statusText.text = "正在登录...";
               this.startLoginProcess(w, h);
           }
       });
-      btn.position.set(w / 2 - 150, h * 0.5 + 120);
+      btn.position.set(w / 2 - 150, h * 0.7 + 120);
       this.container.addChild(btn);
   }
 }
