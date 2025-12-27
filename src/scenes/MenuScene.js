@@ -20,7 +20,7 @@ export default class MenuScene extends BaseScene {
     bg.endFill();
     this.container.addChild(bg);
 
-    // 用户信息 (左上角)
+    // 用户信息 (左上角，包含等级)
     this.createUserInfo(user);
 
     // 标题
@@ -54,15 +54,37 @@ export default class MenuScene extends BaseScene {
     pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
 
     this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
+
+    // 初始对齐
+    this.alignUserInfo();
+  }
+
+  // 响应屏幕尺寸变化
+  onResize(width, height) {
+      this.alignUserInfo();
+  }
+
+  alignUserInfo() {
+      if (!this.userInfoContainer) return;
+      
+      const margin = 40; // 距离屏幕边缘的距离
+      
+      // 获取屏幕左上角的全局坐标 + margin
+      const globalPos = new PIXI.Point(margin, margin);
+      
+      // 转换为容器内的局部坐标
+      // this.container 可能被缩放或平移，toLocal 会自动处理这些变换
+      const localPos = this.container.toLocal(globalPos);
+      
+      this.userInfoContainer.position.set(localPos.x, localPos.y);
   }
 
   createUserInfo(user) {
-    const container = new PIXI.Container();
-    const margin = 50; // 边距
-    container.position.set(margin, margin);
-
+    this.userInfoContainer = new PIXI.Container();
+    const container = this.userInfoContainer;
+    
     // --- 1. 头像区域 ---
-    const radius = 50;
+    const radius = 60; // 稍微加大一点
     const avatarContainer = new PIXI.Container();
 
     // 边框和背景
@@ -78,17 +100,14 @@ export default class MenuScene extends BaseScene {
     // 加载图片
     if (user.avatarUrl) {
          PIXI.Texture.fromURL(user.avatarUrl).then(tex => {
-             // 防止异步回来场景已销毁
              if (this.container.destroyed) return;
              
              const sprite = new PIXI.Sprite(tex);
              
-             // 关键修改 1: 设置锚点为中心，位置为圆心
              sprite.anchor.set(0.5);
              sprite.position.set(radius, radius);
 
-             // 关键修改 2: 智能缩放 (Object-fit: Cover)
-             // 找出宽和高中较小的一边，计算缩放比，确保填满圆形
+             // 智能缩放 (Cover模式)
              const scale = (radius * 2) / Math.min(tex.width, tex.height);
              sprite.scale.set(scale);
              
@@ -100,8 +119,7 @@ export default class MenuScene extends BaseScene {
              
              sprite.mask = mask;
              
-             // 关键修改 3: 遮罩添加给 container，而不是 sprite 的子节点
-             // 这样遮罩的坐标系是独立的，不会被 sprite 的 scale 影响
+             // 分离遮罩层级
              avatarContainer.addChild(sprite);
              avatarContainer.addChild(mask);
              
@@ -114,22 +132,41 @@ export default class MenuScene extends BaseScene {
     container.addChild(avatarContainer);
 
     // --- 2. 文本区域 ---
-    const textX = radius * 2 + 25;
+    const textX = radius * 2 + 30;
+    const textStartY = 10;
     
     // 昵称
     const nameText = new PIXI.Text(user.nickname, {
-        fontFamily: 'Arial', fontSize: 36, fill: 0xFFD700, fontWeight: 'bold',
+        fontFamily: 'Arial', fontSize: 40, fill: 0xFFD700, fontWeight: 'bold',
         dropShadow: true, dropShadowBlur: 2
     });
-    nameText.position.set(textX, 10);
+    nameText.position.set(textX, textStartY);
+    container.addChild(nameText);
 
-    // 金币
-    const coinsText = new PIXI.Text(`💰 ${user.coins}`, {
-        fontFamily: 'Arial', fontSize: 30, fill: 0xffffff
+    // --- 3. 等级和金币 (第二行) ---
+    // 等级背景
+    const levelBg = new PIXI.Graphics();
+    levelBg.beginFill(0x3498db); // 蓝色
+    levelBg.drawRoundedRect(0, 0, 100, 40, 10);
+    levelBg.endFill();
+    levelBg.position.set(textX, textStartY + 60);
+    container.addChild(levelBg);
+
+    // 等级文字
+    const levelText = new PIXI.Text(`Lv.${user.level}`, {
+        fontFamily: 'Arial', fontSize: 24, fill: 0xFFFFFF, fontWeight: 'bold'
     });
-    coinsText.position.set(textX, 60);
+    levelText.anchor.set(0.5);
+    // 居中显示在背景中
+    levelText.position.set(textX + 50, textStartY + 80); 
+    container.addChild(levelText);
 
-    container.addChild(nameText, coinsText);
+    // 金币文字 (放在等级右边)
+    const coinsText = new PIXI.Text(`💰 ${user.coins}`, {
+        fontFamily: 'Arial', fontSize: 32, fill: 0xffffff
+    });
+    coinsText.position.set(textX + 120, textStartY + 62);
+    container.addChild(coinsText);
 
     this.container.addChild(container);
   }

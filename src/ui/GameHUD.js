@@ -157,31 +157,29 @@ export default class GameHUD extends PIXI.Container {
     
     // --- 3. 头像内容 (Icon/Image) ---
     let avatarNode;
+    let avatarMask = null; // 用于跟踪遮罩，稍后添加到容器
     
     // 如果有远程 URL，尝试加载
     if (info.avatar && info.avatar.startsWith('http')) {
         const sprite = new PIXI.Sprite(); // 先创建空 Sprite
         sprite.anchor.set(0.5);
-        sprite.width = innerSize;
-        sprite.height = innerSize;
         
         // 异步加载
         PIXI.Texture.fromURL(info.avatar).then(tex => {
             sprite.texture = tex;
-            // 保持尺寸 (Texture加载后会重置尺寸，需再次强制设置)
+            // [修复] 使用 Math.max 确保宽或高填满 (Cover模式)
             const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
             sprite.scale.set(scale); 
         }).catch(e => {
             console.warn('Avatar load failed, using default.', e);
         });
         
-        // 创建一个遮罩让图片变成圆角
-        const avatarMask = new PIXI.Graphics();
+        // [修复] 创建遮罩，但不 addChild 到 sprite
+        avatarMask = new PIXI.Graphics();
         avatarMask.beginFill(0xffffff);
         avatarMask.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
         avatarMask.endFill();
         sprite.mask = avatarMask;
-        sprite.addChild(avatarMask); // 也可以把 mask 加上去
 
         avatarNode = sprite;
     } else {
@@ -221,7 +219,12 @@ export default class GameHUD extends PIXI.Container {
     nameText.anchor.set(0.5);
     nameText.position.set(0, size/2 + 20);
 
-    container.addChild(frame, bg, avatarNode, timerG, nameTag, nameText);
+    // 添加所有子节点
+    // [修复] 确保 avatarMask 被添加到容器中
+    container.addChild(frame, bg, avatarNode);
+    if (avatarMask) container.addChild(avatarMask);
+    container.addChild(timerG, nameTag, nameText);
+    
     this.addChild(container);
   }
 

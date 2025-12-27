@@ -67,6 +67,7 @@ export default class GameScene extends BaseScene {
     this.hud = null;
     this.goalBanner = null; // 进球条幅引用
     this.sparkSystem = null; // 粒子特效引用
+    this.menuButton = null; // 菜单按钮引用
     
     this.isLoading = true;
     
@@ -125,6 +126,14 @@ export default class GameScene extends BaseScene {
     // 初始化回合
     this.resetTurnTimer();
     this.updateUI();
+  }
+  
+  // 响应屏幕尺寸变化
+  onResize(width, height) {
+      if (this.menuButton) {
+          this.menuButton.alignToScreenBottomLeft();
+      }
+      // 如果将来有其他贴边 UI (如右上角设置)，也在这里调用它们的对齐方法
   }
 
   createLayout() {
@@ -325,8 +334,8 @@ export default class GameScene extends BaseScene {
     this.goalBanner = new GoalBanner();
     this.uiLayer.addChild(this.goalBanner);
 
-    const menuBtn = new GameMenuButton(this.app, this.uiLayer);
-    this.uiLayer.addChild(menuBtn);
+    this.menuButton = new GameMenuButton(this.app, this.uiLayer);
+    this.uiLayer.addChild(this.menuButton);
 
     this.uiLayer.addChild(this.aimGraphics);
     
