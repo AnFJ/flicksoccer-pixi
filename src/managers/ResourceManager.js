@@ -12,6 +12,10 @@ class ResourceManager {
       // 新增：全局背景草地 (注意是 png)
       bg_grass: 'assets/images/grass_texture.png',
       
+      // 新增：游戏主背景图 (登录/菜单页)
+      // 请确保 assets/images/ 目录下有 main_bg.png 文件
+      main_bg: 'assets/images/main_bg.png',
+
       // --- 足球相关 ---
       // ball_texture: 你生成的无缝平铺纹理
       ball_texture: 'assets/images/ball_texture.png', 

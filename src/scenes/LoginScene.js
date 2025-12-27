@@ -7,18 +7,38 @@ import Platform from '../managers/Platform.js';
 import MenuScene from './MenuScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
+import ResourceManager from '../managers/ResourceManager.js';
 
 export default class LoginScene extends BaseScene {
   onEnter() {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
-    // 1. 背景
-    const bg = new PIXI.Graphics();
-    bg.beginFill(0x1a2b3c);
-    bg.drawRect(0, 0, designWidth, designHeight);
-    bg.endFill();
-    this.container.addChild(bg);
+    // 1. 背景 (优先使用图片，失败则回退到纯色)
+    const bgTex = ResourceManager.get('main_bg');
+    if (bgTex) {
+        const bg = new PIXI.Sprite(bgTex);
+        bg.anchor.set(0.5);
+        // 高度适配：让背景高度填满屏幕设计高度
+        bg.height = designHeight;
+        // 保持宽高比 (27:9)
+        bg.scale.x = bg.scale.y; 
+        
+        // 居中显示
+        bg.position.set(designWidth / 2, designHeight / 2);
+        
+        // 稍微压暗一点，避免干扰文字
+        bg.tint = 0xDDDDDD; 
+        
+        this.container.addChild(bg);
+    } else {
+        // 兜底纯色背景
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x1a2b3c);
+        bg.drawRect(0, 0, designWidth, designHeight);
+        bg.endFill();
+        this.container.addChild(bg);
+    }
 
     // 2. 标题
     const title = new PIXI.Text('弹指足球', { 
@@ -130,7 +150,7 @@ export default class LoginScene extends BaseScene {
               this.startLoginProcess(w, h);
           }
       });
-      btn.position.set(w / 2 - 150, h * 0.7 + 120);
+      btn.position.set(w / 2 - 150, h * 0.5 + 120);
       this.container.addChild(btn);
   }
 }

@@ -7,6 +7,7 @@ import GameScene from './GameScene.js';
 import LobbyScene from './LobbyScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
+import ResourceManager from '../managers/ResourceManager.js';
 
 export default class MenuScene extends BaseScene {
   onEnter() {
@@ -14,11 +15,30 @@ export default class MenuScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
-    const bg = new PIXI.Graphics();
-    bg.beginFill(0x2c3e50);
-    bg.drawRect(0, 0, designWidth, designHeight);
-    bg.endFill();
-    this.container.addChild(bg);
+    // 1. 背景 (优先使用图片，失败则回退到纯色)
+    const bgTex = ResourceManager.get('main_bg');
+    if (bgTex) {
+        const bg = new PIXI.Sprite(bgTex);
+        bg.anchor.set(0.5);
+        // 高度适配：让背景高度填满屏幕设计高度
+        bg.height = designHeight;
+        // 保持宽高比
+        bg.scale.x = bg.scale.y; 
+        
+        // 居中显示
+        bg.position.set(designWidth / 2, designHeight / 2);
+        
+        // 稍微压暗，突出前景UI
+        bg.tint = 0xCCCCCC; 
+        
+        this.container.addChild(bg);
+    } else {
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x2c3e50);
+        bg.drawRect(0, 0, designWidth, designHeight);
+        bg.endFill();
+        this.container.addChild(bg);
+    }
 
     // 用户信息 (左上角，包含等级)
     this.createUserInfo(user);
