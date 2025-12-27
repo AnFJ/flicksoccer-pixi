@@ -1,0 +1,158 @@
+
+import * as PIXI from 'pixi.js';
+import Matter from 'matter-js';
+import { GameConfig } from '../config.js';
+import { CollisionCategory, TeamId } from '../constants.js';
+import ResourceManager from '../managers/ResourceManager.js';
+import AdBoard from '../ui/AdBoard.js';
+import Goal from '../entities/Goal.js';
+
+/**
+ * GameLayout 负责场景的视觉分层、球场搭建和静态物理边界
+ */
+export default class GameLayout {
+    constructor(scene) {
+        this.scene = scene;
+        
+        // 分层容器
+        this.layers = {
+            bg: new PIXI.Container(),
+            game: new PIXI.Container(),
+            over: new PIXI.Container(),
+            ui: new PIXI.Container()
+        };
+
+        this.fieldRect = null;
+        this.goals = [];
+    }
+
+    /**
+     * 初始化布局
+     */
+    init() {
+        const { designWidth, designHeight, dimensions } = GameConfig;
+
+        // 将层级添加到场景主容器
+        this.scene.container.addChild(this.layers.bg);
+        this.scene.container.addChild(this.layers.game);
+        this.scene.container.addChild(this.layers.over);
+        this.scene.container.addChild(this.layers.ui);
+
+        // 计算球场实际坐标区域
+        const remainingHeight = designHeight - dimensions.topBarHeight;
+        const marginY = (remainingHeight - dimensions.fieldHeight) / 2;
+        const fieldStartX = (designWidth - dimensions.fieldWidth) / 2;
+        const fieldStartY = dimensions.topBarHeight + marginY;
+
+        this.fieldRect = {
+            x: fieldStartX,
+            y: fieldStartY,
+            w: dimensions.fieldWidth,
+            h: dimensions.fieldHeight
+        };
+
+        this._createGlobalBackground(designWidth, designHeight);
+        this._createFieldVisuals();
+        this._createPhysicsWalls();
+        this._createGoals();
+        this._createAdBoards();
+    }
+
+    /** 创建全屏背景（草地） */
+    _createGlobalBackground(w, h) {
+        const grassTex = ResourceManager.get('bg_grass');
+        if (grassTex) {
+            const bg = new PIXI.TilingSprite(grassTex, w, h);
+            bg.tileScale.set(0.5);
+            bg.tint = 0x666666; // 稍微压暗，突出球场
+            this.layers.bg.addChild(bg);
+        }
+    }
+
+    /** 创建球场视觉元素 */
+    _createFieldVisuals() {
+        const { x, y, w, h } = this.fieldRect;
+        const centerX = x + w / 2;
+        const centerY = y + h / 2;
+
+        // 球场草坪
+        const bgTex = ResourceManager.get('field_bg');
+        if (bgTex) {
+            const sprite = new PIXI.Sprite(bgTex);
+            sprite.anchor.set(0.5);
+            sprite.width = w;
+            sprite.height = h;
+            sprite.position.set(centerX, centerY);
+            this.layers.bg.addChild(sprite);
+        }
+
+        // 球场边框
+        const borderTex = ResourceManager.get('field_border');
+        if (borderTex) {
+            const border = new PIXI.Sprite(borderTex);
+            border.anchor.set(0.5);
+            const goalDepth = GameConfig.dimensions.goalWidth * 2;
+            border.width = w + goalDepth + 20;
+            border.height = h + 20;
+            border.position.set(centerX, centerY);
+            this.layers.over.addChild(border);
+        }
+    }
+
+    /** 创建物理墙壁 */
+    _createPhysicsWalls() {
+        const { x, y, w, h } = this.fieldRect;
+        const t = GameConfig.dimensions.wallThickness;
+        const centerX = x + w / 2;
+        const goalOpening = GameConfig.dimensions.goalOpening;
+        const sideWallLen = (h - goalOpening) / 2;
+
+        const wallOptions = {
+            isStatic: true,
+            restitution: GameConfig.physics.wallRestitution,
+            friction: GameConfig.physics.wallFriction,
+            collisionFilter: { category: CollisionCategory.WALL }
+        };
+
+        const walls = [
+            Matter.Bodies.rectangle(centerX, y - t / 2, w + t * 2, t, { ...wallOptions, label: 'WallTop' }),
+            Matter.Bodies.rectangle(centerX, y + h + t / 2, w + t * 2, t, { ...wallOptions, label: 'WallBottom' }),
+            Matter.Bodies.rectangle(x - t / 2, y + sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallLeftTop' }),
+            Matter.Bodies.rectangle(x - t / 2, y + h - sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallLeftBottom' }),
+            Matter.Bodies.rectangle(x + w + t / 2, y + sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallRightTop' }),
+            Matter.Bodies.rectangle(x + w + t / 2, y + h - sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallRightBottom' })
+        ];
+
+        this.scene.physics.add(walls);
+    }
+
+    /** 创建球门 */
+    _createGoals() {
+        const { x, y, w, h } = this.fieldRect;
+        const { goalWidth, goalOpening } = GameConfig.dimensions;
+        const centerY = y + h / 2;
+
+        const leftGoal = new Goal(x - goalWidth / 2, centerY, goalWidth, goalOpening, TeamId.LEFT);
+        const rightGoal = new Goal(x + w + goalWidth / 2, centerY, goalWidth, goalOpening, TeamId.RIGHT);
+
+        this.goals = [leftGoal, rightGoal];
+        this.goals.forEach(g => {
+            this.scene.physics.add(g.body);
+            if (g.view) this.layers.game.addChild(g.view);
+        });
+    }
+
+    /** 创建广告牌 */
+    _createAdBoards() {
+        const { x, y, w, h } = this.fieldRect;
+        const adW = 200, adH = 350, dist = 160;
+
+        const leftAd = new AdBoard(adW, adH, 0);
+        leftAd.position.set(x - dist - adW / 2, y + h / 2);
+        this.layers.over.addChild(leftAd);
+
+        const rightAd = new AdBoard(adW, adH, 1);
+        rightAd.position.set(x + w + dist + adW / 2, y + h / 2);
+        this.layers.over.addChild(rightAd);
+    }
+}
