@@ -10,6 +10,16 @@ class NetworkMgr {
     this.socket = null;
     this.isConnected = false;
     this.messageHandlers = [];
+    
+    this.pingInterval = null;
+    this.pingTime = 5000; // 3秒一次心跳
+
+    // 监听网页关闭/刷新事件，强制断开连接，确保服务器立即收到 Close Frame
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeunload', () => {
+            this.close();
+        });
+    }
   }
 
   /**
@@ -41,6 +51,18 @@ class NetworkMgr {
       console.error(`[Network] Request failed: ${url}`, err);
       return null;
     }
+  }
+
+  /**
+   * 检查房间状态 (用于断线重连检测)
+   * @param {string} roomId 
+   */
+  async checkRoomStatus(roomId) {
+      // 如果没有专门的 check 接口，也可以复用 join 接口的预检逻辑
+      // 这里假设有一个轻量级接口只返回 exists: boolean
+      const res = await this.post('/api/room/check', { roomId });
+      // 模拟数据：如果后端没实现该接口，这里临时返回 null 让上层处理
+      return res;
   }
 
   _requestMinigame(provider, url, data) {
@@ -97,7 +119,7 @@ class NetworkMgr {
 
   send(msgObj) {
       if (!this.socket || !this.isConnected) {
-          console.warn('[Network] Socket not connected, cannot send:', msgObj);
+          // console.warn('[Network] Socket not connected, cannot send:', msgObj);
           return;
       }
       const jsonStr = JSON.stringify(msgObj);
@@ -110,6 +132,7 @@ class NetworkMgr {
   }
 
   close() {
+      this.stopHeartbeat();
       if (this.socket) {
           // 清理旧回调，防止内存泄漏或错误触发
           if (Platform.env === 'web') {
@@ -129,17 +152,23 @@ class NetworkMgr {
   _onOpen() {
       console.log('[Network] WebSocket Connected');
       this.isConnected = true;
+      this.startHeartbeat();
   }
 
   _onMessage(raw) {
       try {
           const msg = JSON.parse(raw);
-          console.log('[Network] Recv:', msg);
+          // 过滤掉 PONG 消息，不打印日志，避免刷屏
+          if (msg.type !== 'PONG') {
+             console.log('[Network] Recv:', msg);
+          }
           
           if (msg.type === 'ERROR') {
               console.warn('[Network] Server reported error:', msg.payload);
               // 广播业务错误
               EventBus.emit(Events.NET_MESSAGE, msg);
+          } else if (msg.type === 'PONG') {
+              // 心跳回应，暂不需要处理
           } else {
               // 广播普通消息
               EventBus.emit(Events.NET_MESSAGE, msg);
@@ -152,6 +181,7 @@ class NetworkMgr {
   _onClose() {
       console.log('[Network] WebSocket Closed');
       this.isConnected = false;
+      this.stopHeartbeat();
       EventBus.emit(Events.NET_MESSAGE, { type: 'LEAVE' }); 
   }
 
@@ -159,6 +189,22 @@ class NetworkMgr {
       console.error('[Network] WebSocket Error:', err);
       // 关键：广播错误事件，让 UI 层可以处理
       EventBus.emit(Events.NET_MESSAGE, { type: 'ERROR', payload: err });
+  }
+
+  startHeartbeat() {
+      this.stopHeartbeat();
+      this.pingInterval = setInterval(() => {
+          if (this.isConnected) {
+              this.send({ type: 'PING' });
+          }
+      }, this.pingTime);
+  }
+
+  stopHeartbeat() {
+      if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+          this.pingInterval = null;
+      }
   }
 }
 

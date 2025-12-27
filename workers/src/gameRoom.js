@@ -132,7 +132,7 @@ export class GameRoom {
       try {
         if (!msg.data) return;
         const data = JSON.parse(msg.data);
-        this.onMessage(userId, data);
+        this.onMessage(userId, data, webSocket);
       } catch (err) {
         console.error("Message parse error", err);
       }
@@ -147,7 +147,13 @@ export class GameRoom {
     });
   }
 
-  async onMessage(userId, msg) {
+  async onMessage(userId, msg, socket) {
+    // 处理心跳 PING -> PONG
+    if (msg.type === 'PING') {
+        socket.send(JSON.stringify({ type: 'PONG' }));
+        return;
+    }
+
     const player = this.roomData.players.find(p => p.id === userId);
     if (!player) return;
 
@@ -250,14 +256,17 @@ export class GameRoom {
   }
 
   async cleanupSession(session) {
-    this.sessions = this.sessions.filter(s => s !== session);
+    // 从活跃会话列表中移除
+    const index = this.sessions.indexOf(session);
+    if (index === -1) return; // 已经被移除了
+    
+    this.sessions.splice(index, 1);
     
     // 通知其他人：某人掉线了
     // 找到该 session 对应的 player
     const player = this.roomData.players.find(p => p.id === session.userId);
     if (player) {
-        // 不要立即移除 player 数据，保留以供重连
-        // 广播掉线事件
+        // 只有当游戏还在进行中，或者房间人还没空时，广播掉线
         this.broadcast({
             type: 'PLAYER_OFFLINE',
             payload: { teamId: player.teamId, userId: player.id }
