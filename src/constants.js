@@ -4,6 +4,7 @@ export const SceneNames = {
   LOGIN: 'LoginScene',
   MENU: 'MenuScene',
   LOBBY: 'LobbyScene',
+  ROOM: 'RoomScene', // 新增
   GAME: 'GameScene'
 };
 
@@ -28,5 +29,19 @@ export const Events = {
   GOAL_SCORED: 'goal_scored',
   GAME_OVER: 'game_over',
   SYNC_STATE: 'sync_state', // 网络同步
-  COLLISION_HIT: 'collision_hit' // 新增：物理碰撞产生火花
+  COLLISION_HIT: 'collision_hit', // 物理碰撞产生火花
+  NET_MESSAGE: 'net_message' // 网络消息
+};
+
+// 网络消息类型
+export const NetMsg = {
+  JOIN: 'JOIN',       // 加入房间
+  PLAYER_JOINED: 'PLAYER_JOINED', // 广播：有人加入
+  READY: 'READY',     // 准备/取消准备
+  START: 'START',     // 游戏开始
+  MOVE: 'MOVE',       // 击球动作
+  TURN_SYNC: 'TURN_SYNC', // 回合同步
+  GAME_OVER: 'GAME_OVER', // 游戏结束
+  ERROR: 'ERROR',     // 错误
+  LEAVE: 'LEAVE'      // 离开
 };

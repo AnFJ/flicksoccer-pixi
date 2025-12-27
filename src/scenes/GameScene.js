@@ -13,19 +13,18 @@ import EventBus from '../managers/EventBus.js';
 import AudioManager from '../managers/AudioManager.js';
 import Platform from '../managers/Platform.js';
 import ResourceManager from '../managers/ResourceManager.js'; 
+import NetworkMgr from '../managers/NetworkMgr.js';
+import AccountMgr from '../managers/AccountMgr.js';
 import { GameConfig } from '../config.js';
-import { TeamId, CollisionCategory, Events } from '../constants.js';
+import { TeamId, CollisionCategory, Events, NetMsg } from '../constants.js';
 
-// 引入拆分后的 UI 组件
 import AdBoard from '../ui/AdBoard.js';
 import GameMenuButton from '../ui/GameMenuButton.js';
 import GameHUD from '../ui/GameHUD.js';
-// 引入进球条幅
 import GoalBanner from '../ui/GoalBanner.js';
-// 新增：引入火星特效
 import SparkSystem from '../vfx/SparkSystem.js';
-// 修复报错：引入 MenuScene
 import MenuScene from './MenuScene.js';
+import LobbyScene from './LobbyScene.js'; // 引入 LobbyScene 以便网络断开时返回
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -43,17 +42,17 @@ export default class GameScene extends BaseScene {
     this.isMoving = false; 
     this.isGameOver = false;
 
+    // --- 网络对战相关 ---
+    this.myTeamId = TeamId.LEFT; // 默认，将在 onEnter 中覆盖
+    
     // --- 倒计时相关 ---
     this.turnTimer = 0;
-    this.maxTurnTime = GameConfig.gameplay.turnTimeLimit || 30; // 默认30秒
+    this.maxTurnTime = GameConfig.gameplay.turnTimeLimit || 30; 
 
     this.selectedBody = null;
-    
-    // --- 瞄准核心数据 ---
     this.dragStartPos = { x: 0, y: 0 };
     this.aimVector = { x: 0, y: 0 };
     
-    // --- 双指接管数据 ---
     this.isDualControl = false; 
     this.controlStartPos = { x: 0, y: 0 }; 
     this.baseAimVector = { x: 0, y: 0 };   
@@ -91,6 +90,25 @@ export default class GameScene extends BaseScene {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
     
+    // 如果是网络模式，确认自己的队伍
+    if (this.gameMode === 'pvp_online') {
+        const myId = AccountMgr.userInfo.id;
+        const me = params.players.find(p => p.id === myId);
+        if (me) this.myTeamId = me.teamId;
+        
+        // 服务器决定的先手
+        if (typeof params.startTurn !== 'undefined') {
+            this.currentTurn = params.startTurn;
+        }
+        console.log(`[Game] Online Mode. My Team: ${this.myTeamId}, Start Turn: ${this.currentTurn}`);
+    } else {
+        // 本地模式，玩家默认是 P1 (Right/Blue)，PVE 时 AI 是 P0 (Left/Red)
+        // 注意：根据代码习惯，TeamId.LEFT(0) 是红色，TeamId.RIGHT(1) 是蓝色
+        // 在 PVE 中，玩家控制 Blue (RIGHT)，AI 控制 Red (LEFT)
+        // 在 PVP Local 中，轮流控制
+        this.myTeamId = TeamId.RIGHT; // 主要用于区分 HUD 显示
+    }
+    
     const loadingText = new PIXI.Text('Loading Assets...', { fill: 0xffffff, fontSize: 30 }); 
     loadingText.anchor.set(0.5);
     loadingText.position.set(GameConfig.designWidth/2, GameConfig.designHeight/2);
@@ -110,7 +128,12 @@ export default class GameScene extends BaseScene {
     
     if (this.gameMode === 'pve') {
         this.ai = new AIController(this.physics, TeamId.LEFT); 
+        this.currentTurn = TeamId.RIGHT; // PVE 玩家先手
+    } else if (this.gameMode === 'pvp_local') {
+        this.ai = null;
+        this.currentTurn = TeamId.RIGHT; // 默认蓝方先
     } else {
+        // Online: this.currentTurn 已在 onEnter 设置
         this.ai = null;
     }
 
@@ -157,7 +180,6 @@ export default class GameScene extends BaseScene {
         globalBg.endFill();
         this.bgLayer.addChild(globalBg);
     }
-
     const remainingHeight = designHeight - dimensions.topBarHeight;
     const marginY = (remainingHeight - dimensions.fieldHeight) / 2;
     const fieldStartX = (designWidth - dimensions.fieldWidth) / 2;
@@ -182,7 +204,7 @@ export default class GameScene extends BaseScene {
     const centerX = x + w / 2;
     const centerY = y + h / 2;
 
-    const bgTexture = ResourceManager.get('field_bg');
+      const bgTexture = ResourceManager.get('field_bg');
     if (bgTexture) {
         const bgSprite = new PIXI.Sprite(bgTexture);
         bgSprite.anchor.set(0.5);
@@ -198,7 +220,7 @@ export default class GameScene extends BaseScene {
         this.bgLayer.addChild(ground);
     }
 
-    const borderTexture = ResourceManager.get('field_border');
+      const borderTexture = ResourceManager.get('field_border');
     if (borderTexture) {
         const borderSprite = new PIXI.Sprite(borderTexture);
         borderSprite.anchor.set(0.5);
@@ -239,14 +261,14 @@ export default class GameScene extends BaseScene {
     const goalOpening = GameConfig.dimensions.goalOpening;
     const sideWallLen = (h - goalOpening) / 2;
 
-    const walls = [
+      const walls = [
       Matter.Bodies.rectangle(centerX, y - t/2, w + t*2, t, { isStatic: true, label: 'WallTop' }),
       Matter.Bodies.rectangle(centerX, y + h + t/2, w + t*2, t, { isStatic: true, label: 'WallBottom' }),
       Matter.Bodies.rectangle(x - t/2, y + sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallLeftTop' }),
       Matter.Bodies.rectangle(x - t/2, y + h - sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallLeftBottom' }),
       Matter.Bodies.rectangle(x + w + t/2, y + sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallRightTop' }),
       Matter.Bodies.rectangle(x + w + t/2, y + h - sideWallLen/2, t, sideWallLen, { isStatic: true, label: 'WallRightBottom' })
-    ];
+      ];
 
     walls.forEach(body => {
         body.collisionFilter = { category: CollisionCategory.WALL, mask: CollisionCategory.DEFAULT | CollisionCategory.BALL | CollisionCategory.STRIKER };
@@ -255,7 +277,7 @@ export default class GameScene extends BaseScene {
         body.friction = GameConfig.physics.wallFriction;
         body.frictionStatic = GameConfig.physics.wallFriction; 
     });
-    this.physics.add(walls);
+      this.physics.add(walls);
   }
 
   createGoals(x, y, w, h) {
@@ -276,14 +298,10 @@ export default class GameScene extends BaseScene {
 
   setupFormation() {
     this.clearEntities();
-
     const { x, y, w, h } = this.fieldRect;
-    const centerY = y + h / 2;
-    const centerX = x + w / 2;
-
+    const centerY = y + h / 2; const centerX = x + w / 2;
     this.ball = new Ball(centerX, centerY);
     this.addEntity(this.ball);
-
     const r = GameConfig.dimensions.strikerDiameter / 2;
     
     const leftFormation = [
@@ -294,17 +312,17 @@ export default class GameScene extends BaseScene {
       { x: -w * 0.12, y: h * 0.20 },  
     ];
     const rightFormation = leftFormation.map(pos => ({ x: -pos.x, y: pos.y }));
-
-    leftFormation.forEach(pos => {
+    
+    // 给 Striker 增加 id 属性，方便网络同步查找
+    leftFormation.forEach((pos, idx) => {
       const s = new Striker(centerX + pos.x, centerY + pos.y, r, TeamId.LEFT);
-      this.strikers.push(s);
-      this.addEntity(s);
+      s.id = `left_${idx}`; // 唯一标识
+      this.strikers.push(s); this.addEntity(s);
     });
-
-    rightFormation.forEach(pos => {
+    rightFormation.forEach((pos, idx) => {
       const s = new Striker(centerX + pos.x, centerY + pos.y, r, TeamId.RIGHT);
-      this.strikers.push(s);
-      this.addEntity(s);
+      s.id = `right_${idx}`;
+      this.strikers.push(s); this.addEntity(s);
     });
   }
 
@@ -313,7 +331,7 @@ export default class GameScene extends BaseScene {
     this.physics.add(entity.body);
   }
 
-  clearEntities() {
+  clearEntities() { 
     this.strikers.forEach(s => {
         Matter.World.remove(this.physics.engine.world, s.body);
         this.gameLayer.removeChild(s.view); 
@@ -333,12 +351,9 @@ export default class GameScene extends BaseScene {
     // 新增：创建进球条幅，添加到 HUD 之上
     this.goalBanner = new GoalBanner();
     this.uiLayer.addChild(this.goalBanner);
-
     this.menuButton = new GameMenuButton(this.app, this.uiLayer);
     this.uiLayer.addChild(this.menuButton);
-
     this.uiLayer.addChild(this.aimGraphics);
-    
     // 新增：创建粒子特效系统，添加到 gameLayer 的最上层，使其位于足球之上，但位于 UI 之下
     this.sparkSystem = new SparkSystem();
     this.gameLayer.addChild(this.sparkSystem);
@@ -347,15 +362,8 @@ export default class GameScene extends BaseScene {
   setupEvents() {
     EventBus.on(Events.GOAL_SCORED, (data) => {
         AudioManager.playSFX('goal');
-        if (this.hud) {
-            this.hud.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
-        }
-        
-        // 播放进球动画
-        if (this.goalBanner) {
-            this.goalBanner.play();
-        }
-        
+        if (this.hud) this.hud.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
+        if (this.goalBanner) this.goalBanner.play();
         Platform.vibrateShort();
         setTimeout(() => {
             if (!this.isGameOver) this.setupFormation();
@@ -367,28 +375,60 @@ export default class GameScene extends BaseScene {
         AudioManager.playSFX('win');
         const winnerName = data.winner === TeamId.LEFT ? "红方" : "蓝方";
         Platform.showToast(`${winnerName} 获胜!`);
-        setTimeout(() => SceneManager.changeScene(MenuScene), 3000); 
+        setTimeout(() => {
+            if (this.gameMode === 'pvp_online') NetworkMgr.close();
+            SceneManager.changeScene(this.gameMode === 'pvp_online' ? LobbyScene : MenuScene);
+        }, 3000); 
     }, this);
 
-    // 新增：监听碰撞火星事件
     EventBus.on(Events.COLLISION_HIT, (data) => {
-        if (this.sparkSystem) {
-            this.sparkSystem.emit(data.x, data.y, data.intensity);
-        }
+        if (this.sparkSystem) this.sparkSystem.emit(data.x, data.y, data.intensity);
     }, this);
+
+    // 新增：网络消息监听
+    if (this.gameMode === 'pvp_online') {
+        EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
+    }
+  }
+
+  onNetMessage(msg) {
+      if (msg.type === NetMsg.MOVE) {
+          // 收到对手移动指令
+          const { id, force, nextTurn } = msg.payload;
+          const striker = this.strikers.find(s => s.id === id);
+          if (striker) {
+              console.log(`[Game] Net Move: ${id}`, force);
+              Matter.Body.applyForce(striker.body, striker.body.position, force);
+              
+              // 强制同步本地回合显示 (防止本地倒计时误差)
+              this.currentTurn = nextTurn;
+              this.onTurnActionComplete(true); // true 表示不重复切换回合，只触发动画
+          }
+      } 
+      else if (msg.type === NetMsg.LEAVE) {
+          Platform.showToast("对方已离开");
+          setTimeout(() => SceneManager.changeScene(LobbyScene), 2000);
+      }
   }
 
   setupInteraction() {
     this.container.interactive = true; 
-    
     this.container.on('pointerdown', this.onPointerDown.bind(this));
     this.container.on('pointermove', this.onPointerMove.bind(this));
     this.container.on('pointerup', this.onPointerUp.bind(this));
     this.container.on('pointerupoutside', this.onPointerUp.bind(this));
   }
 
-  // ... (onPointerDown, onPointerMove, drawAimingLine, drawDashedLine, onPointerUp, resetDrag 保持不变) ...
   onPointerDown(e) {
+    if (this.isMoving || this.isGameOver || this.isLoading || this.repositionAnimations.length > 0) return;
+    
+    // 网络对战：只允许操作己方
+    if (this.gameMode === 'pvp_online' && this.currentTurn !== this.myTeamId) {
+        return;
+    }
+    // PVE: 玩家总是 RIGHT
+    if (this.gameMode === 'pve' && this.currentTurn === TeamId.LEFT) return;
+
     const global = e.data.global;
     const local = this.container.toLocal(global); 
     const pointerId = e.id; 
@@ -406,7 +446,6 @@ export default class GameScene extends BaseScene {
     }
 
     if (this.isDragging && this.selectedBody) {
-        console.log(`[GameScene] Switching control to new pointer: ${pointerId}`);
         this.aimingPointerId = pointerId;
         this.isDualControl = true;
         this.controlStartPos = { x: local.x, y: local.y };
@@ -414,9 +453,9 @@ export default class GameScene extends BaseScene {
         return; 
     }
     
-    let visualTarget = e.target;
+    // 查找点击的棋子
     let selectedStriker = null;
-
+    let visualTarget = e.target;
     while (visualTarget && visualTarget !== this.container) {
         if (visualTarget.entity && typeof visualTarget.entity.teamId !== 'undefined') {
             selectedStriker = visualTarget.entity;
@@ -424,18 +463,19 @@ export default class GameScene extends BaseScene {
         }
         visualTarget = visualTarget.parent;
     }
-
     if (!selectedStriker) {
         const bodies = this.physics.queryPoint(local.x, local.y);
         const clickedBody = bodies.find(b => b.label === 'Striker');
-        if (clickedBody) {
-             selectedStriker = clickedBody.entity;
-        }
+        if (clickedBody) selectedStriker = clickedBody.entity;
     }
 
     if (selectedStriker) {
         if (selectedStriker.teamId === this.currentTurn) {
+            // 网络对战：只能拖动自己的棋子
+            if (this.gameMode === 'pvp_online' && selectedStriker.teamId !== this.myTeamId) return;
+
             this.selectedBody = selectedStriker.body;
+            this.selectedEntityId = selectedStriker.id; // 记录ID用于网络同步
             this.isDragging = true;
             this.aimingPointerId = pointerId;
             this.isDualControl = false;
@@ -451,23 +491,14 @@ export default class GameScene extends BaseScene {
   onPointerMove(e) {
     if (!this.isDragging || !this.selectedBody) return;
     if (e.id !== this.aimingPointerId) return;
-
     const local = this.container.toLocal(e.data.global); 
-    
     if (this.isDualControl) {
         const deltaX = local.x - this.controlStartPos.x;
         const deltaY = local.y - this.controlStartPos.y;
-        this.aimVector = {
-            x: this.baseAimVector.x + deltaX,
-            y: this.baseAimVector.y + deltaY
-        };
+        this.aimVector = { x: this.baseAimVector.x + deltaX, y: this.baseAimVector.y + deltaY };
     } else {
-        this.aimVector = {
-            x: this.dragStartPos.x - local.x,
-            y: this.dragStartPos.y - local.y
-        };
+        this.aimVector = { x: this.dragStartPos.x - local.x, y: this.dragStartPos.y - local.y };
     }
-    
     this.drawAimingLine();
   }
 
@@ -572,18 +603,36 @@ export default class GameScene extends BaseScene {
       const dx = this.aimVector.x;
       const dy = this.aimVector.y;
       const currentLen = Math.sqrt(dx*dx + dy*dy);
-      const maxLen = GameConfig.gameplay.maxDragDistance;
-      const effectiveDist = Math.min(currentLen, maxLen);
-      const angle = Math.atan2(dy, dx);
-      const forceMultiplier = GameConfig.gameplay.forceMultiplier;
-      const force = {
-        x: Math.cos(angle) * effectiveDist * forceMultiplier,
-        y: Math.sin(angle) * effectiveDist * forceMultiplier
-      };
-
+      
       if (currentLen > 40) {
-        Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
-        this.onTurnActionComplete();
+          const maxLen = GameConfig.gameplay.maxDragDistance;
+          const effectiveDist = Math.min(currentLen, maxLen);
+          const angle = Math.atan2(dy, dx);
+          const forceMultiplier = GameConfig.gameplay.forceMultiplier;
+          const force = {
+            x: Math.cos(angle) * effectiveDist * forceMultiplier,
+            y: Math.sin(angle) * effectiveDist * forceMultiplier
+          };
+
+          if (this.gameMode === 'pvp_online') {
+              // 联网模式：不直接应用，而是发送
+              console.log(`[Game] Sending Move: ${this.selectedEntityId}`, force);
+              NetworkMgr.send({
+                  type: NetMsg.MOVE,
+                  payload: {
+                      id: this.selectedEntityId,
+                      force: force
+                  }
+              });
+              // 本地先执行，假设网络无延迟（或者等待服务器回包再执行也可，但为了手感通常预测执行）
+              // 由于是回合制，这里我们采取“本地预测执行”策略
+              Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
+              this.onTurnActionComplete();
+          } else {
+              // 本地模式
+              Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
+              this.onTurnActionComplete();
+          }
       }
       
       this.resetDrag();
@@ -594,6 +643,7 @@ export default class GameScene extends BaseScene {
     this.aimGraphics.clear();
     this.isDragging = false;
     this.selectedBody = null;
+    this.selectedEntityId = null;
     this.aimingPointerId = null; 
     this.isDualControl = false;
     this.aimVector = { x: 0, y: 0 };
@@ -601,25 +651,18 @@ export default class GameScene extends BaseScene {
     this.controlStartPos = { x: 0, y: 0 };
   }
 
-  onTurnActionComplete() {
+  onTurnActionComplete(isRemote = false) {
     this.isMoving = true;
     AudioManager.playSFX('collision');
     this.turnTimer = 0;
-    if (this.hud) {
-        this.hud.updateTimerVisuals(this.currentTurn, 0);
-    }
+    if (this.hud) this.hud.updateTimerVisuals(this.currentTurn, 0);
   }
 
   update(delta) {
     super.update(delta);
+    if (this.isLoading || !this.physics.engine) return;
     
-    if (this.isLoading || !this.physics.engine) {
-        return;
-    }
-    
-    if (this.repositionAnimations.length > 0) {
-        this.updateRepositionAnimations(delta);
-    } 
+    if (this.repositionAnimations.length > 0) this.updateRepositionAnimations(delta);
     
     this.physics.update(16.66);
 
@@ -637,13 +680,12 @@ export default class GameScene extends BaseScene {
     }
 
     this.updateStrikerHighlights();
-
     this.checkTurnState();
 
-    if (!this.isMoving && !this.isGameOver && this.ai && this.currentTurn === this.ai.teamId) {
-        this.processAITurn();
-    } 
-    else if (!this.isMoving && !this.isGameOver) {
+    if (!this.isMoving && !this.isGameOver) {
+        if (this.ai && this.currentTurn === this.ai.teamId) {
+            this.processAITurn();
+        }
         this.updateTurnTimer(delta);
     }
   }
@@ -680,8 +722,11 @@ export default class GameScene extends BaseScene {
       this.strikers.forEach(s => {
           let shouldGlow = false;
           if (shouldShowAll) {
-              if (s.teamId === this.currentTurn) {
-                  shouldGlow = true;
+              // 联网模式下，只高亮自己的棋子
+              if (this.gameMode === 'pvp_online') {
+                  if (s.teamId === this.currentTurn && s.teamId === this.myTeamId) shouldGlow = true;
+              } else {
+                  if (s.teamId === this.currentTurn) shouldGlow = true;
               }
           }
           s.setHighlight(shouldGlow);
@@ -700,12 +745,16 @@ export default class GameScene extends BaseScene {
   }
 
   handleTurnTimeout() {
-      console.log(`[Game] Turn timeout for Team ${this.currentTurn}, forcing move.`);
+      // 网络模式下，客户端不主动触发超时逻辑，等待服务器指令(或由玩家自行操作)
+      // 但为了体验，如果超时太久（例如对方掉线），可以弹提示。
+      // 为简化，这里仅在本地模式触发 AI 代打
+      if (this.gameMode === 'pvp_online') return;
+
+      console.log(`[Game] Turn timeout for Team ${this.currentTurn}`);
       if (this.isDragging) this.resetDrag();
       
       const tempAI = new AIController(this.physics, this.currentTurn);
       const teamStrikers = this.strikers.filter(s => s.teamId === this.currentTurn);
-      
       const decision = tempAI.think(teamStrikers, this.ball);
       
       if (decision) {
@@ -721,73 +770,81 @@ export default class GameScene extends BaseScene {
     if (this.isMoving && this.physics.isSleeping() && this.repositionAnimations.length === 0) {
         this.isMoving = false;
         
+        // 联网模式不需要本地执行 EnforceFairPlay 和 SwitchTurn，完全依赖服务器（或者简化为本地先执行）
+        // 为了流畅性，我们依然本地执行切换，通过 onNetMessage 的 nextTurn 来校准
+        
         this.enforceFairPlay();
         
-        this.switchTurn();
+        // 如果是联网模式，切换回合的逻辑其实已经在收到 MOVE 时处理了一部分
+        // 但如果球动了很久，这里是物理停止的时刻。
+        // 在本地模式下，这里真正切换回合。
+        if (this.gameMode !== 'pvp_online') {
+            this.switchTurn();
+        } else {
+            // 联网模式下，收到 MOVE 时已经更新了 currentTurn，这里只是重置 Timer UI 和状态
+            // 但如果服务器没有发 TURN_SYNC，我们这里需要确保状态正确
+            this.resetTurnTimer();
+            this.updateUI();
+        }
     }
   }
 
   enforceFairPlay() {
+      // 保持原有逻辑 (略) ...
+      // 这个逻辑必须两端一致，因为它是确定性的。只要两端物理引擎一致，这个就会一致。
       const { strikerDiameter, goalWidth } = GameConfig.dimensions;
       const r = strikerDiameter / 2;
-      const fieldLeft = this.fieldRect.x;
-      const fieldRight = this.fieldRect.x + this.fieldRect.w;
-
-      const fieldTop = this.fieldRect.y;
-      const fieldBottom = this.fieldRect.y + this.fieldRect.h;
-
-      const minY = fieldTop + r + 20;
-      const maxY = fieldBottom - r - 20;
-
+      const fieldLeft = this.fieldRect.x; const fieldRight = this.fieldRect.x + this.fieldRect.w;
+      const fieldTop = this.fieldRect.y; const fieldBottom = this.fieldRect.y + this.fieldRect.h;
+      const minY = fieldTop + r + 20; const maxY = fieldBottom - r - 20;
       const offsetDist = goalWidth * 3;
 
       this.strikers.forEach(striker => {
           const pos = striker.body.position;
-          let targetX = null;
-          let needsReset = false;
+          let targetX = null; let needsReset = false;
+          const randomX = (Math.random() - 0.5) * strikerDiameter; // 这里的随机性会导致不同步！
+          // FIX: 在联网模式下，FairPlay 的随机复位会导致位置不同步。
+          // 应该由服务器计算并发下，或者去除随机性。
+          // 暂时简单处理：去除随机性，使用固定偏移。
+          
+          const safeX = this.gameMode === 'pvp_online' ? 0 : randomX;
 
-          const randomX = (Math.random() - 0.5) * strikerDiameter;
-
-          if (pos.x < fieldLeft - r + 5) {
-              targetX = fieldLeft + offsetDist + randomX;
-              needsReset = true;
-          }
-          else if (pos.x > fieldRight + r - 5) {
-              targetX = fieldRight - offsetDist + randomX;
-              needsReset = true;
-          }
+          if (pos.x < fieldLeft - r + 5) { targetX = fieldLeft + offsetDist + safeX; needsReset = true; }
+          else if (pos.x > fieldRight + r - 5) { targetX = fieldRight - offsetDist + safeX; needsReset = true; }
 
           if (needsReset) {
-              let targetPos = null;
-              
-              for (let i = 0; i < 10; i++) {
-                  const randY = Math.random() * (maxY - minY) + minY;
-                  const candidate = { x: targetX, y: randY };
-                  
-                  const safeDistance = r * 2 + 10;
-                  let overlap = false;
-                  
-                  for (const other of this.strikers) {
-                      if (other === striker) continue; 
-                      const dx = other.body.position.x - candidate.x;
-                      const dy = other.body.position.y - candidate.y;
-                      if (dx * dx + dy * dy < safeDistance * safeDistance) {
-                          overlap = true;
-                          break;
-                      }
-                  }
-                  
-                  if (!overlap) {
-                      targetPos = candidate;
-                      break; 
-                  }
+              let targetPos = { x: targetX, y: (minY + maxY) / 2 };
+              // 联网模式不再尝试寻找不重叠位置（因为计算复杂且易导致不同步），直接复位到固定点
+              if (this.gameMode !== 'pvp_online') {
+                for (let i = 0; i < 10; i++) {
+                    const randY = Math.random() * (maxY - minY) + minY;
+                    const candidate = { x: targetX, y: randY };
+                    
+                    const safeDistance = r * 2 + 10;
+                    let overlap = false;
+                    
+                    for (const other of this.strikers) {
+                        if (other === striker) continue; 
+                        const dx = other.body.position.x - candidate.x;
+                        const dy = other.body.position.y - candidate.y;
+                        if (dx * dx + dy * dy < safeDistance * safeDistance) {
+                            overlap = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!overlap) {
+                        targetPos = candidate;
+                        break; 
+                    }
+                }
+                
+                if (!targetPos) {
+                    targetPos = { x: targetX, y: (minY + maxY) / 2 };
+                }
+                
+                console.log(`[FairPlay] Animating striker out to (${targetPos.x.toFixed(0)}, ${targetPos.y.toFixed(0)})`);
               }
-              
-              if (!targetPos) {
-                  targetPos = { x: targetX, y: (minY + maxY) / 2 };
-              }
-              
-              console.log(`[FairPlay] Animating striker out to (${targetPos.x.toFixed(0)}, ${targetPos.y.toFixed(0)})`);
               
               striker.body.isSensor = true;
               
@@ -842,8 +899,10 @@ export default class GameScene extends BaseScene {
     super.onExit();
     EventBus.off(Events.GOAL_SCORED, this);
     EventBus.off(Events.GAME_OVER, this);
-    // 新增：移除特效事件监听
     EventBus.off(Events.COLLISION_HIT, this);
+    if (this.gameMode === 'pvp_online') {
+        EventBus.off(Events.NET_MESSAGE, this.onNetMessage, this);
+    }
     this.physics.clear();
     if (this.aiTimer) clearTimeout(this.aiTimer);
   }
