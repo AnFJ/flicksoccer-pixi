@@ -45,7 +45,24 @@ export default {
     const path = url.pathname;
 
     try {
-      // --- 1. 多人房间 ---
+      // --- 1. 多人房间相关 ---
+      
+      // A. 房间状态检查 (新增)
+      if (path === '/api/room/check' && request.method === 'POST') {
+          const { roomId } = await request.json();
+          if (!roomId) return response({ error: 'Missing roomId' }, 400);
+
+          // 获取 Durable Object
+          const id = env.GAME_ROOM.idFromName(roomId);
+          const stub = env.GAME_ROOM.get(id);
+
+          // 构造一个内部请求传给 DO
+          // 注意：DO 的 fetch 方法只能接收 Request 对象
+          const checkReq = new Request("https://internal/check", { method: 'GET' });
+          return stub.fetch(checkReq);
+      }
+
+      // B. WebSocket 连接
       if (path.startsWith("/api/room/")) {
           // 提取 room ID: /api/room/1234/websocket
           const parts = path.split('/');
@@ -57,13 +74,13 @@ export default {
           }
 
           // 获取 Durable Object ID
-          // 使用 idFromName 根据房间号生成固定 ID，保证所有连入 "1234" 的人都进同一个 DO
           const id = env.GAME_ROOM.idFromName(roomId);
           const stub = env.GAME_ROOM.get(id);
 
           return stub.fetch(request);
       }
-      // --- 1. H5 游客登录 ---
+
+      // --- 2. H5 游客登录 ---
       if (path === '/api/login/h5' && request.method === 'POST') {
         const { deviceId } = await request.json();
         if (!deviceId) return response({ error: 'Missing deviceId' }, 400);
@@ -99,7 +116,7 @@ export default {
         return response({ ...user, is_new_user: isNewUser });
       }
 
-      // --- 2. 小游戏登录 (微信/抖音) ---
+      // --- 3. 小游戏登录 (微信/抖音) ---
       if (path === '/api/login/minigame' && request.method === 'POST') {
         const { platform, code, userInfo } = await request.json(); 
         if (!code || !platform) return response({ error: 'Missing code or platform' }, 400);
@@ -172,7 +189,7 @@ export default {
         return response({ ...user, is_new_user: isNewUser });
       }
 
-      // --- 3. 更新用户数据 ---
+      // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
           const { userId, coins, level, items } = await request.json();
           await env.DB.prepare(
@@ -214,4 +231,3 @@ async function fetchDouyinSession(code, env) {
     const data = await res.json();
     return data.data?.openid;
 }
-

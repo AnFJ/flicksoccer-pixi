@@ -43,7 +43,7 @@ export default class GameScene extends BaseScene {
     this.isMoving = false; 
     this.isGameOver = false;
     this.isLoading = true;
-    this.isGamePaused = false; // 新增：全局游戏暂停标志（用于掉线等待）
+    this.isGamePaused = false; 
     this.myTeamId = TeamId.LEFT;
 
     this.hud = null;
@@ -86,6 +86,42 @@ export default class GameScene extends BaseScene {
 
     this.isGameOver = false;
     this.isGamePaused = false;
+
+    // --- 处理断线重连恢复 ---
+    if (params.snapshot) {
+        this.restoreState(params.snapshot);
+    }
+  }
+
+  /**
+   * 恢复游戏状态 (位置、分数)
+   */
+  restoreState(snapshot) {
+      console.log('[GameScene] Restoring state...', snapshot);
+      
+      // 1. 恢复分数
+      if (snapshot.scores) {
+          this.rules.score = snapshot.scores;
+          this.hud?.updateScore(snapshot.scores[TeamId.LEFT], snapshot.scores[TeamId.RIGHT]);
+      }
+
+      // 2. 恢复位置
+      if (snapshot.positions && snapshot.positions.strikers) {
+          snapshot.positions.strikers.forEach(data => {
+              const s = this.strikers.find(st => st.id === data.id);
+              if (s) {
+                  Matter.Body.setPosition(s.body, data.pos);
+                  Matter.Body.setVelocity(s.body, {x:0, y:0});
+              }
+          });
+
+          if (this.ball && snapshot.positions.ball) {
+              Matter.Body.setPosition(this.ball.body, snapshot.positions.ball);
+              Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
+          }
+      }
+      
+      Platform.showToast("已恢复对局");
   }
 
   _createUI() {
@@ -165,11 +201,26 @@ export default class GameScene extends BaseScene {
     this.hud?.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
     this.goalBanner?.play();
     Platform.vibrateShort();
+    
+    // 联网模式下，通知服务器更新比分 (简单信任客户端)
+    if (this.gameMode === 'pvp_online') {
+        NetworkMgr.send({
+            type: NetMsg.GOAL,
+            payload: { newScore: data.newScore }
+        });
+    }
+
     setTimeout(() => { if (!this.isGameOver) this.setupFormation(); }, 2000);
   }
 
   onGameOver(data) {
     this.isGameOver = true;
+    
+    // 游戏正常结束，清除重连记录
+    if (this.gameMode === 'pvp_online') {
+        Platform.removeStorage('last_room_id');
+    }
+
     AudioManager.playSFX('win');
     Platform.showToast(`${data.winner === TeamId.LEFT ? "红方" : "蓝方"} 获胜!`);
     setTimeout(() => {
@@ -188,13 +239,15 @@ export default class GameScene extends BaseScene {
           }
       } else if (msg.type === NetMsg.TURN_SYNC) {
           // 接收位置校准
-          msg.payload.strikers.forEach(data => {
-              const s = this.strikers.find(st => st.id === data.id);
-              if (s) {
-                  Matter.Body.setPosition(s.body, data.pos);
-                  Matter.Body.setVelocity(s.body, {x:0, y:0});
-              }
-          });
+          if (msg.payload.strikers) {
+              msg.payload.strikers.forEach(data => {
+                  const s = this.strikers.find(st => st.id === data.id);
+                  if (s) {
+                      Matter.Body.setPosition(s.body, data.pos);
+                      Matter.Body.setVelocity(s.body, {x:0, y:0});
+                  }
+              });
+          }
           if (this.ball && msg.payload.ball) {
               Matter.Body.setPosition(this.ball.body, msg.payload.ball);
               Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
@@ -205,40 +258,44 @@ export default class GameScene extends BaseScene {
           console.log(`[GameScene] Player offline: Team ${offlineTeamId}`);
           
           if (offlineTeamId !== undefined) {
-              // 1. UI 显示：头像变灰，显示文字
               this.hud?.setPlayerOffline(offlineTeamId, true);
-              
-              // 2. 游戏逻辑暂停：倒计时停止，禁止操作
               this.isGamePaused = true;
               this.turnMgr.pause();
-              
-              // 取消当前可能正在进行的瞄准
               this.input.reset();
-              
               Platform.showToast("对方连接断开，等待重连...");
           }
+      } else if (msg.type === NetMsg.PLAYER_JOINED) {
+          // 如果游戏正在进行中收到 PLAYER_JOINED，说明掉线玩家重连回来了
+          if (this.isGamePaused) {
+               console.log('[GameScene] Player reconnected!');
+               
+               // 解除所有人的掉线状态显示 (简单暴力)
+               this.hud?.setPlayerOffline(0, false);
+               this.hud?.setPlayerOffline(1, false);
+
+               this.isGamePaused = false;
+               this.turnMgr.resume();
+               Platform.showToast("玩家已重连，继续游戏");
+               
+               // 如果我是房主/当前回合方，立即发送一次位置同步，确保重连者画面正确
+               if (this.turnMgr.currentTurn === this.myTeamId && !this.isMoving) {
+                   this._syncAllPositions();
+               }
+          }
       } else if (msg.type === NetMsg.LEAVE) {
+          // 对方彻底离开了
+          Platform.removeStorage('last_room_id');
           Platform.showToast("对方已离开游戏");
           setTimeout(() => SceneManager.changeScene(LobbyScene), 2000);
+      } else if (msg.type === NetMsg.GAME_OVER) {
+          Platform.removeStorage('last_room_id');
       }
-      
-      // 注意：如果服务器实现了重连逻辑，需要在这里处理 RECONNECT 消息来解除暂停
-      // 例如：
-      /*
-      else if (msg.type === 'PLAYER_RECONNECT') {
-          const reconnectTeamId = msg.payload.teamId;
-          this.hud?.setPlayerOffline(reconnectTeamId, false);
-          this.isGamePaused = false;
-          this.turnMgr.resume();
-          Platform.showToast("玩家已重连");
-      }
-      */
   }
 
   update(delta) {
     if (this.isLoading || !this.physics.engine) return;
     
-    // 如果处于掉线等待的暂停状态，仅渲染静态画面，不更新物理和倒计时
+    // 如果处于掉线等待的暂停状态，仅渲染静态画面
     if (this.isGamePaused) {
         return;
     }
@@ -271,6 +328,9 @@ export default class GameScene extends BaseScene {
                 if (!startedAnyAnim) {
                     this._endTurn();
                 }
+            } else {
+                // 修复：非主控方（接管回合方）在物理静止后，也必须手动结束移动状态，否则无法进行操作
+                this._endTurn();
             }
         }
     }

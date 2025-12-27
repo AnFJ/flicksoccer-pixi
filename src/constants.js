@@ -41,8 +41,10 @@ export const NetMsg = {
   START: 'START',     // 游戏开始
   MOVE: 'MOVE',       // 击球动作
   TURN_SYNC: 'TURN_SYNC', // 回合同步
+  GOAL: 'GOAL',       // 进球 (新增)
   GAME_OVER: 'GAME_OVER', // 游戏结束
   ERROR: 'ERROR',     // 错误
   LEAVE: 'LEAVE',      // 离开
-  PLAYER_OFFLINE: 'PLAYER_OFFLINE' // 新增：玩家掉线/离线通知
+  PLAYER_OFFLINE: 'PLAYER_OFFLINE', // 玩家掉线/离线通知
+  GAME_RESUME: 'GAME_RESUME' // 新增：断线重连恢复游戏
 };

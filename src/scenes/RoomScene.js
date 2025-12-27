@@ -174,13 +174,20 @@ export default class RoomScene extends BaseScene {
   onNetMessage(msg) {
       // 1. 处理连接成功/状态更新
       if (msg.type === NetMsg.PLAYER_JOINED) {
-          this.statusText.text = "等待玩家准备...";
-          this.statusText.style.fill = 0xaaaaaa;
-          this.readyBtn.visible = true; // 连接成功，显示按钮
-
           const players = msg.payload.players;
           this.players = players;
           
+          // 如果房间状态是 PLAYING，说明是重连进来的，但还没收到 RESUME 消息
+          // 界面上显示"正在恢复"
+          if (msg.payload.status === 'PLAYING') {
+               this.statusText.text = "检测到对局进行中，正在恢复...";
+               this.readyBtn.visible = false;
+          } else {
+               this.statusText.text = "等待玩家准备...";
+               this.statusText.style.fill = 0xaaaaaa;
+               this.readyBtn.visible = true; 
+          }
+
           // 根据 teamId 分配位置 (0:左, 1:右)
           const p1 = players.find(p => p.teamId === 0);
           const p2 = players.find(p => p.teamId === 1);
@@ -212,20 +219,31 @@ export default class RoomScene extends BaseScene {
               });
           }, 1000);
       }
-      // 3. 处理离开/断开
+      // 3. 处理游戏恢复 (重连)
+      else if (msg.type === NetMsg.GAME_RESUME) {
+          Platform.showToast('正在恢复对局...');
+          console.log('[RoomScene] Resuming game with snapshot:', msg.payload);
+          setTimeout(() => {
+              SceneManager.changeScene(GameScene, {
+                  mode: 'pvp_online',
+                  players: msg.payload.players,
+                  startTurn: msg.payload.currentTurn,
+                  snapshot: msg.payload // 传递恢复数据
+              });
+          }, 500);
+      }
+      // 4. 处理离开/断开
       else if (msg.type === NetMsg.LEAVE) {
           // 如果是正常离开(自己点的) SceneManager 已经切走了
           // 如果是被动断开
           this.statusText.text = "连接已断开";
       }
-      // 4. 处理错误 (新增)
+      // 5. 处理错误
       else if (msg.type === 'ERROR') {
-          // 网络错误
           console.warn('Room Error:', msg.payload);
           Platform.showToast('连接失败或房间已满');
           this.statusText.text = "连接失败";
           
-          // 延迟退回
           setTimeout(() => {
               NetworkMgr.close();
               SceneManager.changeScene(LobbyScene);

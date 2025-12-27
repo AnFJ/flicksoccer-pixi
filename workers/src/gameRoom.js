@@ -1,7 +1,7 @@
 
 /**
  * Cloudflare Worker + Durable Objects (GameRoom)
- * 优化版：支持 3 分钟无活动自动销毁
+ * 优化版：支持断线重连和状态恢复
  */
 
 export class GameRoom {
@@ -14,7 +14,9 @@ export class GameRoom {
     this.roomData = {
       players: [], // { id, nickname, avatar, ready, teamId, socket }
       status: 'WAITING', // WAITING, PLAYING
-      currentTurn: 0 
+      currentTurn: 0,
+      scores: { 0: 0, 1: 0 }, // 记录比分
+      positions: null // 记录上一回合结束时的棋子位置 (用于恢复)
     };
 
     // 尝试从持久化存储中恢复之前的状态 (如果存在)
@@ -29,7 +31,22 @@ export class GameRoom {
   }
 
   async fetch(request) {
-    // 只要有新的 fetch 请求（玩家尝试连接），就取消掉销毁闹钟
+    const url = new URL(request.url);
+
+    // --- 1. 处理 HTTP 检查请求 ---
+    if (url.pathname === '/check') {
+        const isValid = this.roomData.status === 'PLAYING' || (this.roomData.status === 'WAITING' && this.roomData.players.length > 0);
+        return new Response(JSON.stringify({ 
+            exists: isValid,
+            status: this.roomData.status,
+            isGameOver: false // 如果有结束逻辑这里需要判断
+        }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // --- 2. 处理 WebSocket 升级 ---
+    // 只要有新的连接尝试，就取消掉销毁闹钟
     await this.state.storage.deleteAlarm();
 
     const upgradeHeader = request.headers.get("Upgrade");
@@ -37,7 +54,6 @@ export class GameRoom {
       return new Response("Expected Upgrade: websocket", { status: 426 });
     }
 
-    const url = new URL(request.url);
     const userId = url.searchParams.get('userId');
     const nickname = url.searchParams.get('nickname') || 'Unknown';
     const avatar = url.searchParams.get('avatar') || '';
@@ -57,6 +73,7 @@ export class GameRoom {
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
     
+    // 如果房间满了且是新玩家，拒绝
     if (existingPlayerIndex === -1 && this.roomData.players.length >= 2) {
       webSocket.send(JSON.stringify({ type: 'ERROR', payload: { msg: 'Room is full' } }));
       webSocket.close(1008, "Room is full");
@@ -72,10 +89,16 @@ export class GameRoom {
     };
 
     if (existingPlayerIndex !== -1) {
+      // --- 重连逻辑 ---
+      console.log(`[GameRoom] Player reconnecting: ${userId}`);
+      // 保留原有状态 (teamId, ready)
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
+      
+      // 更新引用
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
+      // --- 新加入逻辑 ---
       const takenTeam = this.roomData.players.length > 0 ? this.roomData.players[0].teamId : -1;
       playerInfo.teamId = (takenTeam === 0) ? 1 : 0;
       this.roomData.players.push({ ...playerInfo, socket: webSocket });
@@ -84,9 +107,26 @@ export class GameRoom {
     const session = { ws: webSocket, userId };
     this.sessions.push(session);
 
-    // 持久化当前房间配置
     await this.saveState();
+    
+    // 广播房间信息 (让大家知道有人进来了/回来了)
     this.broadcastState();
+
+    // **关键：如果游戏正在进行中，给该玩家发送恢复数据**
+    if (this.roomData.status === 'PLAYING') {
+        webSocket.send(JSON.stringify({
+            type: 'GAME_RESUME',
+            payload: {
+                currentTurn: this.roomData.currentTurn,
+                scores: this.roomData.scores,
+                // 发送最近一次同步的位置，如果没有则让客户端自行重置
+                positions: this.roomData.positions, 
+                players: this.roomData.players.map(p => ({
+                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar
+                }))
+            }
+        }));
+    }
 
     webSocket.addEventListener("message", async msg => {
       try {
@@ -134,11 +174,28 @@ export class GameRoom {
         break;
         
       case 'TURN_SYNC':
+        // 更新服务端缓存的位置数据，用于后续可能的重连恢复
+        if (msg.payload) {
+            this.roomData.positions = msg.payload; 
+        }
+        
+        // 如果包含进球后的比分更新，也可以在这里同步
+        // 简单起见，这里假设客户端会发 score update，或者我们只转发位置
+        // 实际严谨逻辑应该是 Server 校验比分，这里简化为透传并缓存位置
         this.broadcast({
           type: 'TURN_SYNC',
           payload: msg.payload
         });
+        await this.saveState();
         break;
+        
+      case 'GOAL':
+          // 客户端通知进球（信任客户端模式）
+          if (msg.payload && msg.payload.newScore) {
+              this.roomData.scores = msg.payload.newScore;
+              await this.saveState();
+          }
+          break;
     }
   }
 
@@ -146,6 +203,10 @@ export class GameRoom {
     if (this.roomData.players.length === 2 && this.roomData.players.every(p => p.ready)) {
       this.roomData.status = 'PLAYING';
       this.roomData.currentTurn = 0; 
+      // 游戏开始重置比分
+      this.roomData.scores = { 0: 0, 1: 0 };
+      this.roomData.positions = null; // 清除旧位置
+
       this.broadcast({
         type: 'START',
         payload: { currentTurn: 0 }
@@ -175,8 +236,13 @@ export class GameRoom {
     const str = JSON.stringify(msgObj);
     this.sessions = this.sessions.filter(s => {
       try {
-        s.ws.send(str);
-        return true;
+        // 检查 socket 状态
+        // 1 = OPEN
+        if (s.ws.readyState === 1) {
+            s.ws.send(str);
+            return true;
+        }
+        return false;
       } catch (e) {
         return false;
       }
@@ -186,23 +252,32 @@ export class GameRoom {
   async cleanupSession(session) {
     this.sessions = this.sessions.filter(s => s !== session);
     
-    // 如果房间空了，设置 1 分钟后的销毁闹钟
+    // 通知其他人：某人掉线了
+    // 找到该 session 对应的 player
+    const player = this.roomData.players.find(p => p.id === session.userId);
+    if (player) {
+        // 不要立即移除 player 数据，保留以供重连
+        // 广播掉线事件
+        this.broadcast({
+            type: 'PLAYER_OFFLINE',
+            payload: { teamId: player.teamId, userId: player.id }
+        });
+    }
+
+    // 如果所有连接都断开，设置 3 分钟销毁闹钟
     if (this.sessions.length === 0) {
-      // 180,000ms = 1分钟
       console.log(`[GameRoom] Room is empty, scheduling destruction in 3 mins...`);
-      await this.state.storage.setAlarm(Date.now() + 60000);
+      await this.state.storage.setAlarm(Date.now() + 180000);
     }
   }
 
   /**
-   * 闹钟触发器：由 Cloudflare 自动在设定时间调用
+   * 闹钟触发器
    */
   async alarm() {
-    // 再次确认：如果此时依然没有活跃连接，则删除数据
     if (this.sessions.length === 0) {
       console.log(`[GameRoom] Executing auto-destruction due to inactivity.`);
       await this.state.storage.deleteAll();
-      // 数据删除后，DO 实例会在下次 GC 时被完全回收
     } else {
       console.log(`[GameRoom] Destruction cancelled, players returned.`);
     }
@@ -210,7 +285,10 @@ export class GameRoom {
 
   async saveState() {
     // 存储除 socket 以外的数据
-    const toStore = { ...this.roomData };
+    const toStore = { 
+        ...this.roomData,
+        players: this.roomData.players.map(p => ({...p, socket: undefined})) // 移除 socket 对象
+    };
     await this.state.storage.put("roomData", toStore);
   }
 }
