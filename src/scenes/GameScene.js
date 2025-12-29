@@ -317,8 +317,6 @@ export default class GameScene extends BaseScene {
                   time: 0,
                   duration: duration
               });
-              // 确保 isMoving 状态，防止被动端因为物理提前静止而提前 _endTurn
-              // 这里的处理依赖于 animation 数组长度检查，只要数组不为空，update 中就不会 _endTurn
           }
       }
       // 4. 其他同步消息
@@ -326,6 +324,7 @@ export default class GameScene extends BaseScene {
           this._handleSnapshot(msg.payload);
 
       } else if (msg.type === NetMsg.TURN_SYNC) {
+          // 同步位置
           if (msg.payload.strikers) {
               msg.payload.strikers.forEach(data => {
                   const s = this.strikers.find(st => st.id === data.id);
@@ -339,6 +338,13 @@ export default class GameScene extends BaseScene {
               Matter.Body.setPosition(this.ball.body, msg.payload.ball);
               Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
           }
+          
+          // [关键修复] 当收到 TURN_SYNC 时，被动方(Observer)触发回合结束
+          // 这确保了被动方不会在物理静止后立即切回合，而是等待主动方确认
+          if (this.isMoving && this.gameMode === 'pvp_online') {
+              this._endTurn();
+          }
+
       } else if (msg.type === NetMsg.GOAL) {
           const newScore = msg.payload.newScore;
           
@@ -478,15 +484,21 @@ export default class GameScene extends BaseScene {
 
         if (isPhysicsSleeping) {
             if (isAnimFinished) {
-                const shouldCalculate = this.gameMode !== 'pvp_online' || this.turnMgr.currentTurn !== this.myTeamId;
+                // [关键修复] 只有主动方(Authority)负责计算和发送“移出球网”指令
+                // 单机/PVE: 始终有权
+                // 联网: 只有当前回合方有权
+                const isAuthority = this.gameMode !== 'pvp_online' || this.turnMgr.currentTurn === this.myTeamId;
                 
-                if (shouldCalculate) {
+                if (isAuthority) {
                     const startedAnyAnim = this._enforceFairPlay();
                     if (!startedAnyAnim) {
                         this._endTurn();
                     }
                 } else {
-                    this._endTurn();
+                    // [关键] 联网模式下的被动方 (Observer)
+                    // 即使物理静止了，也不要立即结束回合 (this._endTurn())
+                    // 而是等待接收 NetMsg.TURN_SYNC 消息来触发结束
+                    // 这样能确保主动方完成 FairPlay 动画后再同步结束
                 }
             }
         }
@@ -501,10 +513,8 @@ export default class GameScene extends BaseScene {
       this.isMoving = false;
       this.snapshotTimer = 0; // 重置计时器
       
-      // 核心修复：将 !== 改为 ===
       // 只有当我是当前回合的主动方(权威方)时，我才负责发送最终位置同步。
       // 这样接收方(被动方)会接收我的数据并校准。
-      // 如果是被动方发送，会导致主动方的正确位置被被动方的滞后位置覆盖，产生抖动。
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
           this._syncAllPositions();
       }
