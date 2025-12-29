@@ -15,20 +15,21 @@ export default class LobbyScene extends BaseScene {
     super();
     this.inputDisplay = null;
     this.roomNumber = "";
+    this.loadingText = null;
   }
 
-  onEnter() {
+  async onEnter() {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
-    // 1. 背景
+    // 1. 基础背景 (始终显示)
     const bg = new PIXI.Graphics();
     bg.beginFill(0x2c3e50);
     bg.drawRect(0, 0, designWidth, designHeight);
     bg.endFill();
     this.container.addChild(bg);
 
-    // 2. 标题
+    // 2. 标题 (始终显示)
     const title = new PIXI.Text('加入对战', {
         fontFamily: 'Arial', fontSize: 60, fill: 0xffffff, fontWeight: 'bold'
     });
@@ -36,30 +37,85 @@ export default class LobbyScene extends BaseScene {
     title.position.set(designWidth / 2, 100);
     this.container.addChild(title);
 
-    // 3. 房间号显示框
-    this.createInputDisplay(designWidth, designHeight);
-
-    // 4. 数字键盘
-    this.createKeypad(designWidth, designHeight);
-
-    // 5. 快速开始按钮 (模拟匹配) & 返回
-    const quickBtn = new Button({
-        text: '快速匹配', width: 300, height: 80, color: 0x27ae60,
-        onClick: () => {
-            // 随机生成一个房间号 1000~9999
-            const randomRoom = Math.floor(1000 + Math.random() * 9000).toString();
-            this.joinRoom(randomRoom);
-        }
+    // 3. 显示临时加载状态
+    this.loadingText = new PIXI.Text('正在检测对局状态...', {
+        fontFamily: 'Arial', fontSize: 36, fill: 0xAAAAAA
     });
-    quickBtn.position.set(designWidth / 2 - 320, designHeight - 150);
-    this.container.addChild(quickBtn);
+    this.loadingText.anchor.set(0.5);
+    this.loadingText.position.set(designWidth / 2, designHeight / 2);
+    this.container.addChild(this.loadingText);
 
-    const backBtn = new Button({
-      text: '返回', width: 300, height: 80, color: 0x95a5a6,
-      onClick: () => SceneManager.changeScene(MenuScene)
-    });
-    backBtn.position.set(designWidth / 2 + 20, designHeight - 150);
-    this.container.addChild(backBtn);
+    // 4. 执行检查逻辑 (阻塞 UI 生成)
+    await this.checkAndInit(designWidth, designHeight);
+  }
+
+  async checkAndInit(w, h) {
+      const lastRoomId = Platform.getStorage('last_room_id');
+      
+      if (lastRoomId) {
+          console.log(`[Lobby] Found last room: ${lastRoomId}, checking status...`);
+          try {
+              const res = await NetworkMgr.checkRoomStatus(lastRoomId);
+              
+              // 如果房间存在 且 状态是 PLAYING (游戏中)
+              if (res && res.exists && res.status === 'PLAYING') {
+                  this.loadingText.text = "检测到未完成对局，正在自动重连...";
+                  this.loadingText.style.fill = 0x2ecc71;
+                  
+                  // 直接加入房间，不再生成大厅 UI
+                  setTimeout(() => {
+                      this.joinRoom(lastRoomId);
+                  }, 800);
+                  return; 
+              } else {
+                  // 房间已结束或无效，清除缓存
+                  Platform.removeStorage('last_room_id');
+                  console.log('[Lobby] Previous room invalid or ended.');
+              }
+          } catch (e) {
+              console.warn('[Lobby] Check room failed', e);
+              // 网络错误等情况，暂时清除，以免卡死
+              // Platform.removeStorage('last_room_id'); 
+          }
+      }
+
+      // 如果没有进行中的对局，移除加载文字，初始化正常 UI
+      if (this.loadingText) {
+          this.container.removeChild(this.loadingText);
+          this.loadingText = null;
+      }
+      
+      this.initLobbyUI(w, h);
+  }
+
+  /**
+   * 初始化正常的大厅 UI (输入框、键盘、按钮)
+   */
+  initLobbyUI(designWidth, designHeight) {
+      // 1. 房间号显示框
+      this.createInputDisplay(designWidth, designHeight);
+
+      // 2. 数字键盘
+      this.createKeypad(designWidth, designHeight);
+
+      // 3. 快速开始按钮 (模拟匹配) & 返回
+      const quickBtn = new Button({
+          text: '快速匹配', width: 300, height: 80, color: 0x27ae60,
+          onClick: () => {
+              // 随机生成一个房间号 1000~9999
+              const randomRoom = Math.floor(1000 + Math.random() * 9000).toString();
+              this.joinRoom(randomRoom);
+          }
+      });
+      quickBtn.position.set(designWidth / 2 - 320, designHeight - 150);
+      this.container.addChild(quickBtn);
+
+      const backBtn = new Button({
+        text: '返回', width: 300, height: 80, color: 0x95a5a6,
+        onClick: () => SceneManager.changeScene(MenuScene)
+      });
+      backBtn.position.set(designWidth / 2 + 20, designHeight - 150);
+      this.container.addChild(backBtn);
   }
 
   createInputDisplay(w, h) {
@@ -144,7 +200,6 @@ export default class LobbyScene extends BaseScene {
       NetworkMgr.connectRoom(roomId, user.id, user);
 
       // 2. 跳转到房间等待场景 (传入 roomId)
-      // 注意：RoomScene 内部会监听 Socket 消息来更新状态
       SceneManager.changeScene(RoomScene, { roomId: roomId });
   }
 }

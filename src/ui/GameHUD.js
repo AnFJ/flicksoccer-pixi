@@ -262,19 +262,24 @@ export default class GameHUD extends PIXI.Container {
   }
 
   /**
-   * 设置指定玩家的掉线状态
+   * 设置指定玩家的掉线/离开状态
    * @param {number} teamId 
    * @param {boolean} isOffline 
+   * @param {string} [customText] 自定义提示文本 (例如 "玩家已离开")
    */
-  setPlayerOffline(teamId, isOffline) {
+  setPlayerOffline(teamId, isOffline, customText) {
       const comps = this.avatarComponents[teamId];
       if (comps) {
           comps.overlay.visible = isOffline;
           comps.offlineText.visible = isOffline;
           
-          // 如果掉线，显示红色的闪烁效果提示（可选优化）
           if (isOffline) {
               comps.offlineText.alpha = 1;
+              if (customText) {
+                  comps.offlineText.text = customText;
+              } else {
+                  comps.offlineText.text = '玩家已掉线\n请等待...';
+              }
           }
       }
   }

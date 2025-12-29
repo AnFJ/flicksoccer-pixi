@@ -7,13 +7,15 @@ import AudioManager from '../managers/AudioManager.js';
 
 export default class GameMenuButton extends PIXI.Container {
   /**
-   * @param {PIXI.Application} app Pixi应用实例，用于获取屏幕尺寸
-   * @param {PIXI.Container} parentContainer 父容器，用于计算局部坐标
+   * @param {PIXI.Application} app Pixi应用实例
+   * @param {PIXI.Container} parentContainer 父容器
+   * @param {Function} [onClick] 可选的自定义点击回调，如果不传则默认跳回 MenuScene
    */
-  constructor(app, parentContainer) {
+  constructor(app, parentContainer, onClick = null) {
     super();
     this.app = app;
     this.parentContext = parentContainer;
+    this.customOnClick = onClick;
     
     this.initVisuals();
     this.initInteraction();
@@ -67,7 +69,11 @@ export default class GameMenuButton extends PIXI.Container {
     
     this.on('pointerup', () => {
         this.scale.set(1);
-        SceneManager.changeScene(MenuScene);
+        if (this.customOnClick) {
+            this.customOnClick();
+        } else {
+            SceneManager.changeScene(MenuScene);
+        }
     });
 
     this.on('pointerupoutside', () => {

@@ -45,7 +45,8 @@ export const NetMsg = {
   GOAL: 'GOAL',       // 进球 (新增)
   GAME_OVER: 'GAME_OVER', // 游戏结束
   ERROR: 'ERROR',     // 错误
-  LEAVE: 'LEAVE',      // 离开
+  LEAVE: 'LEAVE',      // 离开 (主动发送)
+  PLAYER_LEFT_GAME: 'PLAYER_LEFT_GAME', // [新增] 广播：玩家主动离开对局
   PLAYER_OFFLINE: 'PLAYER_OFFLINE', // 玩家掉线/离线通知
   GAME_RESUME: 'GAME_RESUME' // 新增：断线重连恢复游戏
 };

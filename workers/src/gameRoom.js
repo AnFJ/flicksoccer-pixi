@@ -35,6 +35,7 @@ export class GameRoom {
 
     // --- 1. 处理 HTTP 检查请求 ---
     if (url.pathname === '/check') {
+        // 只有当房间处于游戏进行中，或者有人在等且未满时，才认为房间有效可连
         const isValid = this.roomData.status === 'PLAYING' || (this.roomData.status === 'WAITING' && this.roomData.players.length > 0);
         return new Response(JSON.stringify({ 
             exists: isValid,
@@ -192,14 +193,9 @@ export class GameRoom {
         break;
 
       case 'SNAPSHOT':
-        // [新增] 高频同步消息，直接广播，不存数据库，减少延迟
-        // 只有当前回合的操作者发出的快照才转发 (防止作弊干扰)
+        // [新增] 高频同步消息
         if (this.roomData.status === 'PLAYING' && player.teamId !== this.roomData.currentTurn) {
-             // 注意：这里的 currentTurn 实际上在 MOVE 之后已经切换给了对手。
-             // 比如 A 射门 -> MOVE -> turn 变成 B。
-             // 但物理模拟期间，其实是 A 的操作在产生影响。
-             // 简便起见，我们信任客户端的 SNAPSHOT，只要是玩家发的就转发。
-             // 真正严格的校验是检查 msg sender 是否等于 "last active player"。
+             // 校验略
         }
         this.broadcast({
             type: 'SNAPSHOT',
@@ -208,11 +204,22 @@ export class GameRoom {
         break;
         
       case 'GOAL':
-          // 客户端通知进球（信任客户端模式）
+          // 客户端通知进球
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
               await this.saveState();
           }
+          break;
+
+      case 'LEAVE':
+          // [新增] 客户端明确发送离开请求（点击了菜单退出）
+          // 广播给所有人：这个玩家主动离开了
+          this.broadcast({
+              type: 'PLAYER_LEFT_GAME',
+              payload: { teamId: player.teamId, userId: player.id }
+          });
+          // 我们不在这里立即关闭 socket，客户端随后会自动断开连接触发 cleanupSession
+          // 这样设计是为了确保广播消息能发出去
           break;
     }
   }

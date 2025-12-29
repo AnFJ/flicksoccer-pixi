@@ -53,6 +53,9 @@ export default class GameScene extends BaseScene {
     
     // [新增] 快照同步计时器
     this.snapshotTimer = 0;
+    
+    // [新增] 标记对手是否是主动离开 (防止被后续的 Offline 消息覆盖提示)
+    this.hasOpponentLeft = false; 
   }
 
   async onEnter(params = {}) {
@@ -90,6 +93,7 @@ export default class GameScene extends BaseScene {
     this.isGameOver = false;
     this.isGamePaused = false;
     this.snapshotTimer = 0;
+    this.hasOpponentLeft = false;
 
     // --- 处理断线重连恢复 ---
     if (params.snapshot) {
@@ -135,13 +139,34 @@ export default class GameScene extends BaseScene {
     this.goalBanner = new GoalBanner();
     this.layout.layers.ui.addChild(this.goalBanner);
 
-    const menuBtn = new GameMenuButton(this.app, this.layout.layers.ui);
+    // [修改] 传递自定义点击事件，处理主动离开
+    const menuBtn = new GameMenuButton(this.app, this.layout.layers.ui, () => {
+        this.onMenuBtnClick();
+    });
     this.layout.layers.ui.addChild(menuBtn);
 
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
     
     this.turnMgr.resetTimer();
+  }
+
+  /**
+   * 处理菜单按钮点击
+   */
+  onMenuBtnClick() {
+      // 如果是联网模式，发送离开消息
+      if (this.gameMode === 'pvp_online' && !this.isGameOver) {
+          NetworkMgr.send({ type: NetMsg.LEAVE });
+          
+          // [修复] 不再移除 last_room_id，允许玩家在大厅通过重连回来
+          // Platform.removeStorage('last_room_id'); 
+          
+          NetworkMgr.close(); // 断开连接
+      }
+
+      // 切换场景
+      SceneManager.changeScene(MenuScene);
   }
 
   _setupEvents() {
@@ -237,7 +262,7 @@ export default class GameScene extends BaseScene {
   onGameOver(data) {
     this.isGameOver = true;
     
-    // 游戏正常结束，清除重连记录
+    // 游戏正常结束，才清除重连记录
     if (this.gameMode === 'pvp_online') {
         Platform.removeStorage('last_room_id');
     }
@@ -255,9 +280,6 @@ export default class GameScene extends BaseScene {
           const striker = this.strikers.find(s => s.id === msg.payload.id);
           if (striker) {
               // --- 修复双重施力 Bug ---
-              // 检查这个棋子是不是我自己的。
-              // 如果是我自己的，说明我在 InputController 里已经 applyForce 过了，
-              // 这里只需要更新 turnMgr 的状态，不要再次 applyForce。
               const isMyStriker = (striker.teamId === this.myTeamId);
 
               if (!isMyStriker) {
@@ -291,15 +313,29 @@ export default class GameScene extends BaseScene {
               Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
           }
       } else if (msg.type === NetMsg.GOAL) {
-          // --- 接收进球同步 ---
-          // 只有收到此消息，才最终确认进球有效（特别是对于防守方）
           const newScore = msg.payload.newScore;
-          
-          // 强制同步本地分数
           this.rules.score = newScore;
-          
-          // 播放进球动画
           this._playGoalEffects(newScore);
+
+      } else if (msg.type === NetMsg.PLAYER_LEFT_GAME) {
+          // [新增] 处理对手主动离开
+          const leftTeamId = msg.payload.teamId;
+          console.log(`[GameScene] Player LEFT GAME: Team ${leftTeamId}`);
+          
+          if (leftTeamId !== undefined) {
+              // 1. 标记主动离开状态
+              this.hasOpponentLeft = true;
+
+              // 2. 设置头像置灰，并显示明确的提示文字
+              this.hud?.setPlayerOffline(leftTeamId, true, "玩家主动离开了\n当前对局");
+              
+              // 3. 暂停游戏逻辑，但不强制退出，等待对方重连
+              this.isGamePaused = true;
+              this.turnMgr.pause();
+              this.input.reset();
+              
+              Platform.showToast("对方已离开，游戏暂停");
+          }
 
       } else if (msg.type === NetMsg.PLAYER_OFFLINE) {
           // 处理玩家掉线事件
@@ -307,17 +343,29 @@ export default class GameScene extends BaseScene {
           console.log(`[GameScene] Player offline: Team ${offlineTeamId}`);
           
           if (offlineTeamId !== undefined) {
-              this.hud?.setPlayerOffline(offlineTeamId, true);
+              // 关键：如果已经标记为主动离开，则不再覆盖提示文案
+              if (!this.hasOpponentLeft) {
+                  this.hud?.setPlayerOffline(offlineTeamId, true); // 默认提示 "请等待..."
+              } else {
+                  // 保持显示 "玩家主动离开"，不被 Socket 关闭的事件覆盖
+                  console.log('Ignored PLAYER_OFFLINE due to active leave.');
+              }
+
               this.isGamePaused = true;
               this.turnMgr.pause();
               this.input.reset();
-              Platform.showToast("对方连接断开，等待重连...");
+              if (!this.hasOpponentLeft) {
+                  Platform.showToast("对方连接断开，等待重连...");
+              }
           }
       } else if (msg.type === NetMsg.PLAYER_JOINED) {
           // 如果游戏正在进行中收到 PLAYER_JOINED，说明掉线玩家重连回来了
           if (this.isGamePaused) {
                console.log('[GameScene] Player reconnected!');
                
+               // 重置状态
+               this.hasOpponentLeft = false;
+
                // 解除所有人的掉线状态显示
                this.hud?.setPlayerOffline(0, false);
                this.hud?.setPlayerOffline(1, false);
@@ -332,11 +380,14 @@ export default class GameScene extends BaseScene {
                }
           }
       } else if (msg.type === NetMsg.LEAVE) {
-          // 对方彻底离开了
-          Platform.removeStorage('last_room_id');
-          Platform.showToast("对方已离开游戏");
+          // 处理自己被动断开的情况 (Socket Close)
+          // [修复] 不清除 last_room_id，以便支持重连
+          
+          Platform.showToast("已离开游戏");
+          // 只有当不是手动退出时才跳转 (手动退出在 onMenuBtnClick 处理)
           setTimeout(() => SceneManager.changeScene(LobbyScene), 2000);
       } else if (msg.type === NetMsg.GAME_OVER) {
+          // 正常游戏结束，清除缓存
           Platform.removeStorage('last_room_id');
       }
   }
@@ -350,7 +401,6 @@ export default class GameScene extends BaseScene {
               pos: { x: this.ball.body.position.x, y: this.ball.body.position.y },
               vel: { x: this.ball.body.velocity.x, y: this.ball.body.velocity.y }
           }
-          // 为了节省带宽，暂不发送所有棋子的位置，除非它们也在高速移动
       };
       NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
   }
@@ -358,45 +408,30 @@ export default class GameScene extends BaseScene {
   // [新增] 处理快照
   _handleSnapshot(payload) {
       if (!this.ball || !payload.ball) return;
-
-      // --- 关键修复：权威方过滤 ---
-      // 如果当前是我的回合，我就是物理模拟的权威。
-      // 我不应该接收并处理我几百毫秒前发出的快照，否则会导致严重回滚。
-      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
-          return;
-      }
+      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) return;
 
       const serverPos = payload.ball.pos;
       const serverVel = payload.ball.vel;
       const localBody = this.ball.body;
       const localPos = localBody.position;
 
-      // 计算偏差距离
       const dx = serverPos.x - localPos.x;
       const dy = serverPos.y - localPos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // 1. 如果偏差非常小，为了视觉平滑，忽略它
-      if (dist < 5) {
-          return;
-      }
+      if (dist < 5) return;
 
-      // 2. 如果偏差过大 (例如 > 50px)，可能是严重丢包或卡顿，直接强制同步
       if (dist > 50) {
           Matter.Body.setPosition(localBody, serverPos);
           Matter.Body.setVelocity(localBody, serverVel);
           return;
       }
 
-      // 3. 如果偏差适中 (5px ~ 50px)，进行线性插值 (Lerp) 平滑修正
-      // 系数 0.2 表示每帧修正 20% 的误差
       const lerpFactor = 0.2;
       const newX = localPos.x + dx * lerpFactor;
       const newY = localPos.y + dy * lerpFactor;
       
       Matter.Body.setPosition(localBody, { x: newX, y: newY });
-      
-      // 速度可以直接信任权威方，防止因位置修正导致物理引擎计算出错误的反弹
       Matter.Body.setVelocity(localBody, serverVel);
   }
 
@@ -438,8 +473,6 @@ export default class GameScene extends BaseScene {
 
         if (isPhysicsSleeping) {
             if (isAnimFinished) {
-                // 物理停止了，且没有正在进行的复位动画，执行公平检测
-                // 联网模式下，只有当前操作者（刚结束回合的人）负责计算复位位置并同步
                 const shouldCalculate = this.gameMode !== 'pvp_online' || this.turnMgr.currentTurn !== this.myTeamId;
                 
                 if (shouldCalculate) {
@@ -448,14 +481,12 @@ export default class GameScene extends BaseScene {
                         this._endTurn();
                     }
                 } else {
-                    // 修复：非主控方（接管回合方）在物理静止后，也必须手动结束移动状态，否则无法进行操作
                     this._endTurn();
                 }
             }
         }
     }
 
-    // 更新正在进行的复位动画
     if (!isAnimFinished) {
         this._updateRepositionAnims(delta);
     }
@@ -465,7 +496,6 @@ export default class GameScene extends BaseScene {
       this.isMoving = false;
       this.snapshotTimer = 0; // 重置计时器
       
-      // 联网同步：如果是我刚踢完，同步所有人的最终位置
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
           this._syncAllPositions();
       }
@@ -498,12 +528,10 @@ export default class GameScene extends BaseScene {
         const body = striker.body;
         const posX = body.position.x;
         
-        // 判定棋子是否在左侧或右侧球筐内
         const inLeftGoal = posX < x;
         const inRightGoal = posX > x + w;
 
         if (inLeftGoal || inRightGoal) {
-            // 寻找随机且安全的复位点
             const targetPos = this._findSafeRandomPosition(striker.teamId, safeDistance);
             
             body.isSensor = true;
@@ -521,53 +549,39 @@ export default class GameScene extends BaseScene {
     return started;
   }
 
-  /**
-   * 寻找安全的随机复位点
-   * @param {TeamId} teamId 棋子所属队伍
-   * @param {number} safeDistance 离门线的安全距离
-   */
   _findSafeRandomPosition(teamId, safeDistance) {
     const { x, y, w, h } = this.layout.fieldRect;
     const r = GameConfig.dimensions.strikerDiameter / 2;
-    const padding = 40; // 离上下墙的边距
+    const padding = 40; 
     
     let targetX, minX, maxX;
     if (teamId === TeamId.LEFT) {
-        // 红方：复位到左半场
         minX = x + safeDistance;
         maxX = x + w / 2 - r - 20;
     } else {
-        // 蓝方：复位到右半场
         minX = x + w / 2 + r + 20;
         maxX = x + w - safeDistance;
     }
 
-    // 尝试寻找不重叠的位置
     for (let attempt = 0; attempt < 50; attempt++) {
         const rx = minX + Math.random() * (maxX - minX);
         const ry = (y + padding + r) + Math.random() * (h - padding * 2 - r * 2);
         
-        // 检查与场上所有棋子及足球的距离
         const isOverlap = this._checkPositionOverlap(rx, ry, r);
         if (!isOverlap) {
             return { x: rx, y: ry };
         }
     }
-
-    // 如果多次尝试失败，直接返回一个保底位置
     return { x: (minX + maxX) / 2, y: y + h / 2 };
   }
 
-  /** 检查指定位置是否与现有棋子或足球重叠 */
   _checkPositionOverlap(px, py, radius) {
-    const minSafeDist = radius * 2.2; // 留一点间隙
+    const minSafeDist = radius * 2.2; 
     
-    // 检查足球
     const dxBall = px - this.ball.body.position.x;
     const dyBall = py - this.ball.body.position.y;
     if (Math.sqrt(dxBall*dxBall + dyBall*dyBall) < minSafeDist) return true;
 
-    // 检查其他棋子
     for (const s of this.strikers) {
         const dx = px - s.body.position.x;
         const dy = py - s.body.position.y;
@@ -601,7 +615,7 @@ export default class GameScene extends BaseScene {
       this.repositionAnimations = this.repositionAnimations.filter(anim => {
           anim.time += delta;
           const progress = Math.min(anim.time / anim.duration, 1.0);
-          const ease = 1 - Math.pow(1 - progress, 4); // 更丝滑的 EaseOutQuart
+          const ease = 1 - Math.pow(1 - progress, 4); 
           
           const curX = anim.start.x + (anim.end.x - anim.start.x) * ease;
           const curY = anim.start.y + (anim.end.y - anim.start.y) * ease;

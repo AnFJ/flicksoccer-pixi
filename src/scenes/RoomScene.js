@@ -50,6 +50,8 @@ export default class RoomScene extends BaseScene {
         text: '离开', width: 160, height: 60, color: 0x95a5a6,
         onClick: () => {
             NetworkMgr.close();
+            // 主动退出房间，清除重连缓存
+            Platform.removeStorage('last_room_id');
             SceneManager.changeScene(LobbyScene);
         }
     });
@@ -174,11 +176,15 @@ export default class RoomScene extends BaseScene {
   onNetMessage(msg) {
       // 1. 处理连接成功/状态更新
       if (msg.type === NetMsg.PLAYER_JOINED) {
+          // [新增] 成功加入房间，缓存房间号以便重连
+          if (this.roomId) {
+              Platform.setStorage('last_room_id', this.roomId);
+          }
+
           const players = msg.payload.players;
           this.players = players;
           
-          // 如果房间状态是 PLAYING，说明是重连进来的，但还没收到 RESUME 消息
-          // 界面上显示"正在恢复"
+          // 如果房间状态是 PLAYING，说明是重连进来的
           if (msg.payload.status === 'PLAYING') {
                this.statusText.text = "检测到对局进行中，正在恢复...";
                this.readyBtn.visible = false;
@@ -222,7 +228,6 @@ export default class RoomScene extends BaseScene {
       // 3. 处理游戏恢复 (重连)
       else if (msg.type === NetMsg.GAME_RESUME) {
           Platform.showToast('正在恢复对局...');
-          console.log('[RoomScene] Resuming game with snapshot:', msg.payload);
           setTimeout(() => {
               SceneManager.changeScene(GameScene, {
                   mode: 'pvp_online',
@@ -234,9 +239,8 @@ export default class RoomScene extends BaseScene {
       }
       // 4. 处理离开/断开
       else if (msg.type === NetMsg.LEAVE) {
-          // 如果是正常离开(自己点的) SceneManager 已经切走了
-          // 如果是被动断开
           this.statusText.text = "连接已断开";
+          // 如果是被动断开，不清除 last_room_id，以便重连
       }
       // 5. 处理错误
       else if (msg.type === 'ERROR') {
