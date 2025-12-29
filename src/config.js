@@ -82,7 +82,13 @@ export const GameConfig = {
     maxScore: 2,             
     maxDragDistance: 160,      // [修改] 增加一倍 (80 -> 160)，让瞄准线更长
     forceMultiplier: 0.0020,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
-    turnTimeLimit: 30        
+    turnTimeLimit: 30,
+    
+    // [新增] 经济系统配置
+    economy: {
+        entryFee: 50,    // 入场费
+        winReward: 100   // 胜利奖励
+    }
   },
 
   // API 地址

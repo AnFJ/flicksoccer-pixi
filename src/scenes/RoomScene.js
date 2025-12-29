@@ -216,14 +216,23 @@ export default class RoomScene extends BaseScene {
       }
       // 2. 处理游戏开始
       else if (msg.type === NetMsg.START) {
-          Platform.showToast('游戏开始！');
-          setTimeout(() => {
-              SceneManager.changeScene(GameScene, { 
-                  mode: 'pvp_online',
-                  players: this.players,
-                  startTurn: msg.payload.currentTurn 
-              });
-          }, 1000);
+          const entryFee = GameConfig.gameplay.economy.entryFee;
+          // 网络对战开始：扣除金币
+          if (AccountMgr.consumeCoins(entryFee)) {
+              Platform.showToast(`游戏开始！扣除${entryFee}金币`);
+              setTimeout(() => {
+                  SceneManager.changeScene(GameScene, { 
+                      mode: 'pvp_online',
+                      players: this.players,
+                      startTurn: msg.payload.currentTurn 
+                  });
+              }, 1000);
+          } else {
+              // 理论上在大厅已经检查过了，这里是为了防止异常
+              Platform.showToast("金币不足！无法开始游戏");
+              NetworkMgr.close();
+              SceneManager.changeScene(LobbyScene);
+          }
       }
       // 3. 处理游戏恢复 (重连)
       else if (msg.type === NetMsg.GAME_RESUME) {

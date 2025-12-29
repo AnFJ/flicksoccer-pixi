@@ -8,6 +8,7 @@ import LobbyScene from './LobbyScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
+import Platform from '../managers/Platform.js'; // 需要引入 Platform 用来显示 Toast
 
 export default class MenuScene extends BaseScene {
   onEnter() {
@@ -43,7 +44,7 @@ export default class MenuScene extends BaseScene {
     // 用户信息 (左上角，包含等级)
     this.createUserInfo(user);
 
-    // 获取按钮纹理
+    // 标题
     const btnTexture = ResourceManager.get('btn_menu');
 
     // 按钮组 (右侧垂直排列)
@@ -61,17 +62,22 @@ export default class MenuScene extends BaseScene {
         fontSize: 50,        // 字号加大
         textColor: 0xFFFFFF  // 白色文字配合大多数游戏按钮背景都好看
     };
-
+    const entryFee = GameConfig.gameplay.economy.entryFee;
     // 1. PVE 按钮
     const pveBtn = new Button({ 
         ...btnConfig,
-        text: '单人挑战 (AI)', 
-        onClick: () => SceneManager.changeScene(GameScene, { mode: 'pve' }) 
+        text: `单人挑战 (消耗${entryFee})`, 
+        onClick: () => {
+            // PVE 模式：直接扣费入场
+            if (AccountMgr.consumeCoins(entryFee)) {
+                SceneManager.changeScene(GameScene, { mode: 'pve' });
+            } else {
+                Platform.showToast(`金币不足，需要${entryFee}金币`);
+            }
+        } 
     });
-    // Button 锚点在左上角，为了居中对齐 btnX，我们需要减去一半宽度
     pveBtn.position.set(btnX - 210, startY);
     
-    // 2. 本地双人 按钮
     const pvpLocalBtn = new Button({ 
         ...btnConfig,
         text: '本地双人', 
@@ -79,13 +85,19 @@ export default class MenuScene extends BaseScene {
     });
     pvpLocalBtn.position.set(btnX - 210, startY + gap);
 
-    // 3. 网络对战 按钮
-    const pvpOnlineBtn = new Button({ 
-        ...btnConfig,
-        text: '网络对战', 
-        onClick: () => SceneManager.changeScene(LobbyScene) 
+    const pvpOnlineBtn = new Button({
+        ...btnConfig, 
+        text: `网络对战 (消耗${entryFee})`,
+        onClick: () => {
+            // 网络对战：仅检查余额，实际扣费在房间开始时
+            if (AccountMgr.userInfo.coins >= entryFee) {
+                SceneManager.changeScene(LobbyScene);
+            } else {
+                Platform.showToast(`金币不足，需要${entryFee}金币`);
+            }
+        } 
     });
-    pvpOnlineBtn.position.set(btnX - 210, startY + gap * 2);
+    pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
 
     this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
 

@@ -268,13 +268,33 @@ export default class GameScene extends BaseScene {
   onGameOver(data) {
     this.isGameOver = true;
     
+    const isWinner = (this.myTeamId === data.winner);
+    
+    // 结算金币逻辑 (PVE 或 网络对战)
+    // 本地双人 (pvp_local) 不涉及金币
+    if (this.gameMode === 'pve' || this.gameMode === 'pvp_online') {
+        if (isWinner) {
+            const reward = GameConfig.gameplay.economy.winReward;
+            AccountMgr.addCoins(reward);
+            Platform.showToast(`胜利！获得 ${reward} 金币`);
+        } else {
+            // 输了不返还金币，相当于扣除了入场费
+            Platform.showToast("遗憾败北...");
+        }
+    }
+
     // 游戏正常结束，才清除重连记录
     if (this.gameMode === 'pvp_online') {
         Platform.removeStorage('last_room_id');
     }
 
     AudioManager.playSFX('win');
-    Platform.showToast(`${data.winner === TeamId.LEFT ? "红方" : "蓝方"} 获胜!`);
+    
+    // 显示获胜信息
+    if (this.gameMode === 'pvp_local') {
+        Platform.showToast(`${data.winner === TeamId.LEFT ? "红方" : "蓝方"} 获胜!`);
+    }
+
     setTimeout(() => {
         if (this.gameMode === 'pvp_online') NetworkMgr.close();
         SceneManager.changeScene(this.gameMode === 'pvp_online' ? LobbyScene : MenuScene);
