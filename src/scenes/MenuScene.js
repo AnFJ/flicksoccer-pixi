@@ -66,10 +66,10 @@ export default class MenuScene extends BaseScene {
     // 1. PVE 按钮
     const pveBtn = new Button({ 
         ...btnConfig,
-        text: `单人挑战 (消耗${entryFee})`, 
+        text: `单人挑战 (门票${entryFee})`, 
         onClick: () => {
-            // PVE 模式：直接扣费入场
-            if (AccountMgr.consumeCoins(entryFee)) {
+            // PVE 模式：仅检查余额，结算时再扣费
+            if (AccountMgr.userInfo.coins >= entryFee) {
                 SceneManager.changeScene(GameScene, { mode: 'pve' });
             } else {
                 Platform.showToast(`金币不足，需要${entryFee}金币`);
@@ -87,9 +87,9 @@ export default class MenuScene extends BaseScene {
 
     const pvpOnlineBtn = new Button({
         ...btnConfig, 
-        text: `网络对战 (消耗${entryFee})`,
+        text: `网络对战 (门票${entryFee})`,
         onClick: () => {
-            // 网络对战：仅检查余额，实际扣费在房间开始时
+            // 网络对战：仅检查余额
             if (AccountMgr.userInfo.coins >= entryFee) {
                 SceneManager.changeScene(LobbyScene);
             } else {

@@ -262,17 +262,20 @@ export default class GameScene extends BaseScene {
     this.isGameOver = true;
     
     const isWinner = (this.myTeamId === data.winner);
-    
+    const economyConfig = GameConfig.gameplay.economy;
+
     // 结算金币逻辑 (PVE 或 网络对战)
     // 本地双人 (pvp_local) 不涉及金币
     if (this.gameMode === 'pve' || this.gameMode === 'pvp_online') {
         if (isWinner) {
-            const reward = GameConfig.gameplay.economy.winReward;
+            const reward = economyConfig.winReward;
             AccountMgr.addCoins(reward);
             Platform.showToast(`胜利！获得 ${reward} 金币`);
         } else {
-            // 输了不返还金币，相当于扣除了入场费
-            Platform.showToast("遗憾败北...");
+            // 输了扣除入场费
+            const fee = economyConfig.entryFee;
+            AccountMgr.consumeCoins(fee);
+            Platform.showToast(`惜败！扣除 ${fee} 金币`);
         }
     }
 

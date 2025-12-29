@@ -217,9 +217,9 @@ export default class RoomScene extends BaseScene {
       // 2. 处理游戏开始
       else if (msg.type === NetMsg.START) {
           const entryFee = GameConfig.gameplay.economy.entryFee;
-          // 网络对战开始：扣除金币
-          if (AccountMgr.consumeCoins(entryFee)) {
-              Platform.showToast(`游戏开始！扣除${entryFee}金币`);
+          // 网络对战开始：只检查金币，扣费在结算时
+          if (AccountMgr.userInfo.coins >= entryFee) {
+              Platform.showToast(`游戏开始！`);
               setTimeout(() => {
                   SceneManager.changeScene(GameScene, { 
                       mode: 'pvp_online',

@@ -258,10 +258,12 @@ export default class InputController {
         const { x: sx, y: sy } = startPos;
         const r = GameConfig.dimensions.strikerDiameter / 2;
 
-        // 1. 绘制最大拖拽范围圆圈
+        // 1. 绘制动态拖拽力度圆圈 (阴影圈)
+        // 修改：半径不再是 r + maxDist (固定最大值)，而是 r + d (跟随当前距离变化)
+        // 这样圆圈会随着拖拽实时放大，包裹住箭头和虚线
         g.lineStyle(2, 0xFFFFFF, 0.1);
         g.beginFill(0x000000, 0.05);
-        g.drawCircle(sx, sy, r + maxDist);
+        g.drawCircle(sx, sy, r + d);
         g.endFill();
 
         // 2. 绘制反向虚线
