@@ -40,13 +40,22 @@ export const NetMsg = {
   READY: 'READY',     // 准备/取消准备
   START: 'START',     // 游戏开始
   MOVE: 'MOVE',       // 击球动作
+  
+  // [新增] 瞄准同步消息
+  AIM_START: 'AIM_START',   // 开始瞄准
+  AIM_UPDATE: 'AIM_UPDATE', // 更新瞄准方向 (低频)
+  AIM_END: 'AIM_END',       // 结束瞄准 (取消或发射)
+
+  // [新增] 公平竞赛移出同步
+  FAIR_PLAY_MOVE: 'FAIR_PLAY_MOVE', 
+
   TURN_SYNC: 'TURN_SYNC', // 回合同步(回合结束时的最终一致性)
-  SNAPSHOT: 'SNAPSHOT',   // [新增] 中间状态快照(移动过程中的位置修正)
-  GOAL: 'GOAL',       // 进球 (新增)
+  SNAPSHOT: 'SNAPSHOT',   // 中间状态快照(移动过程中的位置修正)
+  GOAL: 'GOAL',       // 进球
   GAME_OVER: 'GAME_OVER', // 游戏结束
   ERROR: 'ERROR',     // 错误
   LEAVE: 'LEAVE',      // 离开 (主动发送)
-  PLAYER_LEFT_GAME: 'PLAYER_LEFT_GAME', // [新增] 广播：玩家主动离开对局
+  PLAYER_LEFT_GAME: 'PLAYER_LEFT_GAME', // 广播：玩家主动离开对局
   PLAYER_OFFLINE: 'PLAYER_OFFLINE', // 玩家掉线/离线通知
-  GAME_RESUME: 'GAME_RESUME' // 新增：断线重连恢复游戏
+  GAME_RESUME: 'GAME_RESUME' // 断线重连恢复游戏
 };

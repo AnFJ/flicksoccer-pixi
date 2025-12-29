@@ -8,6 +8,7 @@ import NetworkMgr from '../managers/NetworkMgr.js';
 
 /**
  * InputController 负责玩家的触摸交互和射门指令生成
+ * [更新] 支持网络对战时的瞄准同步
  */
 export default class InputController {
     constructor(scene) {
@@ -27,10 +28,28 @@ export default class InputController {
         this.controlStartPos = { x: 0, y: 0 };
         this.baseAimVector = { x: 0, y: 0 };
 
+        // [本地] 瞄准线图形
         this.aimGraphics = new PIXI.Graphics();
+        
+        // [网络] 远程瞄准线图形
+        this.remoteAimGraphics = new PIXI.Graphics();
+
+        // [网络] 瞄准同步节流
+        this.lastAimSyncTime = 0;
+        this.aimSyncInterval = 100; // 100ms 同步一次
+        
+        // [网络] 远程瞄准状态
+        this.remoteAimData = {
+            active: false,
+            startPos: { x:0, y:0 },
+            vector: { x:0, y:0 },
+            entityId: null
+        };
     }
 
     init() {
+        // UI层级：先画远程的，再画本地的，防止遮挡
+        this.scene.layout.layers.ui.addChild(this.remoteAimGraphics);
         this.scene.layout.layers.ui.addChild(this.aimGraphics);
         
         this.scene.container.interactive = true;
@@ -71,6 +90,18 @@ export default class InputController {
             this.aimingPointerId = pointerId;
             this.dragStartPos = { x: striker.body.position.x, y: striker.body.position.y };
             this.aimVector = { x: 0, y: 0 };
+            
+            // [网络] 发送开始瞄准
+            if (this.scene.gameMode === 'pvp_online') {
+                NetworkMgr.send({
+                    type: NetMsg.AIM_START,
+                    payload: { 
+                        id: this.selectedEntityId, 
+                        startPos: this.dragStartPos 
+                    }
+                });
+                this.lastAimSyncTime = 0; // 重置计时器
+            }
         }
     }
 
@@ -87,15 +118,11 @@ export default class InputController {
         const strikerBody = bodies.find(b => b.label === 'Striker');
         if (strikerBody) return strikerBody.entity;
 
-        // 3. [新增] 距离容错查询 (模糊匹配)
-        // 如果以上都没选中，检测点击点周围是否有棋子。
-        // 容错半径设为棋子直径的 0.8 倍 (即半径的1.6倍)
+        // 3. 距离容错查询 (模糊匹配)
         const searchRadius = GameConfig.dimensions.strikerDiameter * 0.8;
-        
         let closest = null;
         let minDist = searchRadius;
 
-        // 遍历当前场景的所有棋子
         if (this.scene.strikers) {
             for (const s of this.scene.strikers) {
                 const dx = local.x - s.body.position.x;
@@ -125,12 +152,30 @@ export default class InputController {
             this.aimVector = { x: this.dragStartPos.x - local.x, y: this.dragStartPos.y - local.y };
         }
         
-        this._drawAimingLine();
+        this._drawAimingLine(this.aimGraphics, this.dragStartPos, this.aimVector);
+
+        // [网络] 节流发送瞄准更新
+        if (this.scene.gameMode === 'pvp_online') {
+            const now = Date.now();
+            if (now - this.lastAimSyncTime > this.aimSyncInterval) {
+                this.lastAimSyncTime = now;
+                NetworkMgr.send({
+                    type: NetMsg.AIM_UPDATE,
+                    payload: { vector: this.aimVector }
+                });
+            }
+        }
     }
 
     onPointerUp(e) {
         if (this.isDragging && this.selectedBody && e.id === this.aimingPointerId) {
             const dist = Math.sqrt(this.aimVector.x**2 + this.aimVector.y**2);
+            
+            // [网络] 发送结束瞄准 (无论是否发射，都先通知结束 Aim 状态)
+            if (this.scene.gameMode === 'pvp_online') {
+                NetworkMgr.send({ type: NetMsg.AIM_END });
+            }
+
             if (dist > 40) {
                 this._executeShoot(dist);
             }
@@ -166,34 +211,67 @@ export default class InputController {
         this.isDualControl = false;
     }
 
-    _drawAimingLine() {
-        const g = this.aimGraphics;
+    /**
+     * 处理远程玩家的瞄准消息
+     * @param {string} type 消息类型
+     * @param {Object} payload 数据负载
+     */
+    handleRemoteAim(type, payload) {
+        // 如果是我自己发出的消息（服务器回包），忽略
+        if (this.isDragging) return;
+
+        if (type === NetMsg.AIM_START) {
+            this.remoteAimData.active = true;
+            this.remoteAimData.entityId = payload.id;
+            this.remoteAimData.startPos = payload.startPos;
+            this.remoteAimData.vector = { x: 0, y: 0 }; // 初始向量为0
+            // 立即清除上一帧可能残留的
+            this.remoteAimGraphics.clear();
+
+        } else if (type === NetMsg.AIM_UPDATE) {
+            if (this.remoteAimData.active) {
+                this.remoteAimData.vector = payload.vector;
+                this._drawAimingLine(this.remoteAimGraphics, this.remoteAimData.startPos, this.remoteAimData.vector);
+            }
+
+        } else if (type === NetMsg.AIM_END) {
+            this.remoteAimData.active = false;
+            this.remoteAimGraphics.clear();
+        }
+    }
+
+    /**
+     * 绘制瞄准线 (通用方法)
+     * @param {PIXI.Graphics} g 目标 Graphics 对象
+     * @param {Object} startPos 起始位置 {x, y}
+     * @param {Object} vector 瞄准向量 {x, y}
+     */
+    _drawAimingLine(g, startPos, vector) {
         g.clear();
         
-        const dist = Math.sqrt(this.aimVector.x**2 + this.aimVector.y**2);
+        const dist = Math.sqrt(vector.x**2 + vector.y**2);
         if (dist < 40) return;
 
         const maxDist = GameConfig.gameplay.maxDragDistance;
         const d = Math.min(dist, maxDist);
-        const angle = Math.atan2(this.aimVector.y, this.aimVector.x);
-        const { x: sx, y: sy } = this.dragStartPos;
+        const angle = Math.atan2(vector.y, vector.x);
+        const { x: sx, y: sy } = startPos;
         const r = GameConfig.dimensions.strikerDiameter / 2;
 
-        // 1. 绘制最大拖拽范围圆圈 (淡淡的背景圆)
+        // 1. 绘制最大拖拽范围圆圈
         g.lineStyle(2, 0xFFFFFF, 0.1);
         g.beginFill(0x000000, 0.05);
         g.drawCircle(sx, sy, r + maxDist);
         g.endFill();
 
-        // 2. 绘制反向虚线 (拖拽方向 - 手指拉弹弓的感觉)
+        // 2. 绘制反向虚线
         const backAngle = angle + Math.PI;
-        const gap = 30;     // 点间距
-        const dotSize = 8;  // 点半径
+        const gap = 30;     
+        const dotSize = 8;  
         
         g.lineStyle(0);
-        g.beginFill(0xFFFFFF, 0.3); // 半透明白点
+        g.beginFill(0xFFFFFF, 0.3);
 
-        // 从棋子边缘外一点开始画
         for (let currDist = 10; currDist < d; currDist += gap) {
              const bx = sx + Math.cos(backAngle) * (r + currDist);
              const by = sy + Math.sin(backAngle) * (r + currDist);
@@ -201,7 +279,7 @@ export default class InputController {
         }
         g.endFill();
         
-        // 绘制拖拽终点的大光圈 (手指位置)
+        // 绘制终点光圈
         const fingerX = sx + Math.cos(backAngle) * (r + d);
         const fingerY = sy + Math.sin(backAngle) * (r + d);
         g.lineStyle(2, 0xFFFFFF, 0.5);
@@ -210,19 +288,17 @@ export default class InputController {
         g.endFill();
 
 
-        // 3. 绘制前方箭头 (射出方向)
+        // 3. 绘制前方箭头
         const cos = Math.cos(angle), sin = Math.sin(angle);
         const fx = sx + cos * r, fy = sy + sin * r;
         const tx = fx + cos * d, ty = fy + sin * d;
 
-        // 箭身 (渐变色很难在Graphics lineStyle里做，用纯色代替，模拟发光)
-        // 外发光
-        g.lineStyle(16, 0xFF4500, 0.3); // 橙红色光晕
+        // 箭身
+        g.lineStyle(16, 0xFF4500, 0.3); // 光晕
         g.moveTo(fx, fy);
         g.lineTo(tx - cos * 20, ty - sin * 20);
 
-        // 实体线
-        g.lineStyle(8, 0xFFD700, 1.0); // 金色实线
+        g.lineStyle(8, 0xFFD700, 1.0); // 实线
         g.moveTo(fx, fy);
         g.lineTo(tx - cos * 20, ty - sin * 20);
 
@@ -232,8 +308,8 @@ export default class InputController {
         const p2x = tx - hSize * Math.cos(angle - Math.PI/6), p2y = ty - hSize * Math.sin(angle - Math.PI/6);
         const p3x = tx - hSize * Math.cos(angle + Math.PI/6), p3y = ty - hSize * Math.sin(angle + Math.PI/6);
         
-        g.lineStyle(3, 0x8B4513); // 深褐描边
-        g.beginFill(0xFF4500);    // 橙红填充
+        g.lineStyle(3, 0x8B4513);
+        g.beginFill(0xFF4500);
         g.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
         g.endFill();
     }

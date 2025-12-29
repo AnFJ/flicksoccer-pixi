@@ -179,6 +179,24 @@ export class GameRoom {
           await this.saveState();
         }
         break;
+      
+      // [新增] 瞄准相关消息转发 (直接广播，不做额外逻辑)
+      case 'AIM_START':
+      case 'AIM_UPDATE':
+      case 'AIM_END':
+          this.broadcast({
+              type: msg.type,
+              payload: msg.payload
+          });
+          break;
+
+      // [新增] 公平竞赛移出动画转发
+      case 'FAIR_PLAY_MOVE':
+          this.broadcast({
+              type: 'FAIR_PLAY_MOVE',
+              payload: msg.payload
+          });
+          break;
         
       case 'TURN_SYNC':
         // 更新服务端缓存的位置数据，用于后续可能的重连恢复
@@ -193,7 +211,7 @@ export class GameRoom {
         break;
 
       case 'SNAPSHOT':
-        // [新增] 高频同步消息
+        // 高频同步消息
         if (this.roomData.status === 'PLAYING' && player.teamId !== this.roomData.currentTurn) {
              // 校验略
         }
@@ -208,7 +226,7 @@ export class GameRoom {
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
               
-              // [修复] 广播进球消息给所有人 (包括发送者，客户端需自行去重)
+              // 广播进球消息给所有人 (包括发送者，客户端需自行去重)
               this.broadcast({
                   type: 'GOAL',
                   payload: { newScore: this.roomData.scores }
@@ -219,14 +237,11 @@ export class GameRoom {
           break;
 
       case 'LEAVE':
-          // [新增] 客户端明确发送离开请求（点击了菜单退出）
-          // 广播给所有人：这个玩家主动离开了
+          // 客户端明确发送离开请求
           this.broadcast({
               type: 'PLAYER_LEFT_GAME',
               payload: { teamId: player.teamId, userId: player.id }
           });
-          // 我们不在这里立即关闭 socket，客户端随后会自动断开连接触发 cleanupSession
-          // 这样设计是为了确保广播消息能发出去
           break;
     }
   }

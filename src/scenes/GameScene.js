@@ -231,9 +231,6 @@ export default class GameScene extends BaseScene {
 
   onGoal(data) {
     // --- 进球权威性判定 (Authority Check) ---
-    // 如果是联网对战，为了防止双端同时触发进球导致重复加分：
-    // 只有“当前回合的操作方”（即射门的那一方）有资格判定进球并发送消息。
-    // 防守方（被动方）忽略本地的进球判定，等待 NetMsg.GOAL 消息。
     if (this.gameMode === 'pvp_online') {
         if (this.turnMgr.currentTurn !== this.myTeamId) {
             console.log('[GameScene] Ignored local goal (Waiting for server/opponent).');
@@ -247,9 +244,14 @@ export default class GameScene extends BaseScene {
             type: NetMsg.GOAL,
             payload: { newScore: data.newScore }
         });
+
+        // [修改] 联网模式下，主动方不再立即执行本地效果
+        // 而是等待服务器广播 NetMsg.GOAL 后，双方统一执行 _playGoalEffects
+        // 这样可以确保状态重置的同步性，避免一方重置了一方没重置的Bug。
+        return; 
     }
 
-    // 本地表现逻辑 (注意：进球方会立即播放，所以收到网络消息时要防止重复播放)
+    // 本地表现逻辑 (单机/PVE模式直接执行)
     this._playGoalEffects(data.newScore);
   }
 
@@ -280,31 +282,50 @@ export default class GameScene extends BaseScene {
   }
 
   onNetMessage(msg) {
+      // 1. 移动指令
       if (msg.type === NetMsg.MOVE) {
+          // 结束瞄准线显示
+          this.input.handleRemoteAim(NetMsg.AIM_END);
+          
           const striker = this.strikers.find(s => s.id === msg.payload.id);
           if (striker) {
-              // --- 修复双重施力 Bug ---
               const isMyStriker = (striker.teamId === this.myTeamId);
 
               if (!isMyStriker) {
-                  // 如果是对手的棋子，我需要模拟他的操作
                   Matter.Body.applyForce(striker.body, striker.body.position, msg.payload.force);
                   this.onActionFired();
-              } else {
-                  console.log('[GameScene] Recv own MOVE echo, skipping force apply.');
               }
-
-              // [关键修改] 不要立即切换回合！
-              // 如果立即切换，isMoving 期间 currentTurn 就变成了对手，会导致快照逻辑判定失效（误以为应该接收快照）
-              // 我们将下一回合 ID 暂存，等到 _endTurn 时再应用
+              // 暂存下回合ID
               this.pendingTurn = msg.payload.nextTurn;
           }
-      } else if (msg.type === NetMsg.SNAPSHOT) {
-          // [新增] 接收中间状态快照，进行平滑修正
+      } 
+      // 2. 瞄准同步 (交给 InputController)
+      else if (msg.type === NetMsg.AIM_START || msg.type === NetMsg.AIM_UPDATE || msg.type === NetMsg.AIM_END) {
+          this.input.handleRemoteAim(msg.type, msg.payload);
+      }
+      // 3. 公平竞赛移出动画同步
+      else if (msg.type === NetMsg.FAIR_PLAY_MOVE) {
+          const { id, end, duration } = msg.payload;
+          const s = this.strikers.find(st => st.id === id);
+          if (s) {
+              // 强制将物体设为 Sensor 并推入动画队列
+              s.body.isSensor = true;
+              this.repositionAnimations.push({
+                  body: s.body,
+                  start: { x: s.body.position.x, y: s.body.position.y },
+                  end: end,
+                  time: 0,
+                  duration: duration
+              });
+              // 确保 isMoving 状态，防止被动端因为物理提前静止而提前 _endTurn
+              // 这里的处理依赖于 animation 数组长度检查，只要数组不为空，update 中就不会 _endTurn
+          }
+      }
+      // 4. 其他同步消息
+      else if (msg.type === NetMsg.SNAPSHOT) {
           this._handleSnapshot(msg.payload);
 
       } else if (msg.type === NetMsg.TURN_SYNC) {
-          // 接收回合结束时的最终位置校准
           if (msg.payload.strikers) {
               msg.payload.strikers.forEach(data => {
                   const s = this.strikers.find(st => st.id === data.id);
@@ -321,52 +342,28 @@ export default class GameScene extends BaseScene {
       } else if (msg.type === NetMsg.GOAL) {
           const newScore = msg.payload.newScore;
           
-          // [修复] 防止进球方重复播放特效 (进球方在本地触发时已经播放过了)
-          // 检查本地分数是否已经是最新的
-          const currentScore = this.rules.score;
-          if (currentScore[TeamId.LEFT] === newScore[TeamId.LEFT] && 
-              currentScore[TeamId.RIGHT] === newScore[TeamId.RIGHT]) {
-               console.log('[GameScene] Ignored duplicate GOAL message.');
-               return;
-          }
-
+          // [修改] 移除之前的本地查重逻辑
+          // 因为现在我们完全依赖服务器广播来触发特效和重置，所以这里必须执行
           this.rules.score = newScore;
           this._playGoalEffects(newScore);
 
       } else if (msg.type === NetMsg.PLAYER_LEFT_GAME) {
-          // [新增] 处理对手主动离开
           const leftTeamId = msg.payload.teamId;
-          console.log(`[GameScene] Player LEFT GAME: Team ${leftTeamId}`);
-          
           if (leftTeamId !== undefined) {
-              // 1. 标记主动离开状态
               this.hasOpponentLeft = true;
-
-              // 2. 设置头像置灰，并显示明确的提示文字
               this.hud?.setPlayerOffline(leftTeamId, true, "玩家主动离开了\n当前对局");
-              
-              // 3. 暂停游戏逻辑，但不强制退出，等待对方重连
               this.isGamePaused = true;
               this.turnMgr.pause();
               this.input.reset();
-              
               Platform.showToast("对方已离开，游戏暂停");
           }
 
       } else if (msg.type === NetMsg.PLAYER_OFFLINE) {
-          // 处理玩家掉线事件
           const offlineTeamId = msg.payload.teamId; 
-          console.log(`[GameScene] Player offline: Team ${offlineTeamId}`);
-          
           if (offlineTeamId !== undefined) {
-              // 关键：如果已经标记为主动离开，则不再覆盖提示文案
               if (!this.hasOpponentLeft) {
-                  this.hud?.setPlayerOffline(offlineTeamId, true); // 默认提示 "请等待..."
-              } else {
-                  // 保持显示 "玩家主动离开"，不被 Socket 关闭的事件覆盖
-                  console.log('Ignored PLAYER_OFFLINE due to active leave.');
+                  this.hud?.setPlayerOffline(offlineTeamId, true);
               }
-
               this.isGamePaused = true;
               this.turnMgr.pause();
               this.input.reset();
@@ -375,35 +372,21 @@ export default class GameScene extends BaseScene {
               }
           }
       } else if (msg.type === NetMsg.PLAYER_JOINED) {
-          // 如果游戏正在进行中收到 PLAYER_JOINED，说明掉线玩家重连回来了
           if (this.isGamePaused) {
-               console.log('[GameScene] Player reconnected!');
-               
-               // 重置状态
                this.hasOpponentLeft = false;
-
-               // 解除所有人的掉线状态显示
                this.hud?.setPlayerOffline(0, false);
                this.hud?.setPlayerOffline(1, false);
-
                this.isGamePaused = false;
                this.turnMgr.resume();
                Platform.showToast("玩家已重连，继续游戏");
-               
-               // 如果我是房主/当前回合方，立即发送一次位置同步，确保重连者画面正确
                if (this.turnMgr.currentTurn === this.myTeamId && !this.isMoving) {
                    this._syncAllPositions();
                }
           }
       } else if (msg.type === NetMsg.LEAVE) {
-          // 处理自己被动断开的情况 (Socket Close)
-          // [修复] 不清除 last_room_id，以便支持重连
-          
           Platform.showToast("已离开游戏");
-          // 只有当不是手动退出时才跳转 (手动退出在 onMenuBtnClick 处理)
           setTimeout(() => SceneManager.changeScene(LobbyScene), 2000);
       } else if (msg.type === NetMsg.GAME_OVER) {
-          // 正常游戏结束，清除缓存
           Platform.removeStorage('last_room_id');
       }
   }
@@ -548,14 +531,22 @@ export default class GameScene extends BaseScene {
 
   /**
    * 公平竞赛检测：移出进入球筐的棋子
+   * [修改] 只有权威方才计算并发送广播，被动方只负责接收 NetMsg.FAIR_PLAY_MOVE
    */
   _enforceFairPlay() {
+    // 如果是联网对战，且我不是当前回合的主动方，我不负责计算
+    // 我只需要等待接收 NetMsg.FAIR_PLAY_MOVE 即可
+    if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
+        return false;
+    }
+
     const { x, w, h, y } = this.layout.fieldRect;
     const goalDepth = GameConfig.dimensions.goalWidth;
     const radius = GameConfig.dimensions.strikerDiameter / 2;
-    const safeDistance = goalDepth * 3.5; // 移出到3.5倍深度外
+    const safeDistance = goalDepth * 3.5; 
     let started = false;
 
+    // 先冻结所有物理
     this._freezeAllPhysics();
 
     this.strikers.forEach(striker => {
@@ -567,14 +558,29 @@ export default class GameScene extends BaseScene {
 
         if (inLeftGoal || inRightGoal) {
             const targetPos = this._findSafeRandomPosition(striker.teamId, safeDistance);
+            const duration = 700;
+
+            // 1. 发送网络消息 (必须先于本地动画，或同时)
+            if (this.gameMode === 'pvp_online') {
+                NetworkMgr.send({
+                    type: NetMsg.FAIR_PLAY_MOVE,
+                    payload: {
+                        id: striker.id,
+                        start: { x: body.position.x, y: body.position.y },
+                        end: targetPos,
+                        duration: duration
+                    }
+                });
+            }
             
+            // 2. 本地执行动画
             body.isSensor = true;
             this.repositionAnimations.push({
                 body: body,
                 start: { x: body.position.x, y: body.position.y },
                 end: targetPos,
                 time: 0,
-                duration: 700
+                duration: duration
             });
             started = true;
         }
