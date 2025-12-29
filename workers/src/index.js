@@ -59,7 +59,12 @@ export default {
           // 构造一个内部请求传给 DO
           // 注意：DO 的 fetch 方法只能接收 Request 对象
           const checkReq = new Request("https://internal/check", { method: 'GET' });
-          return stub.fetch(checkReq);
+          
+          // [修复] 获取响应并重新包装，以确保包含 Worker 入口定义的 CORS 头
+          // 原来的 return stub.fetch(checkReq) 会直接返回 DO 的响应，缺少 CORS 头
+          const doRes = await stub.fetch(checkReq);
+          const data = await doRes.json();
+          return response(data, doRes.status);
       }
 
       // B. WebSocket 连接

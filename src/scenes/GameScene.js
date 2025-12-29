@@ -56,6 +56,9 @@ export default class GameScene extends BaseScene {
     
     // [新增] 标记对手是否是主动离开 (防止被后续的 Offline 消息覆盖提示)
     this.hasOpponentLeft = false; 
+
+    // [新增] 暂存下一回合的 ID，用于延迟切换回合
+    this.pendingTurn = null;
   }
 
   async onEnter(params = {}) {
@@ -94,6 +97,7 @@ export default class GameScene extends BaseScene {
     this.isGamePaused = false;
     this.snapshotTimer = 0;
     this.hasOpponentLeft = false;
+    this.pendingTurn = null;
 
     // --- 处理断线重连恢复 ---
     if (params.snapshot) {
@@ -290,8 +294,10 @@ export default class GameScene extends BaseScene {
                   console.log('[GameScene] Recv own MOVE echo, skipping force apply.');
               }
 
-              // 无论是否是自己，都要同步回合状态，确保 TurnManager 逻辑正确
-              this.turnMgr.currentTurn = msg.payload.nextTurn;
+              // [关键修改] 不要立即切换回合！
+              // 如果立即切换，isMoving 期间 currentTurn 就变成了对手，会导致快照逻辑判定失效（误以为应该接收快照）
+              // 我们将下一回合 ID 暂存，等到 _endTurn 时再应用
+              this.pendingTurn = msg.payload.nextTurn;
           }
       } else if (msg.type === NetMsg.SNAPSHOT) {
           // [新增] 接收中间状态快照，进行平滑修正
@@ -408,6 +414,11 @@ export default class GameScene extends BaseScene {
   // [新增] 处理快照
   _handleSnapshot(payload) {
       if (!this.ball || !payload.ball) return;
+      
+      // 核心修正逻辑：
+      // 如果是联网对战，且当前回合是我的（意味着是我发起的物理运动），那么我就是物理模拟的 Authority。
+      // 此时我应该忽略服务器回传的快照（因为那是我发出去的，或者是延迟的）。
+      // 由于我们延迟了 currentTurn 的切换，所以在球运动期间，turnMgr.currentTurn 依然指向“射门者”。
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) return;
 
       const serverPos = payload.ball.pos;
@@ -462,6 +473,7 @@ export default class GameScene extends BaseScene {
 
     if (this.isMoving) {
         // [新增] 在移动期间，权威方发送快照
+        // 因为我们延迟了 currentTurn 的切换，所以这里判断依然有效
         if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
             this.snapshotTimer += delta;
             // 每 100ms 发送一次快照 (10Hz)
@@ -496,12 +508,24 @@ export default class GameScene extends BaseScene {
       this.isMoving = false;
       this.snapshotTimer = 0; // 重置计时器
       
-      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
+      // 核心修复：将 !== 改为 ===
+      // 只有当我是当前回合的主动方(权威方)时，我才负责发送最终位置同步。
+      // 这样接收方(被动方)会接收我的数据并校准。
+      // 如果是被动方发送，会导致主动方的正确位置被被动方的滞后位置覆盖，产生抖动。
+      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
           this._syncAllPositions();
       }
 
-      if (this.gameMode !== 'pvp_online') this.turnMgr.switchTurn();
-      else this.turnMgr.resetTimer();
+      if (this.gameMode !== 'pvp_online') {
+          this.turnMgr.switchTurn();
+      } else {
+          // PVP Online: 在这里应用延迟的回合切换
+          if (this.pendingTurn !== null && this.pendingTurn !== undefined) {
+              this.turnMgr.currentTurn = this.pendingTurn;
+              this.pendingTurn = null;
+          }
+          this.turnMgr.resetTimer();
+      }
   }
 
   _syncAllPositions() {

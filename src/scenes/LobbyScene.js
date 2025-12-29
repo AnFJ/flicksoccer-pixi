@@ -16,6 +16,7 @@ export default class LobbyScene extends BaseScene {
     this.inputDisplay = null;
     this.roomNumber = "";
     this.loadingText = null;
+    this.isUIInitialized = false; // 防止重复初始化
   }
 
   async onEnter() {
@@ -45,28 +46,29 @@ export default class LobbyScene extends BaseScene {
     this.loadingText.position.set(designWidth / 2, designHeight / 2);
     this.container.addChild(this.loadingText);
 
-    // 4. 执行检查逻辑 (阻塞 UI 生成)
+    // 4. 执行检查逻辑
     await this.checkAndInit(designWidth, designHeight);
   }
 
   async checkAndInit(w, h) {
       const lastRoomId = Platform.getStorage('last_room_id');
+      let foundActiveSession = false;
       
       if (lastRoomId) {
           console.log(`[Lobby] Found last room: ${lastRoomId}, checking status...`);
           try {
               const res = await NetworkMgr.checkRoomStatus(lastRoomId);
               
-              // 如果房间存在 且 状态是 PLAYING (游戏中)
-              if (res && res.exists && res.status === 'PLAYING') {
-                  this.loadingText.text = "检测到未完成对局，正在自动重连...";
-                  this.loadingText.style.fill = 0x2ecc71;
+              // 状态为 PLAYING 或 WAITING (如果不满员) 都提示重连
+              // 这里主要针对 PLAYING 状态
+              if (res && res.exists && (res.status === 'PLAYING' || res.status === 'WAITING')) {
+                  foundActiveSession = true;
                   
-                  // 直接加入房间，不再生成大厅 UI
-                  setTimeout(() => {
-                      this.joinRoom(lastRoomId);
-                  }, 800);
-                  return; 
+                  // 隐藏加载文字
+                  if (this.loadingText) this.loadingText.visible = false;
+                  
+                  // 弹出确认框
+                  this.showRejoinDialog(w, h, lastRoomId);
               } else {
                   // 房间已结束或无效，清除缓存
                   Platform.removeStorage('last_room_id');
@@ -74,24 +76,106 @@ export default class LobbyScene extends BaseScene {
               }
           } catch (e) {
               console.warn('[Lobby] Check room failed', e);
-              // 网络错误等情况，暂时清除，以免卡死
-              // Platform.removeStorage('last_room_id'); 
+              // 网络错误也当作没对局处理，或者保留ID下次再试？
+              // 这里选择为了体验流畅，如果检测失败就进入普通大厅，但不清除ID
           }
       }
 
-      // 如果没有进行中的对局，移除加载文字，初始化正常 UI
-      if (this.loadingText) {
-          this.container.removeChild(this.loadingText);
-          this.loadingText = null;
+      // 如果没有发现活跃对局（或已处理完毕），且 UI 还没初始化，则初始化正常大厅
+      if (!foundActiveSession) {
+          this.initNormalLobby(w, h);
       }
+  }
+
+  /**
+   * 显示重连确认对话框
+   */
+  showRejoinDialog(w, h, roomId) {
+      const dialog = new PIXI.Container();
       
-      this.initLobbyUI(w, h);
+      // 1. 全屏遮罩 (阻挡点击)
+      const overlay = new PIXI.Graphics();
+      overlay.beginFill(0x000000, 0.7);
+      overlay.drawRect(0, 0, w, h);
+      overlay.interactive = true; // 吞噬点击事件
+      dialog.addChild(overlay);
+
+      // 2. 对话框背景
+      const boxW = 800;
+      const boxH = 500;
+      const box = new PIXI.Graphics();
+      box.beginFill(0xFFFFFF);
+      box.drawRoundedRect(-boxW/2, -boxH/2, boxW, boxH, 30);
+      box.endFill();
+      box.position.set(w/2, h/2);
+      dialog.addChild(box);
+
+      // 3. 提示文字
+      const titleText = new PIXI.Text('发现未完成对局', {
+          fontFamily: 'Arial', fontSize: 50, fill: 0x333333, fontWeight: 'bold'
+      });
+      titleText.anchor.set(0.5);
+      titleText.position.set(0, -120);
+      box.addChild(titleText);
+
+      const msgText = new PIXI.Text(`房间号：${roomId}\n是否重新进入游戏？`, {
+          fontFamily: 'Arial', fontSize: 40, fill: 0x666666, align: 'center', lineHeight: 60
+      });
+      msgText.anchor.set(0.5);
+      msgText.position.set(0, 0);
+      box.addChild(msgText);
+
+      // 4. 按钮
+      // 计算居中位置
+      const btnWidth = 280;
+      const gap = 40;
+      // 两个按钮总宽 = 280*2 + 40 = 600
+      // 左边按钮起始 x = -300
+      
+      // 确认按钮 (绿色)
+      const confirmBtn = new Button({
+          text: '继续游戏', width: btnWidth, height: 90, color: 0x2ecc71,
+          onClick: () => {
+              // 移除对话框
+              this.container.removeChild(dialog);
+              // 进入房间
+              this.joinRoom(roomId);
+          }
+      });
+      confirmBtn.position.set(-300, 150); // 相对于 box 中心 (-300)
+      box.addChild(confirmBtn);
+
+      // 取消按钮 (红色/灰色)
+      const cancelBtn = new Button({
+          text: '放弃', width: btnWidth, height: 90, color: 0x95a5a6,
+          onClick: () => {
+              // 1. 清除本地缓存
+              Platform.removeStorage('last_room_id');
+              // 2. 移除对话框
+              this.container.removeChild(dialog);
+              // 3. 初始化正常大厅 UI
+              this.initNormalLobby(w, h);
+          }
+      });
+      cancelBtn.position.set(20, 150); // 相对于 box 中心 (20)
+      box.addChild(cancelBtn);
+
+      this.container.addChild(dialog);
   }
 
   /**
    * 初始化正常的大厅 UI (输入框、键盘、按钮)
    */
-  initLobbyUI(designWidth, designHeight) {
+  initNormalLobby(designWidth, designHeight) {
+      if (this.isUIInitialized) return;
+      this.isUIInitialized = true;
+
+      // 移除加载文字
+      if (this.loadingText) {
+          this.container.removeChild(this.loadingText);
+          this.loadingText = null;
+      }
+
       // 1. 房间号显示框
       this.createInputDisplay(designWidth, designHeight);
 
