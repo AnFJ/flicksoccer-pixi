@@ -4,60 +4,83 @@ import * as PIXI from 'pixi.js';
 class ResourceManager {
   constructor() {
     this.resources = {};
-    // 定义资源清单
-    this.manifest = {
-      // 修改：引入新的球场素材
+    
+    // 1. 登录页优先加载的资源
+    this.loginManifest = {
+        login_bg: 'assets/images/main_bg.png', // 暂时复用球场图作为登录背景，你可以换成专门的图
+    };
+
+    // 2. 游戏主体资源
+    this.gameManifest = {
       field_bg: 'assets/images/field_bg.png',
       field_border: 'assets/images/field_border.png',
-      // 新增：全局背景草地 (注意是 png)
       bg_grass: 'assets/images/grass_texture.png',
       
-      // 新增：游戏主背景图 (登录/菜单页)
-      main_bg: 'assets/images/main_bg.png',
-      
-      // 新增：菜单通用按钮背景图
-      // 请确保 assets/images/ 目录下有 btn_menu.png 文件
-      btn_menu: 'assets/images/btn_menu.png',
-
       // --- 足球相关 ---
-      // ball_texture: 你生成的无缝平铺纹理
       ball_texture: 'assets/images/ball_texture.png', 
-      // ball_overlay: 可选的光影遮罩 (如果没有这张图，Ball.js 会自动用代码生成一个)
-      // ball_overlay: 'assets/images/ball_overlay.png',
       
-      ball: 'assets/images/ball.png', // 旧的备用
+      ball: 'assets/images/ball.png', 
       striker_red: 'assets/images/striker_red.png',
-      striker_blue: 'assets/images/striker_blue.png'
+      striker_blue: 'assets/images/striker_blue.png',
+
+      // UI
+      main_bg: 'assets/images/main_bg.png',
+      btn_menu: 'assets/images/btn_menu.png' // 假设你有这个按钮图，或者你需要添加它
     };
   }
 
   /**
-   * 加载所有必要资源 (适配 PixiJS v6 Loader)
+   * 仅加载登录页背景
    */
-  loadAll() {
+  loadLoginResources() {
+      return this._loadManifest(this.loginManifest);
+  }
+
+  /**
+   * 加载剩余游戏资源
+   * @param {Function} onProgress (progress: number) => void (0~100)
+   */
+  loadGameResources(onProgress) {
+      return this._loadManifest(this.gameManifest, onProgress);
+  }
+
+  /**
+   * 通用加载内部实现
+   */
+  _loadManifest(manifest, onProgress) {
     return new Promise((resolve, reject) => {
       const loader = PIXI.Loader.shared;
-      let needLoad = false;
       
-      // 检查哪些还没添加进 Loader
-      for (const [key, url] of Object.entries(this.manifest)) {
+      let count = 0;
+      // 筛选出尚未加载的资源
+      for (const [key, url] of Object.entries(manifest)) {
         if (!loader.resources[key]) {
             loader.add(key, url);
-            needLoad = true;
+            count++;
+        } else {
+            // 如果已经加载过，确保引用存在
+            if (loader.resources[key].texture) {
+                this.resources[key] = loader.resources[key].texture;
+            }
         }
       }
 
-      // 如果所有资源都已经加载过或在队列中，直接检查是否加载完成
-      if (!needLoad) {
-          // 再次检查是否真的有纹理数据了（防止add了但还没load完的情况）
-          // 简单起见，如果不需要add新资源，我们假设它已经准备好了或者正在加载中
-          // 我们可以直接调用 load，Pixi Loader 会处理空队列回调
+      if (count === 0) {
+          if (onProgress) onProgress(100);
+          resolve();
+          return;
+      }
+
+      // 绑定进度回调
+      if (onProgress) {
+          loader.onProgress.add((loader) => {
+              onProgress(loader.progress); // Pixi loader progress is 0-100
+          });
       }
 
       loader.load((loader, resources) => {
         // 将加载好的资源映射到 this.resources
         for (const [key, resource] of Object.entries(resources)) {
-          // v6 中 resource.texture 是纹理对象
           if (resource.texture) {
             this.resources[key] = resource.texture;
           } else if (resource.error) {
@@ -65,13 +88,15 @@ class ResourceManager {
             this.resources[key] = null;
           }
         }
-        console.log('[Resource] All resources loaded/ready.');
+        
+        // 清理监听器，防止多次调用叠加
+        loader.onProgress.detachAll();
+        
         resolve();
       });
 
       loader.onError.add((err) => {
         console.error('[Resource] Loader Error:', err);
-        // 不reject，允许部分资源缺失继续运行
       });
     });
   }
@@ -82,8 +107,7 @@ class ResourceManager {
    * @returns {PIXI.Texture|null}
    */
   get(key) {
-    // 优先从自己缓存取，取不到尝试从 loader 取
-    return this.resources[key] || (PIXI.Loader.shared.resources[key] && PIXI.Loader.shared.resources[key].texture) || null;
+    return this.resources[key] || null;
   }
 }
 

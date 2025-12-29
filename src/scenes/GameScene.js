@@ -70,15 +70,8 @@ export default class GameScene extends BaseScene {
         if (me) this.myTeamId = me.teamId;
     }
 
-    const loadingText = new PIXI.Text('球场维护中...', { fill: 0xffffff, fontSize: 30 }); 
-    loadingText.anchor.set(0.5);
-    loadingText.position.set(GameConfig.designWidth/2, GameConfig.designHeight/2);
-    this.container.addChild(loadingText);
-
-    await ResourceManager.loadAll();
-    this.container.removeChild(loadingText);
+    // 资源已在 LoginScene 统一加载，此处直接初始化
     this.isLoading = false;
-
     this.initGame(params);
   }
 
