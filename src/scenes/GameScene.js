@@ -197,19 +197,36 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
-    AudioManager.playSFX('goal');
-    this.hud?.updateScore(data.newScore[TeamId.LEFT], data.newScore[TeamId.RIGHT]);
-    this.goalBanner?.play();
-    Platform.vibrateShort();
-    
-    // 联网模式下，通知服务器更新比分 (简单信任客户端)
+    // --- 进球权威性判定 (Authority Check) ---
+    // 如果是联网对战，为了防止双端同时触发进球导致重复加分：
+    // 只有“当前回合的操作方”（即射门的那一方）有资格判定进球并发送消息。
+    // 防守方（被动方）忽略本地的进球判定，等待 NetMsg.GOAL 消息。
     if (this.gameMode === 'pvp_online') {
+        if (this.turnMgr.currentTurn !== this.myTeamId) {
+            console.log('[GameScene] Ignored local goal (Waiting for server/opponent).');
+            // 回滚 GameRules 预先加上的分数 (因为 GameRules 不知道这是被动端)
+            this.rules.score[data.scoreTeam]--;
+            return;
+        }
+
+        // 我是主动方，我发送确认消息
         NetworkMgr.send({
             type: NetMsg.GOAL,
             payload: { newScore: data.newScore }
         });
     }
 
+    // 本地表现逻辑
+    this._playGoalEffects(data.newScore);
+  }
+
+  /** 提取进球表现逻辑 */
+  _playGoalEffects(newScore) {
+    AudioManager.playSFX('goal');
+    this.hud?.updateScore(newScore[TeamId.LEFT], newScore[TeamId.RIGHT]);
+    this.goalBanner?.play();
+    Platform.vibrateShort();
+    
     setTimeout(() => { if (!this.isGameOver) this.setupFormation(); }, 2000);
   }
 
@@ -233,9 +250,22 @@ export default class GameScene extends BaseScene {
       if (msg.type === NetMsg.MOVE) {
           const striker = this.strikers.find(s => s.id === msg.payload.id);
           if (striker) {
-              Matter.Body.applyForce(striker.body, striker.body.position, msg.payload.force);
+              // --- 修复双重施力 Bug ---
+              // 检查这个棋子是不是我自己的。
+              // 如果是我自己的，说明我在 InputController 里已经 applyForce 过了，
+              // 这里只需要更新 turnMgr 的状态，不要再次 applyForce。
+              const isMyStriker = (striker.teamId === this.myTeamId);
+
+              if (!isMyStriker) {
+                  // 如果是对手的棋子，我需要模拟他的操作
+                  Matter.Body.applyForce(striker.body, striker.body.position, msg.payload.force);
+                  this.onActionFired();
+              } else {
+                  console.log('[GameScene] Recv own MOVE echo, skipping force apply.');
+              }
+
+              // 无论是否是自己，都要同步回合状态，确保 TurnManager 逻辑正确
               this.turnMgr.currentTurn = msg.payload.nextTurn;
-              this.onActionFired();
           }
       } else if (msg.type === NetMsg.TURN_SYNC) {
           // 接收位置校准
@@ -252,6 +282,17 @@ export default class GameScene extends BaseScene {
               Matter.Body.setPosition(this.ball.body, msg.payload.ball);
               Matter.Body.setVelocity(this.ball.body, {x:0, y:0});
           }
+      } else if (msg.type === NetMsg.GOAL) {
+          // --- 接收进球同步 ---
+          // 只有收到此消息，才最终确认进球有效（特别是对于防守方）
+          const newScore = msg.payload.newScore;
+          
+          // 强制同步本地分数
+          this.rules.score = newScore;
+          
+          // 播放进球动画
+          this._playGoalEffects(newScore);
+
       } else if (msg.type === NetMsg.PLAYER_OFFLINE) {
           // 处理玩家掉线事件
           const offlineTeamId = msg.payload.teamId; 
@@ -269,7 +310,7 @@ export default class GameScene extends BaseScene {
           if (this.isGamePaused) {
                console.log('[GameScene] Player reconnected!');
                
-               // 解除所有人的掉线状态显示 (简单暴力)
+               // 解除所有人的掉线状态显示
                this.hud?.setPlayerOffline(0, false);
                this.hud?.setPlayerOffline(1, false);
 
