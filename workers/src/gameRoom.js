@@ -207,6 +207,13 @@ export class GameRoom {
           // 客户端通知进球
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
+              
+              // [修复] 广播进球消息给所有人 (包括发送者，客户端需自行去重)
+              this.broadcast({
+                  type: 'GOAL',
+                  payload: { newScore: this.roomData.scores }
+              });
+
               await this.saveState();
           }
           break;

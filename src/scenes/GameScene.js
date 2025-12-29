@@ -249,7 +249,7 @@ export default class GameScene extends BaseScene {
         });
     }
 
-    // 本地表现逻辑
+    // 本地表现逻辑 (注意：进球方会立即播放，所以收到网络消息时要防止重复播放)
     this._playGoalEffects(data.newScore);
   }
 
@@ -320,6 +320,16 @@ export default class GameScene extends BaseScene {
           }
       } else if (msg.type === NetMsg.GOAL) {
           const newScore = msg.payload.newScore;
+          
+          // [修复] 防止进球方重复播放特效 (进球方在本地触发时已经播放过了)
+          // 检查本地分数是否已经是最新的
+          const currentScore = this.rules.score;
+          if (currentScore[TeamId.LEFT] === newScore[TeamId.LEFT] && 
+              currentScore[TeamId.RIGHT] === newScore[TeamId.RIGHT]) {
+               console.log('[GameScene] Ignored duplicate GOAL message.');
+               return;
+          }
+
           this.rules.score = newScore;
           this._playGoalEffects(newScore);
 
