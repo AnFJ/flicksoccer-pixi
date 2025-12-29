@@ -75,15 +75,41 @@ export default class InputController {
     }
 
     _findStrikerAt(target, local) {
+        // 1. 优先尝试 UI 层级查找 (依赖 Striker.js 的 hitArea)
         let node = target;
         while (node && node !== this.scene.container) {
             if (node.entity && node.entity.teamId !== undefined) return node.entity;
             node = node.parent;
         }
-        // 备选：物理点查询
+
+        // 2. 尝试物理引擎点查询 (精确匹配物理刚体)
         const bodies = this.scene.physics.queryPoint(local.x, local.y);
         const strikerBody = bodies.find(b => b.label === 'Striker');
-        return strikerBody ? strikerBody.entity : null;
+        if (strikerBody) return strikerBody.entity;
+
+        // 3. [新增] 距离容错查询 (模糊匹配)
+        // 如果以上都没选中，检测点击点周围是否有棋子。
+        // 容错半径设为棋子直径的 0.8 倍 (即半径的1.6倍)
+        const searchRadius = GameConfig.dimensions.strikerDiameter * 0.8;
+        
+        let closest = null;
+        let minDist = searchRadius;
+
+        // 遍历当前场景的所有棋子
+        if (this.scene.strikers) {
+            for (const s of this.scene.strikers) {
+                const dx = local.x - s.body.position.x;
+                const dy = local.y - s.body.position.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    closest = s;
+                }
+            }
+        }
+        
+        return closest;
     }
 
     onPointerMove(e) {
@@ -153,28 +179,61 @@ export default class InputController {
         const { x: sx, y: sy } = this.dragStartPos;
         const r = GameConfig.dimensions.strikerDiameter / 2;
 
-        // 绘制辅助背景圆
-        g.beginFill(0x000000, 0.1);
-        g.drawCircle(sx, sy, r + d);
+        // 1. 绘制最大拖拽范围圆圈 (淡淡的背景圆)
+        g.lineStyle(2, 0xFFFFFF, 0.1);
+        g.beginFill(0x000000, 0.05);
+        g.drawCircle(sx, sy, r + maxDist);
         g.endFill();
 
-        // 绘制箭头
+        // 2. 绘制反向虚线 (拖拽方向 - 手指拉弹弓的感觉)
+        const backAngle = angle + Math.PI;
+        const gap = 30;     // 点间距
+        const dotSize = 8;  // 点半径
+        
+        g.lineStyle(0);
+        g.beginFill(0xFFFFFF, 0.3); // 半透明白点
+
+        // 从棋子边缘外一点开始画
+        for (let currDist = 10; currDist < d; currDist += gap) {
+             const bx = sx + Math.cos(backAngle) * (r + currDist);
+             const by = sy + Math.sin(backAngle) * (r + currDist);
+             g.drawCircle(bx, by, dotSize);
+        }
+        g.endFill();
+        
+        // 绘制拖拽终点的大光圈 (手指位置)
+        const fingerX = sx + Math.cos(backAngle) * (r + d);
+        const fingerY = sy + Math.sin(backAngle) * (r + d);
+        g.lineStyle(2, 0xFFFFFF, 0.5);
+        g.beginFill(0xFFFFFF, 0.1);
+        g.drawCircle(fingerX, fingerY, 25);
+        g.endFill();
+
+
+        // 3. 绘制前方箭头 (射出方向)
         const cos = Math.cos(angle), sin = Math.sin(angle);
         const fx = sx + cos * r, fy = sy + sin * r;
         const tx = fx + cos * d, ty = fy + sin * d;
 
-        g.lineStyle(12, 0xFFD700);
+        // 箭身 (渐变色很难在Graphics lineStyle里做，用纯色代替，模拟发光)
+        // 外发光
+        g.lineStyle(16, 0xFF4500, 0.3); // 橙红色光晕
+        g.moveTo(fx, fy);
+        g.lineTo(tx - cos * 20, ty - sin * 20);
+
+        // 实体线
+        g.lineStyle(8, 0xFFD700, 1.0); // 金色实线
         g.moveTo(fx, fy);
         g.lineTo(tx - cos * 20, ty - sin * 20);
 
         // 箭头头部
-        const hSize = 35;
+        const hSize = 40;
         const p1x = tx + cos * 5, p1y = ty + sin * 5;
         const p2x = tx - hSize * Math.cos(angle - Math.PI/6), p2y = ty - hSize * Math.sin(angle - Math.PI/6);
         const p3x = tx - hSize * Math.cos(angle + Math.PI/6), p3y = ty - hSize * Math.sin(angle + Math.PI/6);
         
-        g.lineStyle(2, 0x8B4513);
-        g.beginFill(0xFFA500);
+        g.lineStyle(3, 0x8B4513); // 深褐描边
+        g.beginFill(0xFF4500);    // 橙红填充
         g.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
         g.endFill();
     }

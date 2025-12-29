@@ -35,11 +35,11 @@ export default class Striker {
     
     // --- 核心修改：交互优化 ---
     this.view.interactive = true; 
-    // 关闭子元素交互：这意味着点击内部的 Sprite 或 Graphics 时，
-    // 事件目标(target)会直接是 this.view 本身，而不是内部的子对象。
+    // 关闭子元素交互，统一由 Container 处理
     this.view.interactiveChildren = false; 
-    // 设置精确的点击区域，避免点击到阴影边缘导致误判
-    this.view.hitArea = new PIXI.Circle(0, 0, this.radius);
+    
+    // [修改] 扩大点击区域为半径的 1.6 倍，让手指更容易点中
+    this.view.hitArea = new PIXI.Circle(0, 0, this.radius * 1.6);
     
     // 绑定实体引用
     this.view.entity = this;
