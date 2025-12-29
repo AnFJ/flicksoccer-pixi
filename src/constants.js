@@ -40,7 +40,8 @@ export const NetMsg = {
   READY: 'READY',     // 准备/取消准备
   START: 'START',     // 游戏开始
   MOVE: 'MOVE',       // 击球动作
-  TURN_SYNC: 'TURN_SYNC', // 回合同步
+  TURN_SYNC: 'TURN_SYNC', // 回合同步(回合结束时的最终一致性)
+  SNAPSHOT: 'SNAPSHOT',   // [新增] 中间状态快照(移动过程中的位置修正)
   GOAL: 'GOAL',       // 进球 (新增)
   GAME_OVER: 'GAME_OVER', // 游戏结束
   ERROR: 'ERROR',     // 错误

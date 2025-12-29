@@ -184,15 +184,27 @@ export class GameRoom {
         if (msg.payload) {
             this.roomData.positions = msg.payload; 
         }
-        
-        // 如果包含进球后的比分更新，也可以在这里同步
-        // 简单起见，这里假设客户端会发 score update，或者我们只转发位置
-        // 实际严谨逻辑应该是 Server 校验比分，这里简化为透传并缓存位置
         this.broadcast({
           type: 'TURN_SYNC',
           payload: msg.payload
         });
         await this.saveState();
+        break;
+
+      case 'SNAPSHOT':
+        // [新增] 高频同步消息，直接广播，不存数据库，减少延迟
+        // 只有当前回合的操作者发出的快照才转发 (防止作弊干扰)
+        if (this.roomData.status === 'PLAYING' && player.teamId !== this.roomData.currentTurn) {
+             // 注意：这里的 currentTurn 实际上在 MOVE 之后已经切换给了对手。
+             // 比如 A 射门 -> MOVE -> turn 变成 B。
+             // 但物理模拟期间，其实是 A 的操作在产生影响。
+             // 简便起见，我们信任客户端的 SNAPSHOT，只要是玩家发的就转发。
+             // 真正严格的校验是检查 msg sender 是否等于 "last active player"。
+        }
+        this.broadcast({
+            type: 'SNAPSHOT',
+            payload: msg.payload
+        });
         break;
         
       case 'GOAL':

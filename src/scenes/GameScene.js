@@ -50,6 +50,9 @@ export default class GameScene extends BaseScene {
     this.goalBanner = null;
     this.sparkSystem = null;
     this.repositionAnimations = [];
+    
+    // [新增] 快照同步计时器
+    this.snapshotTimer = 0;
   }
 
   async onEnter(params = {}) {
@@ -86,6 +89,7 @@ export default class GameScene extends BaseScene {
 
     this.isGameOver = false;
     this.isGamePaused = false;
+    this.snapshotTimer = 0;
 
     // --- 处理断线重连恢复 ---
     if (params.snapshot) {
@@ -267,8 +271,12 @@ export default class GameScene extends BaseScene {
               // 无论是否是自己，都要同步回合状态，确保 TurnManager 逻辑正确
               this.turnMgr.currentTurn = msg.payload.nextTurn;
           }
+      } else if (msg.type === NetMsg.SNAPSHOT) {
+          // [新增] 接收中间状态快照，进行平滑修正
+          this._handleSnapshot(msg.payload);
+
       } else if (msg.type === NetMsg.TURN_SYNC) {
-          // 接收位置校准
+          // 接收回合结束时的最终位置校准
           if (msg.payload.strikers) {
               msg.payload.strikers.forEach(data => {
                   const s = this.strikers.find(st => st.id === data.id);
@@ -333,6 +341,65 @@ export default class GameScene extends BaseScene {
       }
   }
 
+  // [新增] 发送快照
+  _sendSnapshot() {
+      if (!this.ball || !this.ball.body) return;
+      
+      const payload = {
+          ball: {
+              pos: { x: this.ball.body.position.x, y: this.ball.body.position.y },
+              vel: { x: this.ball.body.velocity.x, y: this.ball.body.velocity.y }
+          }
+          // 为了节省带宽，暂不发送所有棋子的位置，除非它们也在高速移动
+      };
+      NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
+  }
+
+  // [新增] 处理快照
+  _handleSnapshot(payload) {
+      if (!this.ball || !payload.ball) return;
+
+      // --- 关键修复：权威方过滤 ---
+      // 如果当前是我的回合，我就是物理模拟的权威。
+      // 我不应该接收并处理我几百毫秒前发出的快照，否则会导致严重回滚。
+      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
+          return;
+      }
+
+      const serverPos = payload.ball.pos;
+      const serverVel = payload.ball.vel;
+      const localBody = this.ball.body;
+      const localPos = localBody.position;
+
+      // 计算偏差距离
+      const dx = serverPos.x - localPos.x;
+      const dy = serverPos.y - localPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // 1. 如果偏差非常小，为了视觉平滑，忽略它
+      if (dist < 5) {
+          return;
+      }
+
+      // 2. 如果偏差过大 (例如 > 50px)，可能是严重丢包或卡顿，直接强制同步
+      if (dist > 50) {
+          Matter.Body.setPosition(localBody, serverPos);
+          Matter.Body.setVelocity(localBody, serverVel);
+          return;
+      }
+
+      // 3. 如果偏差适中 (5px ~ 50px)，进行线性插值 (Lerp) 平滑修正
+      // 系数 0.2 表示每帧修正 20% 的误差
+      const lerpFactor = 0.2;
+      const newX = localPos.x + dx * lerpFactor;
+      const newY = localPos.y + dy * lerpFactor;
+      
+      Matter.Body.setPosition(localBody, { x: newX, y: newY });
+      
+      // 速度可以直接信任权威方，防止因位置修正导致物理引擎计算出错误的反弹
+      Matter.Body.setVelocity(localBody, serverVel);
+  }
+
   update(delta) {
     if (this.isLoading || !this.physics.engine) return;
     
@@ -358,20 +425,32 @@ export default class GameScene extends BaseScene {
     const isPhysicsSleeping = this.physics.isSleeping();
     const isAnimFinished = this.repositionAnimations.length === 0;
 
-    if (this.isMoving && isPhysicsSleeping) {
-        if (isAnimFinished) {
-            // 物理停止了，且没有正在进行的复位动画，执行公平检测
-            // 联网模式下，只有当前操作者（刚结束回合的人）负责计算复位位置并同步
-            const shouldCalculate = this.gameMode !== 'pvp_online' || this.turnMgr.currentTurn !== this.myTeamId;
-            
-            if (shouldCalculate) {
-                const startedAnyAnim = this._enforceFairPlay();
-                if (!startedAnyAnim) {
+    if (this.isMoving) {
+        // [新增] 在移动期间，权威方发送快照
+        if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn === this.myTeamId) {
+            this.snapshotTimer += delta;
+            // 每 100ms 发送一次快照 (10Hz)
+            if (this.snapshotTimer > 100) {
+                this.snapshotTimer = 0;
+                this._sendSnapshot();
+            }
+        }
+
+        if (isPhysicsSleeping) {
+            if (isAnimFinished) {
+                // 物理停止了，且没有正在进行的复位动画，执行公平检测
+                // 联网模式下，只有当前操作者（刚结束回合的人）负责计算复位位置并同步
+                const shouldCalculate = this.gameMode !== 'pvp_online' || this.turnMgr.currentTurn !== this.myTeamId;
+                
+                if (shouldCalculate) {
+                    const startedAnyAnim = this._enforceFairPlay();
+                    if (!startedAnyAnim) {
+                        this._endTurn();
+                    }
+                } else {
+                    // 修复：非主控方（接管回合方）在物理静止后，也必须手动结束移动状态，否则无法进行操作
                     this._endTurn();
                 }
-            } else {
-                // 修复：非主控方（接管回合方）在物理静止后，也必须手动结束移动状态，否则无法进行操作
-                this._endTurn();
             }
         }
     }
@@ -384,6 +463,7 @@ export default class GameScene extends BaseScene {
 
   _endTurn() {
       this.isMoving = false;
+      this.snapshotTimer = 0; // 重置计时器
       
       // 联网同步：如果是我刚踢完，同步所有人的最终位置
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
