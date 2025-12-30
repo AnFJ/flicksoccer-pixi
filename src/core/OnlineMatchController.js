@@ -21,7 +21,8 @@ export default class OnlineMatchController {
     update(delta) {
         if (this.scene.isMoving && this.scene.turnMgr.currentTurn === this.scene.myTeamId) {
             this.snapshotTimer += delta;
-            if (this.snapshotTimer > 100) {
+            // [修改] 使用配置的时间间隔
+            if (this.snapshotTimer > GameConfig.network.snapshotInterval) {
                 this.snapshotTimer = 0;
                 this._sendSnapshot();
             }

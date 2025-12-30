@@ -37,7 +37,8 @@ export default class InputController {
 
         // [网络] 瞄准同步节流
         this.lastAimSyncTime = 0;
-        this.aimSyncInterval = 100; // 100ms 同步一次
+        // [修改] 使用配置的同步间隔
+        this.aimSyncInterval = GameConfig.network.aimSyncInterval; 
         
         // [网络] 远程瞄准状态
         this.remoteAimData = {

@@ -98,6 +98,12 @@ export const GameConfig = {
     }
   },
 
+  // [新增] 网络同步配置
+  network: {
+      snapshotInterval: 50, // 游戏物体位置快照同步间隔 (ms)
+      aimSyncInterval: 100   // 拖拽瞄准线同步间隔 (ms)
+  },
+
   // API 地址
   apiBaseUrl: "https://flicksoccer.afragin.dpdns.org"
 };
