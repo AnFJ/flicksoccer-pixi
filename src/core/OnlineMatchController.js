@@ -128,44 +128,111 @@ export default class OnlineMatchController {
         }
     }
 
+    /**
+     * 发送游戏状态快照
+     * 优化：同步所有运动中的物体（球 + 棋子），而不仅仅是球
+     */
     _sendSnapshot() {
         if (!this.scene.ball || !this.scene.ball.body) return;
+
         const payload = {
-            ball: {
-                pos: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y },
-                vel: { x: this.scene.ball.body.velocity.x, y: this.scene.ball.body.velocity.y }
-            }
+            bodies: []
         };
-        NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
+
+        // 辅助函数：提取刚体数据
+        const extractData = (id, body) => {
+            // 只同步有明显速度的物体，节省带宽
+            if (body.speed > 0.05 || Math.abs(body.angularVelocity) > 0.05) {
+                return {
+                    id: id,
+                    x: Number(body.position.x.toFixed(1)),
+                    y: Number(body.position.y.toFixed(1)),
+                    vx: Number(body.velocity.x.toFixed(2)),
+                    vy: Number(body.velocity.y.toFixed(2)),
+                    a: Number(body.angle.toFixed(2)), // 角度
+                    va: Number(body.angularVelocity.toFixed(3)) // 角速度
+                };
+            }
+            return null;
+        };
+
+        // 1. 足球
+        const ballData = extractData('ball', this.scene.ball.body);
+        if (ballData) payload.bodies.push(ballData);
+
+        // 2. 所有棋子
+        this.scene.strikers.forEach(s => {
+            const data = extractData(s.id, s.body);
+            if (data) payload.bodies.push(data);
+        });
+
+        // 只有当有物体在动时才发送
+        if (payload.bodies.length > 0) {
+            NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
+        }
     }
 
+    /**
+     * 处理收到的快照
+     * 优化：支持多物体同步，增加平滑插值逻辑
+     */
     _handleSnapshot(payload) {
-        if (!this.scene.ball || !payload.ball) return;
+        // 如果是自己的回合，忽略收到的快照（以本地计算为准）
         if (this.scene.turnMgr.currentTurn === this.scene.myTeamId) return;
+        if (!payload.bodies) return;
 
-        const serverPos = payload.ball.pos;
-        const serverVel = payload.ball.vel;
-        const localBody = this.scene.ball.body;
+        payload.bodies.forEach(data => {
+            let body = null;
+
+            if (data.id === 'ball') {
+                body = this.scene.ball ? this.scene.ball.body : null;
+            } else {
+                const striker = this.scene.strikers.find(s => s.id === data.id);
+                body = striker ? striker.body : null;
+            }
+
+            if (body) {
+                this._applySyncToBody(body, data);
+            }
+        });
+    }
+
+    /**
+     * 将同步数据应用到刚体 (带插值)
+     */
+    _applySyncToBody(localBody, serverData) {
         const localPos = localBody.position;
-
-        const dx = serverPos.x - localPos.x;
-        const dy = serverPos.y - localPos.y;
+        const dx = serverData.x - localPos.x;
+        const dy = serverData.y - localPos.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < 5) return;
+        // 阈值 1: 极其微小的误差，忽略，避免抖动
+        if (dist < 2) return;
 
-        if (dist > 50) {
-            Matter.Body.setPosition(localBody, serverPos);
-            Matter.Body.setVelocity(localBody, serverVel);
+        // 阈值 2: 误差过大，直接瞬移（防穿墙、防卡死）
+        if (dist > 60) {
+            Matter.Body.setPosition(localBody, { x: serverData.x, y: serverData.y });
+            Matter.Body.setVelocity(localBody, { x: serverData.vx, y: serverData.vy });
+            Matter.Body.setAngle(localBody, serverData.a);
+            Matter.Body.setAngularVelocity(localBody, serverData.va);
             return;
         }
 
-        const lerpFactor = 0.2;
+        // 阈值 3: 正常误差，进行线性插值 (Lerp)
+        const lerpFactor = 0.3; // 插值系数
         const newX = localPos.x + dx * lerpFactor;
         const newY = localPos.y + dy * lerpFactor;
         
         Matter.Body.setPosition(localBody, { x: newX, y: newY });
-        Matter.Body.setVelocity(localBody, serverVel);
+        
+        // 速度和角度直接信任服务器，以保证预测轨迹一致
+        Matter.Body.setVelocity(localBody, { x: serverData.vx, y: serverData.vy });
+        
+        // 角度插值 (防止旋转突变)
+        const currentAngle = localBody.angle;
+        const targetAngle = serverData.a;
+        Matter.Body.setAngle(localBody, currentAngle + (targetAngle - currentAngle) * lerpFactor);
+        Matter.Body.setAngularVelocity(localBody, serverData.va);
     }
 
     _handleTurnSync(payload) {
@@ -175,12 +242,14 @@ export default class OnlineMatchController {
                 if (s) {
                     Matter.Body.setPosition(s.body, data.pos);
                     Matter.Body.setVelocity(s.body, {x:0, y:0});
+                    Matter.Body.setAngularVelocity(s.body, 0); // 确保停转
                 }
             });
         }
         if (this.scene.ball && payload.ball) {
             Matter.Body.setPosition(this.scene.ball.body, payload.ball);
             Matter.Body.setVelocity(this.scene.ball.body, {x:0, y:0});
+            Matter.Body.setAngularVelocity(this.scene.ball.body, 0);
         }
         if (this.scene.isMoving) {
             this.scene._endTurn();
