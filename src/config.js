@@ -84,6 +84,13 @@ export const GameConfig = {
     forceMultiplier: 0.0020,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
     turnTimeLimit: 30,
     
+    // [新增] 技能配置
+    skills: {
+        superAim: { bounces: 3, distance: 2000 },
+        superForce: { multiplier: 10 },
+        unstoppable: { duration: 3000 } // ms
+    },
+
     // [新增] 经济系统配置
     economy: {
         entryFee: 50,    // 入场费

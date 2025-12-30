@@ -23,6 +23,13 @@ export const TeamId = {
   RIGHT: 1  // 蓝方 (右侧/上方)
 };
 
+// 技能枚举
+export const SkillType = {
+  SUPER_AIM: 'super_aim',       // 超距瞄准
+  SUPER_FORCE: 'super_force',   // 大力水手
+  UNSTOPPABLE: 'unstoppable'    // 无敌战车
+};
+
 // 事件总线事件名
 export const Events = {
   TURN_CHANGE: 'turn_change',
@@ -30,7 +37,8 @@ export const Events = {
   GAME_OVER: 'game_over',
   SYNC_STATE: 'sync_state', // 网络同步
   COLLISION_HIT: 'collision_hit', // 物理碰撞产生火花
-  NET_MESSAGE: 'net_message' // 网络消息
+  NET_MESSAGE: 'net_message', // 网络消息
+  SKILL_ACTIVATED: 'skill_activated' // 技能激活
 };
 
 // 网络消息类型
@@ -45,6 +53,9 @@ export const NetMsg = {
   AIM_START: 'AIM_START',   // 开始瞄准
   AIM_UPDATE: 'AIM_UPDATE', // 更新瞄准方向 (低频)
   AIM_END: 'AIM_END',       // 结束瞄准 (取消或发射)
+
+  // [新增] 技能同步
+  SKILL: 'SKILL',
 
   // [新增] 公平竞赛移出同步
   FAIR_PLAY_MOVE: 'FAIR_PLAY_MOVE', 
