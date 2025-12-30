@@ -52,6 +52,10 @@ export default class GameScene extends BaseScene {
     this.goalBanner = null;
     this.sparkSystem = null;
     this.repositionAnimations = [];
+
+    // [新增] 固定帧率相关变量
+    this.accumulator = 0;
+    this.fixedTimeStep = 1000 / 60; // 16.666ms，锁定 60FPS 物理模拟
   }
 
   async onEnter(params = {}) {
@@ -84,6 +88,7 @@ export default class GameScene extends BaseScene {
 
     this.isGameOver = false;
     this.isGamePaused = false;
+    this.accumulator = 0; // 重置累加器
     
     // --- 处理断线重连恢复 ---
     if (params.snapshot && this.networkCtrl) {
@@ -239,6 +244,10 @@ export default class GameScene extends BaseScene {
     }, 3000);
   }
 
+  /**
+   * 主循环更新 (Render Loop)
+   * delta 是上一帧流逝的时间 (毫秒)
+   */
   update(delta) {
     if (this.isLoading || !this.physics.engine) return;
     
@@ -247,22 +256,54 @@ export default class GameScene extends BaseScene {
         return;
     }
 
-    // 1. 物理仿真
-    this.physics.update(16.66);
-
-    // 2. 实体同步
-    this.strikers.forEach(s => s.update());
-    this.ball?.update();
+    // --- 1. 更新纯视觉表现 (使用真实时间 delta) ---
+    // 这些特效不依赖物理引擎的固定步长，使用真实时间会让动画更丝滑
     this.goalBanner?.update(delta);
     this.sparkSystem?.update(delta);
+    this._updateStrikerHighlights(); // 光圈动画
 
-    // 3. 子控制器同步
-    this._updateStrikerHighlights();
-    this.turnMgr.update(delta);
+    // --- 2. 核心逻辑与物理更新 (使用固定时间步长) ---
+    // 累加时间
+    this.accumulator += delta;
+
+    // 限制最大累积时间 (约100ms)，防止切换后台回来后，一次性模拟太多帧导致卡死或穿越
+    if (this.accumulator > 100) {
+        this.accumulator = 100;
+    }
+
+    // 消耗累加器，执行固定步长的逻辑
+    while (this.accumulator >= this.fixedTimeStep) {
+        this._fixedUpdate(this.fixedTimeStep);
+        this.accumulator -= this.fixedTimeStep;
+    }
+
+    // --- 3. 视觉同步 ---
+    // 将物理世界的位置同步给渲染层 Sprite
+    // 注意：这里没有做插值 (Interpolation)，在 60Hz 逻辑下对于休闲游戏通常足够
+    this.strikers.forEach(s => s.update());
+    this.ball?.update();
+  }
+
+  /**
+   * 固定步长更新逻辑 (60Hz)
+   * 所有的物理模拟、状态判断、网络同步、倒计时都应该放在这里
+   */
+  _fixedUpdate(dt) {
+    // 1. 物理仿真
+    this.physics.update(dt);
+
+    // 2. 子控制器同步
+    this.turnMgr.update(dt);
     
-    // [重构] 网络控制器同步 (快照发送等)
+    // 网络控制器同步 (快照发送等)
     if (this.networkCtrl) {
-        this.networkCtrl.update(delta);
+        this.networkCtrl.update(dt);
+    }
+
+    // 3. 动画状态机 (移动物体)
+    // 既然这是控制物理 Body 移动的，必须放在 FixedUpdate 里
+    if (this.repositionAnimations.length > 0) {
+        this._updateRepositionAnims(dt);
     }
 
     // 4. 回合静止判定
@@ -272,7 +313,7 @@ export default class GameScene extends BaseScene {
     if (this.isMoving) {
         if (isPhysicsSleeping) {
             if (isAnimFinished) {
-                // [重构] 权限判断下放
+                // 权限判断下放
                 const isAuthority = !this.networkCtrl || this.turnMgr.currentTurn === this.myTeamId;
                 
                 if (isAuthority) {
@@ -283,10 +324,6 @@ export default class GameScene extends BaseScene {
                 }
             }
         }
-    }
-
-    if (!isAnimFinished) {
-        this._updateRepositionAnims(delta);
     }
   }
 
