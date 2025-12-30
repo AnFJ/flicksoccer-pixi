@@ -271,13 +271,15 @@ export default class InputController {
         const { x: sx, y: sy } = startPos;
         const r = GameConfig.dimensions.strikerDiameter / 2;
 
-        // 1. 拖拽圈
+        // --- 1. 始终绘制基础瞄准箭头 ---
+        
+        // 拖拽圈 (手指位置)
         g.lineStyle(2, 0xFFFFFF, 0.1);
         g.beginFill(0x000000, 0.05);
         g.drawCircle(sx, sy, r + d);
         g.endFill();
 
-        // 2. 反向虚线
+        // 反向虚线 (拉绳)
         const backAngle = angle + Math.PI;
         const gap = 30;     
         const dotSize = 8;  
@@ -290,7 +292,7 @@ export default class InputController {
         }
         g.endFill();
         
-        // 终点光圈
+        // 终点光圈 (手指接触点)
         const fingerX = sx + Math.cos(backAngle) * (r + d);
         const fingerY = sy + Math.sin(backAngle) * (r + d);
         g.lineStyle(2, 0xFFFFFF, 0.5);
@@ -298,47 +300,50 @@ export default class InputController {
         g.drawCircle(fingerX, fingerY, 25);
         g.endFill();
 
-        // 3. 前方箭头
+        // 前方箭头 (指示方向)
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const fx = sx + cos * r, fy = sy + sin * r;
+        const tx = fx + cos * d, ty = fy + sin * d; // 长度随力度
+
+        g.lineStyle(16, 0xFF4500, 0.3);
+        g.moveTo(fx, fy);
+        g.lineTo(tx - cos * 20, ty - sin * 20);
+        g.lineStyle(8, 0xFFD700, 1.0);
+        g.moveTo(fx, fy);
+        g.lineTo(tx - cos * 20, ty - sin * 20);
+
+        // 箭头头部
+        const hSize = 40;
+        const p1x = tx + cos * 5, p1y = ty + sin * 5;
+        const p2x = tx - hSize * Math.cos(angle - Math.PI/6), p2y = ty - hSize * Math.sin(angle - Math.PI/6);
+        const p3x = tx - hSize * Math.cos(angle + Math.PI/6), p3y = ty - hSize * Math.sin(angle + Math.PI/6);
+        
+        g.lineStyle(3, 0x8B4513);
+        g.beginFill(0xFF4500);
+        g.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
+        g.endFill();
+
+        // --- 2. 如果开启超级瞄准，额外绘制折线轨迹 ---
         if (isSuperAim) {
-            // 超级瞄准：绘制折线
-            this._drawSuperAimLine(g, sx, sy, angle);
-        } else {
-            // 普通瞄准：短箭头
-            const cos = Math.cos(angle), sin = Math.sin(angle);
-            const fx = sx + cos * r, fy = sy + sin * r;
-            const tx = fx + cos * d, ty = fy + sin * d; // 长度随力度
-
-            g.lineStyle(16, 0xFF4500, 0.3);
-            g.moveTo(fx, fy);
-            g.lineTo(tx - cos * 20, ty - sin * 20);
-            g.lineStyle(8, 0xFFD700, 1.0);
-            g.moveTo(fx, fy);
-            g.lineTo(tx - cos * 20, ty - sin * 20);
-
-            // 箭头头部
-            const hSize = 40;
-            const p1x = tx + cos * 5, p1y = ty + sin * 5;
-            const p2x = tx - hSize * Math.cos(angle - Math.PI/6), p2y = ty - hSize * Math.sin(angle - Math.PI/6);
-            const p3x = tx - hSize * Math.cos(angle + Math.PI/6), p3y = ty - hSize * Math.sin(angle + Math.PI/6);
-            
-            g.lineStyle(3, 0x8B4513);
-            g.beginFill(0xFF4500);
-            g.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
-            g.endFill();
+            // 从箭头尖端附近开始绘制，或者从棋子中心开始绘制
+            this._drawSuperAimLine(g, sx, sy, angle, this.selectedEntityId);
         }
     }
 
     /**
      * 超级瞄准：射线检测与折线绘制
+     * [更新] 支持检测足球和敌方棋子
      */
-    _drawSuperAimLine(g, startX, startY, angle) {
+    _drawSuperAimLine(g, startX, startY, angle, ignoredId) {
         // 配置
         const maxBounces = 3;
         const totalDist = GameConfig.gameplay.skills.superAim.distance;
         let remainingDist = totalDist;
         
-        let currX = startX + Math.cos(angle) * (GameConfig.dimensions.strikerDiameter/2 + 5);
-        let currY = startY + Math.sin(angle) * (GameConfig.dimensions.strikerDiameter/2 + 5);
+        // 从棋子边缘稍微靠外一点开始，避免一开始就撞到自己
+        const r = GameConfig.dimensions.strikerDiameter / 2;
+        let currX = startX + Math.cos(angle) * (r + 5);
+        let currY = startY + Math.sin(angle) * (r + 5);
         let currAngle = angle;
         
         g.lineStyle(4, 0x9b59b6, 0.8); // 紫色虚线
@@ -349,59 +354,108 @@ export default class InputController {
             minY: y, maxY: y + h
         };
 
+        // 收集所有障碍物 (球 + 其他棋子)
+        const targets = [];
+        if (this.scene.ball) targets.push(this.scene.ball);
+        if (this.scene.strikers) {
+            this.scene.strikers.forEach(s => {
+                if (s.id !== ignoredId) targets.push(s);
+            });
+        }
+
         for (let b = 0; b <= maxBounces; b++) {
             let dx = Math.cos(currAngle);
             let dy = Math.sin(currAngle);
             
-            let distToHit = remainingDist;
+            let bestDist = remainingDist;
             let hitNormal = null; 
 
+            // --- 1. 检测墙壁 (Box Raycast) ---
+            // 垂直墙
             if (dx !== 0) {
                 const targetX = dx > 0 ? bounds.maxX : bounds.minX;
-                const distX = (targetX - currX) / dx;
-                if (distX > 0 && distX < distToHit) {
-                    const hitY = currY + dy * distX;
-                    if (hitY >= bounds.minY && hitY <= bounds.maxY) {
-                        distToHit = distX;
-                        hitNormal = 'v'; 
+                const d = (targetX - currX) / dx;
+                if (d > 0 && d < bestDist) {
+                    const yAtHit = currY + dy * d;
+                    if (yAtHit >= bounds.minY && yAtHit <= bounds.maxY) {
+                        bestDist = d;
+                        hitNormal = { x: dx > 0 ? -1 : 1, y: 0 };
                     }
                 }
             }
-
+            // 水平墙
             if (dy !== 0) {
                 const targetY = dy > 0 ? bounds.maxY : bounds.minY;
-                const distY = (targetY - currY) / dy;
-                if (distY > 0 && distY < distToHit) {
-                    const hitX = currX + dx * distY;
-                    if (hitX >= bounds.minX && hitX <= bounds.maxX) {
-                        distToHit = distY;
-                        hitNormal = 'h'; 
+                const d = (targetY - currY) / dy;
+                if (d > 0 && d < bestDist) {
+                    const xAtHit = currX + dx * d;
+                    if (xAtHit >= bounds.minX && xAtHit <= bounds.maxX) {
+                        bestDist = d;
+                        hitNormal = { x: 0, y: dy > 0 ? -1 : 1 };
                     }
                 }
             }
 
-            const endX = currX + dx * distToHit;
-            const endY = currY + dy * distToHit;
+            // --- 2. 检测实体 (Circle Raycast) ---
+            for (const t of targets) {
+                if (!t.body) continue;
+                
+                const cx = t.body.position.x;
+                const cy = t.body.position.y;
+                // 球半径或棋子半径
+                const radius = t.radius || (t.label === 'Ball' ? GameConfig.dimensions.ballDiameter/2 : GameConfig.dimensions.strikerDiameter/2);
+
+                const lx = cx - currX;
+                const ly = cy - currY;
+                // 投影长度
+                const tca = lx * dx + ly * dy;
+                if (tca < 0) continue; // 目标在射线背面
+
+                const d2 = (lx*lx + ly*ly) - (tca*tca);
+                if (d2 > radius*radius) continue; // 射线未穿过圆
+
+                const thc = Math.sqrt(radius*radius - d2);
+                const t0 = tca - thc; // 入射点距离
+
+                if (t0 > 0 && t0 < bestDist) {
+                    bestDist = t0;
+                    
+                    // 计算法线：(HitPoint - Center) / Radius
+                    const hitX = currX + dx * t0;
+                    const hitY = currY + dy * t0;
+                    hitNormal = {
+                        x: (hitX - cx) / radius,
+                        y: (hitY - cy) / radius
+                    };
+                }
+            }
+
+            // 绘制当前段线
+            const endX = currX + dx * bestDist;
+            const endY = currY + dy * bestDist;
             
             g.moveTo(currX, currY);
             g.lineTo(endX, endY);
             
+            // 撞击点画个小圈
             g.beginFill(0x9b59b6);
-            g.drawCircle(endX, endY, 5);
+            g.drawCircle(endX, endY, 4);
             g.endFill();
 
-            remainingDist -= distToHit;
+            remainingDist -= bestDist;
             if (remainingDist <= 0 || !hitNormal) break;
 
-            if (hitNormal === 'v') {
-                dx = -dx; 
-            } else {
-                dy = -dy; 
-            }
-            currAngle = Math.atan2(dy, dx);
+            // --- 计算反射向量 ---
+            // R = D - 2*(D·N)*N
+            const dot = dx * hitNormal.x + dy * hitNormal.y;
+            const rx = dx - 2 * dot * hitNormal.x;
+            const ry = dy - 2 * dot * hitNormal.y;
+
+            currAngle = Math.atan2(ry, rx);
             
-            currX = endX + dx * 2;
-            currY = endY + dy * 2;
+            // 稍微偏移起点，防止再次判定碰撞
+            currX = endX + rx * 0.1;
+            currY = endY + ry * 0.1;
         }
     }
 }

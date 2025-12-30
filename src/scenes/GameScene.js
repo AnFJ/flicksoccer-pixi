@@ -120,8 +120,9 @@ export default class GameScene extends BaseScene {
   _createSkillButtons() {
       const btnSize = 100;
       const gap = 20;
-      const startX = GameConfig.designWidth - btnSize / 2 - 40;
-      const startY = GameConfig.designHeight - btnSize / 2 - 40;
+      // [修复] 修正起始坐标，因为 Button 锚点在左上角 (0,0)，之前减去 btnSize/2 会导致右下角溢出屏幕
+      const startX = GameConfig.designWidth - btnSize - 60;
+      const startY = GameConfig.designHeight - btnSize - 60;
 
       const skills = [
           { type: SkillType.UNSTOPPABLE, label: '无敌\n战车', color: 0xe74c3c },
@@ -146,7 +147,8 @@ export default class GameScene extends BaseScene {
           const highlight = new PIXI.Graphics();
           highlight.lineStyle(6, 0xFFFF00);
           highlight.drawRoundedRect(0, 0, btnSize, btnSize, 20);
-          highlight.position.set(-btnSize/2, -btnSize/2);
+          // [修复] 移除 highlight.position.set(-btnSize/2, -btnSize/2); 
+          // 按钮和高亮框都是从 (0,0) 开始绘制的，不需要偏移
           highlight.visible = false;
           btn.addChild(highlight);
           btn.highlight = highlight;
