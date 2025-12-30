@@ -8,25 +8,16 @@ import { GameConfig } from '../config.js';
 
 /**
  * 联机对战控制器
- * 职责：负责处理 PVP Online 模式下的所有网络通信、状态同步和游戏流控制
  */
 export default class OnlineMatchController {
     constructor(scene) {
         this.scene = scene;
-        
-        // 状态标记
         this.snapshotTimer = 0;
         this.pendingTurn = null;
         this.hasOpponentLeft = false;
-
-        // 监听网络消息
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
     }
 
-    /**
-     * 每帧更新 (由 GameScene 调用)
-     * @param {number} delta 
-     */
     update(delta) {
         if (this.scene.isMoving && this.scene.turnMgr.currentTurn === this.scene.myTeamId) {
             this.snapshotTimer += delta;
@@ -37,9 +28,6 @@ export default class OnlineMatchController {
         }
     }
 
-    /**
-     * 处理网络消息
-     */
     onNetMessage(msg) {
         const scene = this.scene;
 
@@ -51,37 +39,22 @@ export default class OnlineMatchController {
                 if (striker) {
                     const isMyStriker = (striker.teamId === scene.myTeamId);
                     if (!isMyStriker) {
-                        // [新增] 检测对方是否使用了强力技能并同步表现
-                        // 虽然 InputController 发送 MOVE 时不带 skill 标记 (简化协议)，
-                        // 但我们可以通过 force 大小倒推，或者依赖 SKILL 消息的 toggle 状态。
-                        // 这里我们依赖 SKILL 消息提前设置的状态。
-                        
-                        // 检查对方是否开启了大力水手 (SUPER_FORCE)
-                        // 注意：这里我们假设对方 SkillManager 已经通过 SKILL 消息同步了状态
-                        // 并且在 MOVE 之前已经开启。
-                        
-                        // 如果对方开启了 UNSTOPPABLE，激活球的火焰
-                        // 由于网络延迟，SKILL 消息应该比 MOVE 早到。
-                        // 这里做个保险：如果球被击中且 skillMgr 显示对方开启了 Unstoppable，则激活
-                        // (SkillManager 的状态是全局的，虽然是对方开启的)
-                        
-                        // 为了更稳健，我们应该让对方明确发送 "本次击球使用了技能"
-                        // 但为了保持协议简单，我们沿用 SkillManager 的全局状态同步
-                        
-                        // 处理无敌战车 (需要在物理应用前生效)
-                        if (scene.skillMgr.activeSkills[SkillType.UNSTOPPABLE]) { // 检查全局 SkillManager 状态（由 SKILL 消息更新）
-                             scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
+                        // [关键修复] 直接从 MOVE 消息中获取技能状态，而不是依赖本地状态
+                        // 这样避免了网络时序导致的状态不一致
+                        const usedSkills = msg.payload.skills || {};
+
+                        if (usedSkills[SkillType.UNSTOPPABLE]) {
+                             if (scene.ball) scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
                         }
                         
-                        // 处理大力水手 (闪电)
-                        if (scene.skillMgr.activeSkills[SkillType.SUPER_FORCE]) {
-                             scene.ball.setLightningMode(true);
+                        if (usedSkills[SkillType.SUPER_FORCE]) {
+                             if (scene.ball) scene.ball.setLightningMode(true);
                         }
 
                         Matter.Body.applyForce(striker.body, striker.body.position, msg.payload.force);
                         scene.onActionFired();
                         
-                        // 击球后消耗掉技能状态 (仅视觉和逻辑复位)
+                        // 远程动作触发后，我们也重置本地的技能显示（防止 UI 状态残留）
                         scene.skillMgr.consumeSkills();
                     }
                     this.pendingTurn = msg.payload.nextTurn;
@@ -94,7 +67,6 @@ export default class OnlineMatchController {
                 scene.input.handleRemoteAim(msg.type, msg.payload);
                 break;
             
-            // [新增] 处理技能同步
             case NetMsg.SKILL:
                 if (scene.skillMgr) {
                     scene.skillMgr.handleRemoteSkill(msg.payload);
@@ -155,12 +127,8 @@ export default class OnlineMatchController {
         }
     }
 
-    /**
-     * 发送当前球的位置快照
-     */
     _sendSnapshot() {
         if (!this.scene.ball || !this.scene.ball.body) return;
-        
         const payload = {
             ball: {
                 pos: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y },
@@ -170,9 +138,6 @@ export default class OnlineMatchController {
         NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
     }
 
-    /**
-     * 处理接收到的快照 (插值平滑)
-     */
     _handleSnapshot(payload) {
         if (!this.scene.ball || !payload.ball) return;
         if (this.scene.turnMgr.currentTurn === this.scene.myTeamId) return;
@@ -202,9 +167,6 @@ export default class OnlineMatchController {
         Matter.Body.setVelocity(localBody, serverVel);
     }
 
-    /**
-     * 处理回合结束同步
-     */
     _handleTurnSync(payload) {
         if (payload.strikers) {
             payload.strikers.forEach(data => {
@@ -219,7 +181,6 @@ export default class OnlineMatchController {
             Matter.Body.setPosition(this.scene.ball.body, payload.ball);
             Matter.Body.setVelocity(this.scene.ball.body, {x:0, y:0});
         }
-        
         if (this.scene.isMoving) {
             this.scene._endTurn();
         }
@@ -260,7 +221,6 @@ export default class OnlineMatchController {
             this.scene.isGamePaused = false;
             this.scene.turnMgr.resume();
             Platform.showToast("玩家已重连，继续游戏");
-            
             if (this.scene.turnMgr.currentTurn === this.scene.myTeamId && !this.scene.isMoving) {
                 this.syncAllPositions();
             }
@@ -270,12 +230,10 @@ export default class OnlineMatchController {
     restoreState(snapshot) {
         console.log('[OnlineMatch] Restoring state...', snapshot);
         const scene = this.scene;
-
         if (snapshot.scores) {
             scene.rules.score = snapshot.scores;
             scene.hud?.updateScore(snapshot.scores[TeamId.LEFT], snapshot.scores[TeamId.RIGHT]);
         }
-
         if (snapshot.positions && snapshot.positions.strikers) {
             snapshot.positions.strikers.forEach(data => {
                 const s = scene.strikers.find(st => st.id === data.id);
@@ -284,37 +242,30 @@ export default class OnlineMatchController {
                     Matter.Body.setVelocity(s.body, {x:0, y:0});
                 }
             });
-
             if (scene.ball && snapshot.positions.ball) {
                 Matter.Body.setPosition(scene.ball.body, snapshot.positions.ball);
                 Matter.Body.setVelocity(scene.ball.body, {x:0, y:0});
             }
         }
-        
         Platform.showToast("已恢复对局");
     }
 
     handleLocalGoal(data) {
         if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
-            console.log('[OnlineMatch] Ignored local goal (Waiting for server/opponent).');
             this.scene.rules.score[data.scoreTeam]--;
             return true; 
         }
-
         NetworkMgr.send({
             type: NetMsg.GOAL,
             payload: { newScore: data.newScore }
         });
-
         return true; 
     }
 
     sendFairPlayMove(id, start, end, duration) {
         NetworkMgr.send({
             type: NetMsg.FAIR_PLAY_MOVE,
-            payload: {
-                id, start, end, duration
-            }
+            payload: { id, start, end, duration }
         });
     }
 

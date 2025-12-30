@@ -13,8 +13,6 @@ export default class PhysicsEngine {
     this.engine = Matter.Engine.create({
       gravity: GameConfig.physics.gravity,
       // 性能优化：降低迭代次数
-      // 默认值 (6, 4) 对移动端 H5 小游戏通常足够。
-      // 之前设置的 (10, 8) 虽然更精确，但会显著增加 CPU 负担。
       positionIterations: 6, 
       velocityIterations: 4
     });
@@ -56,6 +54,9 @@ export default class PhysicsEngine {
         // 只处理动态物体 (足球和棋子)
         if (body.isStatic) continue;
         if (body.label !== 'Ball' && body.label !== 'Striker') continue;
+
+        // [修复] 如果 frictionAir 为 0 (说明处于无敌战车状态)，则跳过急停逻辑
+        if (body.frictionAir === 0) continue;
 
         const speed = body.speed;
         
@@ -104,16 +105,16 @@ export default class PhysicsEngine {
    * 判断世界是否静止 (用于回合判定)
    */
   isSleeping() {
-    // 关键修复：增加空值检查，防止 update 循环在 init 完成前调用导致报错
     if (!this.engine) return true; 
 
     const bodies = Matter.Composite.allBodies(this.engine.world);
-    // 这里使用配置中的 minSpeed 作为静止判断标准更准确
     const VELOCITY_THRESHOLD = GameConfig.physics.stoppingFriction.minSpeed || 0.1; 
     
     // 过滤掉静态墙壁，检查所有动态物体速度
     return bodies.every(body => {
       if (body.isStatic) return true;
+      // [修复] 如果是无敌战车状态，哪怕速度很快也认为它"没停" (其实不用改这里，因为速度大本来就返回false)
+      // 但为了保险，我们只检查速度
       return body.speed < VELOCITY_THRESHOLD && Math.abs(body.angularVelocity) < VELOCITY_THRESHOLD;
     });
   }

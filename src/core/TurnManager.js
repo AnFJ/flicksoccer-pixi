@@ -22,12 +22,15 @@ export default class TurnManager {
 
     init(mode, startTurn) {
         if (mode === 'pve') {
-            this.ai = new AIController(this.scene.physics, TeamId.LEFT);
-            this.currentTurn = TeamId.RIGHT; 
+            // [修正] PVE模式：AI 控制右边(Blue)，玩家控制左边(Red)
+            this.ai = new AIController(this.scene.physics, TeamId.RIGHT);
+            // [修正] 玩家先手 (Left/Red)
+            this.currentTurn = TeamId.LEFT; 
         } else if (mode === 'pvp_online') {
             this.currentTurn = startTurn !== undefined ? startTurn : TeamId.LEFT;
         } else {
-            this.currentTurn = TeamId.RIGHT;
+            // 本地 PVP 默认 Left 先手更符合直觉，也可以保持 Right
+            this.currentTurn = TeamId.LEFT;
         }
         this.resetTimer();
         this.isPaused = false;

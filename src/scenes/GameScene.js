@@ -22,14 +22,13 @@ import GoalBanner from '../ui/GoalBanner.js';
 import SparkSystem from '../vfx/SparkSystem.js';
 import MenuScene from './MenuScene.js';
 import LobbyScene from './LobbyScene.js';
-import Button from '../ui/Button.js'; // 复用 Button 组件
+import Button from '../ui/Button.js'; 
 
-// 引入子控制器
 import GameLayout from '../core/GameLayout.js';
 import InputController from '../core/InputController.js';
 import TurnManager from '../core/TurnManager.js';
 import OnlineMatchController from '../core/OnlineMatchController.js';
-import SkillManager from '../core/SkillManager.js'; // [新增]
+import SkillManager from '../core/SkillManager.js'; 
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -39,7 +38,7 @@ export default class GameScene extends BaseScene {
     this.layout = new GameLayout(this);
     this.input = new InputController(this);
     this.turnMgr = new TurnManager(this);
-    this.skillMgr = new SkillManager(this); // [新增]
+    this.skillMgr = new SkillManager(this); 
     this.networkCtrl = null; 
     
     this.gameMode = 'pve'; 
@@ -56,7 +55,6 @@ export default class GameScene extends BaseScene {
     this.sparkSystem = null;
     this.repositionAnimations = [];
 
-    // [新增] 技能按钮引用
     this.skillBtns = {};
 
     this.accumulator = 0;
@@ -72,7 +70,6 @@ export default class GameScene extends BaseScene {
         if (me) this.myTeamId = me.teamId;
         this.networkCtrl = new OnlineMatchController(this);
     } else {
-        // 本地模式默认我是左边(Red)
         this.myTeamId = TeamId.LEFT;
     }
 
@@ -107,13 +104,11 @@ export default class GameScene extends BaseScene {
     this.goalBanner = new GoalBanner();
     this.layout.layers.ui.addChild(this.goalBanner);
 
-    // 菜单按钮
     const menuBtn = new GameMenuButton(this.app, this.layout.layers.ui, () => {
         this.onMenuBtnClick();
     });
     this.layout.layers.ui.addChild(menuBtn);
 
-    // [新增] 技能按钮组
     this._createSkillButtons();
 
     this.sparkSystem = new SparkSystem();
@@ -123,19 +118,17 @@ export default class GameScene extends BaseScene {
   }
 
   _createSkillButtons() {
-      // 只有自己回合且非AI操作时可用，但按钮一直显示，只在不可用时变灰
-      const btnSize = 100; // 稍微小一点
+      const btnSize = 100;
       const gap = 20;
       const startX = GameConfig.designWidth - btnSize / 2 - 40;
       const startY = GameConfig.designHeight - btnSize / 2 - 40;
 
       const skills = [
-          { type: SkillType.UNSTOPPABLE, label: '无敌\n战车', color: 0xe74c3c }, // 红
-          { type: SkillType.SUPER_FORCE, label: '大力\n水手', color: 0x3498db }, // 蓝
-          { type: SkillType.SUPER_AIM,   label: '超距\n瞄准', color: 0x9b59b6 }, // 紫
+          { type: SkillType.UNSTOPPABLE, label: '无敌\n战车', color: 0xe74c3c },
+          { type: SkillType.SUPER_FORCE, label: '大力\n水手', color: 0x3498db },
+          { type: SkillType.SUPER_AIM,   label: '超距\n瞄准', color: 0x9b59b6 },
       ];
 
-      // 从右下角向左排列
       skills.forEach((skill, index) => {
           const btn = new Button({
               text: skill.label,
@@ -150,8 +143,6 @@ export default class GameScene extends BaseScene {
           
           btn.position.set(startX - index * (btnSize + gap), startY);
           
-          // 给按钮加个发光滤镜或边框表示选中
-          // 这里简单的用 Graphics 覆盖层表示选中态
           const highlight = new PIXI.Graphics();
           highlight.lineStyle(6, 0xFFFF00);
           highlight.drawRoundedRect(0, 0, btnSize, btnSize, 20);
@@ -218,32 +209,17 @@ export default class GameScene extends BaseScene {
   onSkillStateChange(data) {
       const { type, active, teamId } = data;
       
-      // 更新按钮高亮 (只有自己的操作才更新按钮视觉)
       if (teamId === this.myTeamId && this.skillBtns[type]) {
           this.skillBtns[type].highlight.visible = active;
-          // 按下反馈
           this.skillBtns[type].alpha = active ? 1.0 : 0.8; 
       }
 
-      // 如果是对方开启了技能，可以在界面上显示个 Toast 或者特效
       if (teamId !== this.myTeamId && active) {
           let skillName = "";
           if (type === SkillType.SUPER_FORCE) skillName = "大力水手";
           if (type === SkillType.UNSTOPPABLE) skillName = "无敌战车";
           if (skillName) {
               Platform.showToast(`对方开启了 ${skillName} !`);
-          }
-          
-          // 同步视觉效果（如果是瞄准类，不需要同步，物理类需要等待击球）
-          // 但是大力水手和无敌战车通常伴随球的特效，这部分在 Ball.js 中通过状态管理
-          // Ball.js 的状态通常由 InputController 射门时触发，
-          // 这里如果是网络包，OnlineMatchController 会接收到 MOVE 并附带 force，
-          // 但无敌战车的 "无摩擦" 状态需要显式开启。
-          
-          if (type === SkillType.UNSTOPPABLE && this.ball) {
-              // 对方开启无敌战车，需要立即在本地球上标记准备状态
-              // 真正的物理效果会在 MOVE 时通过 Ball 的 update 逻辑执行
-              // 或者我们在接收到 MOVE 时判断对方是否开启了技能
           }
       }
   }
@@ -276,7 +252,6 @@ export default class GameScene extends BaseScene {
     this.goalBanner?.play();
     Platform.vibrateShort();
     
-    // 进球后重置所有特效
     if (this.ball) {
         this.ball.setLightningMode(false);
         this.ball.skillStates.fire = false;
@@ -365,14 +340,10 @@ export default class GameScene extends BaseScene {
         }
     }
   }
-
-  // ... (保留 _endTurn, _enforceFairPlay, _findSafeRandomPosition, _checkPositionOverlap 等方法不变)
-  // 为节省篇幅，这里假设原有辅助方法已包含在内，仅展示修改部分
   
   _endTurn() {
       this.isMoving = false;
       
-      // [新增] 回合结束，强制清除可能残留的技能状态 (防止特效卡住)
       if (this.ball) {
           this.ball.setLightningMode(false);
           this.ball.skillStates.fire = false;
@@ -393,7 +364,6 @@ export default class GameScene extends BaseScene {
       }
   }
   
-  // ... (_enforceFairPlay 等代码保持原样)
   _enforceFairPlay() {
     if (this.networkCtrl && this.turnMgr.currentTurn !== this.myTeamId) {
         return false;
@@ -436,7 +406,6 @@ export default class GameScene extends BaseScene {
     return started;
   }
   
-  // 必须把原文件的方法补全以保证 XML 替换完整性
   _findSafeRandomPosition(teamId, safeDistance) {
     const { x, y, w, h } = this.layout.fieldRect;
     const r = GameConfig.dimensions.strikerDiameter / 2;
@@ -530,7 +499,7 @@ export default class GameScene extends BaseScene {
     EventBus.off(Events.GOAL_SCORED, this);
     EventBus.off(Events.GAME_OVER, this);
     EventBus.off(Events.COLLISION_HIT, this);
-    EventBus.off(Events.SKILL_ACTIVATED, this); // [新增]
+    EventBus.off(Events.SKILL_ACTIVATED, this); 
     if (this.networkCtrl) {
         this.networkCtrl.destroy();
         this.networkCtrl = null;

@@ -105,18 +105,18 @@ export default class GameHUD extends PIXI.Container {
 
     const avatarSpacing = 380; 
     
-    // PVE 模式：左边是 AI，右边是玩家
-    // PVP 本地：左边是 P2，右边是 P1(玩家)
-    // TODO: 联网对战时需要传入对手信息
-
+    // [修正] 
+    // 左边 (Left/Red) = 玩家/P1
+    // 右边 (Right/Blue) = AI/P2
+    
     const leftInfo = {
-        name: this.gameMode === 'pve' ? "Easy AI" : "Player 2",
-        avatar: '' // 默认
+        name: myInfo.nickname || "You",
+        avatar: myInfo.avatarUrl
     };
     
     const rightInfo = {
-        name: myInfo.nickname || "You",
-        avatar: myInfo.avatarUrl
+        name: this.gameMode === 'pve' ? "Easy AI" : "Player 2",
+        avatar: '' 
     };
 
     this.createAvatar(centerX - avatarSpacing, 60, TeamId.LEFT, leftInfo);
@@ -309,10 +309,11 @@ export default class GameHUD extends PIXI.Container {
     if (!this.turnText) return;
     const isLeft = currentTurn === TeamId.LEFT;
     let str = "";
+    // [修正] Left 是 P1, Right 是 P2
     if (isLeft) {
-        str = this.gameMode === 'pve' ? "红方回合 (AI)" : "红方回合 (Player 2)";
+        str = "红方回合 (Player 1)";
     } else {
-        str = "蓝方回合 (Player 1)";
+        str = this.gameMode === 'pve' ? "蓝方回合 (AI)" : "蓝方回合 (Player 2)";
     }
     this.turnText.text = str;
     this.turnText.style.fill = isLeft ? 0xe74c3c : 0x3498db;

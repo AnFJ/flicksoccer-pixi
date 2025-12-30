@@ -5,6 +5,7 @@ import { GameConfig } from '../config.js';
 import { TeamId, NetMsg, SkillType } from '../constants.js';
 import AudioManager from '../managers/AudioManager.js';
 import NetworkMgr from '../managers/NetworkMgr.js';
+import Platform from '../managers/Platform.js'; 
 
 /**
  * InputController 负责玩家的触摸交互和射门指令生成
@@ -64,8 +65,12 @@ export default class InputController {
         if (this.scene.isMoving || this.scene.isGameOver || this.scene.isLoading) return;
         
         // 权限校验
+        // 1. 联网对战：必须是自己的回合
         if (this.scene.gameMode === 'pvp_online' && this.scene.turnMgr.currentTurn !== this.scene.myTeamId) return;
-        if (this.scene.gameMode === 'pve' && this.scene.turnMgr.currentTurn === TeamId.LEFT) return;
+        
+        // 2. [修复] PVE模式：如果是 AI 回合 (Right/Blue)，则禁止玩家操作
+        // 玩家执 Left/Red
+        if (this.scene.gameMode === 'pve' && this.scene.turnMgr.currentTurn === TeamId.RIGHT) return;
 
         const local = this.scene.container.toLocal(e.data.global);
         const pointerId = e.id;
@@ -179,13 +184,27 @@ export default class InputController {
         
         let multiplier = GameConfig.gameplay.forceMultiplier;
         
-        // 技能检测：大力水手 (10倍力度)
-        if (this.scene.skillMgr && this.scene.skillMgr.isActive(SkillType.SUPER_FORCE)) {
-            multiplier *= GameConfig.gameplay.skills.superForce.multiplier;
-            console.log("Skill: SUPER FORCE activated!");
+        // --- 1. 获取当前激活的技能 ---
+        // 我们将这些状态打包进 MOVE 消息，确保远程端也能复现
+        const usedSkills = {}; 
+
+        if (this.scene.skillMgr) {
+            if (this.scene.skillMgr.isActive(SkillType.SUPER_FORCE)) {
+                multiplier *= GameConfig.gameplay.skills.superForce.multiplier;
+                usedSkills[SkillType.SUPER_FORCE] = true;
+                
+                // 本地特效
+                if (this.scene.ball) this.scene.ball.setLightningMode(true);
+                Platform.showToast("大力水手触发！");
+            }
             
-            // 激活闪电特效 (视觉)
-            if (this.scene.ball) this.scene.ball.setLightningMode(true);
+            if (this.scene.skillMgr.isActive(SkillType.UNSTOPPABLE)) {
+                usedSkills[SkillType.UNSTOPPABLE] = true;
+                
+                // 本地特效
+                if (this.scene.ball) this.scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
+                Platform.showToast("无敌战车触发！");
+            }
         }
 
         const force = {
@@ -193,19 +212,18 @@ export default class InputController {
             y: Math.sin(angle) * effectiveDist * multiplier
         };
 
-        // 技能检测：无敌战车 (发送指令时携带额外信息，或在发出前激活 Ball 状态)
-        if (this.scene.skillMgr && this.scene.skillMgr.isActive(SkillType.UNSTOPPABLE)) {
-             console.log("Skill: UNSTOPPABLE activated!");
-             if (this.scene.ball) this.scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
-        }
-
-        // 消耗技能状态
+        // --- 2. 消耗技能 (UI重置) ---
         if (this.scene.skillMgr) this.scene.skillMgr.consumeSkills();
 
+        // --- 3. 发送网络消息 (携带技能数据) ---
         if (this.scene.gameMode === 'pvp_online') {
             NetworkMgr.send({
                 type: NetMsg.MOVE,
-                payload: { id: this.selectedEntityId, force: force }
+                payload: { 
+                    id: this.selectedEntityId, 
+                    force: force,
+                    skills: usedSkills // [关键修复] 同步技能
+                }
             });
         }
         
@@ -325,41 +343,31 @@ export default class InputController {
         
         g.lineStyle(4, 0x9b59b6, 0.8); // 紫色虚线
 
-        // 简单的射线步进检测 (简化版 Raycast)
-        // 注意：Matter.Query.ray 可以做精确检测，但需要构建 ray body。
-        // 这里为了性能和简便，我们检测与 Walls 和 World Bounds 的碰撞。
-        
         const { x, y, w, h } = this.scene.layout.fieldRect;
-        // 墙壁边界
         const bounds = {
             minX: x, maxX: x + w,
             minY: y, maxY: y + h
         };
 
         for (let b = 0; b <= maxBounces; b++) {
-            // 计算当前段的终点 (先假设没有碰撞)
             let dx = Math.cos(currAngle);
             let dy = Math.sin(currAngle);
             
-            // 简单的 AABB 射线检测找到撞墙点
             let distToHit = remainingDist;
-            let hitNormal = null; // 'h' or 'v'
+            let hitNormal = null; 
 
-            // 检查垂直墙 (Vertical walls)
             if (dx !== 0) {
                 const targetX = dx > 0 ? bounds.maxX : bounds.minX;
                 const distX = (targetX - currX) / dx;
                 if (distX > 0 && distX < distToHit) {
-                    // 检查 Y 是否在范围内 (简易)
                     const hitY = currY + dy * distX;
                     if (hitY >= bounds.minY && hitY <= bounds.maxY) {
                         distToHit = distX;
-                        hitNormal = 'v'; // 撞到了左右墙
+                        hitNormal = 'v'; 
                     }
                 }
             }
 
-            // 检查水平墙 (Horizontal walls)
             if (dy !== 0) {
                 const targetY = dy > 0 ? bounds.maxY : bounds.minY;
                 const distY = (targetY - currY) / dy;
@@ -367,19 +375,17 @@ export default class InputController {
                     const hitX = currX + dx * distY;
                     if (hitX >= bounds.minX && hitX <= bounds.maxX) {
                         distToHit = distY;
-                        hitNormal = 'h'; // 撞到了上下墙
+                        hitNormal = 'h'; 
                     }
                 }
             }
 
-            // 绘制当前段
             const endX = currX + dx * distToHit;
             const endY = currY + dy * distToHit;
             
             g.moveTo(currX, currY);
             g.lineTo(endX, endY);
             
-            // 绘制一个小圆点在折点
             g.beginFill(0x9b59b6);
             g.drawCircle(endX, endY, 5);
             g.endFill();
@@ -387,15 +393,13 @@ export default class InputController {
             remainingDist -= distToHit;
             if (remainingDist <= 0 || !hitNormal) break;
 
-            // 计算反射
             if (hitNormal === 'v') {
-                dx = -dx; // X 反向
+                dx = -dx; 
             } else {
-                dy = -dy; // Y 反向
+                dy = -dy; 
             }
             currAngle = Math.atan2(dy, dx);
             
-            // 稍微偏移一点防止死循环
             currX = endX + dx * 2;
             currY = endY + dy * 2;
         }
