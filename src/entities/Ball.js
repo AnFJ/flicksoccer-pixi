@@ -180,7 +180,11 @@ export default class Ball {
   drawHex(ctx, x, y, r) { /* ... 保持不变 ... */ }
   generateProceduralOverlay() { /* ... 保持不变 ... */ return PIXI.Texture.EMPTY; }
 
-  update() {
+  /**
+   * 每帧更新
+   * @param {number} deltaMS 时间增量 (ms)
+   */
+  update(deltaMS = 16.66) {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
@@ -190,12 +194,12 @@ export default class Ball {
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
 
+      // 计算相对于 60fps (16.66ms) 的时间比率
+      const dtRatio = deltaMS / 16.66;
+
       // --- 1. 无敌战车物理逻辑 ---
-      // Pixi update 频率可能高于物理步长，但这里做倒计时和状态恢复是安全的
-      // 注意：这里用的是每一帧的时间，需要准确的 deltaMS，但 update 接口目前没传 delta
-      // 简单起见，假设 60fps，每帧 ~16ms
       if (this.skillStates.fire) {
-          this.skillStates.fireTimer -= 16.66;
+          this.skillStates.fireTimer -= deltaMS;
           
           // 保持无摩擦
           this.body.frictionAir = 0;
@@ -239,16 +243,20 @@ export default class Ball {
           }
       }
 
-      // --- 5. 纹理滚动 ---
+      // --- 5. 纹理滚动 (核心修复：降低系数并考虑 dt) ---
       if (speed > 0.01) {
           const angle = -this.body.angle; 
           const cos = Math.cos(angle);
           const sin = Math.sin(angle);
           const localVx = velocity.x * cos - velocity.y * sin;
           const localVy = velocity.x * sin + velocity.y * cos;
+          
+          // [修复] 降低滚动系数，使滚动速度看起来更自然 (0.5 -> 0.1)
+          // 同时乘上 dtRatio 确保不同帧率下滚动速度一致
           const moveFactor = 0.5; 
-          this.ballTexture.tilePosition.x += localVx * moveFactor;
-          this.ballTexture.tilePosition.y += localVy * moveFactor;
+          
+          this.ballTexture.tilePosition.x += localVx * dtRatio * moveFactor;
+          this.ballTexture.tilePosition.y += localVy * dtRatio * moveFactor;
       }
     }
   }
@@ -283,13 +291,6 @@ export default class Ball {
   }
 
   updateFireEffect(speed) {
-      // 简单模拟：随机生成几个红黄圆圈，向后飘
-      // 由于没有复杂的粒子系统，这里每帧创建几个 Graphics 并在自身 update 中销毁
-      // 为了性能，我们只维持几个常驻的子节点并改变它们属性，或者简单的随机绘制
-      
-      // 这里采用简单的每帧重绘法（适合少量粒子）
-      // 实际上更好的做法是独立的粒子系统，但为了不增加太多文件，这里做个简易版
-      
       // 燃烧强度跟剩余时间和速度有关
       const intensity = Math.min(speed, 10) / 10 * (this.skillStates.fireTimer / this.skillStates.fireMaxDuration);
       
@@ -313,7 +314,6 @@ export default class Ball {
           // 简单的粒子动画逻辑挂载
           p.vx = (Math.random() - 0.5) * 2;
           p.vy = (Math.random() - 0.5) * 2 - 2; // 向上飘
-          p.life = 20; // 帧
           
           // 这种动态挂载 update 方法在 Pixi 里不会自动执行，需要我们手动遍历更新
       }

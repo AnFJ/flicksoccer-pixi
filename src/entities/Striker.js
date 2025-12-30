@@ -206,17 +206,19 @@ export default class Striker {
     g.endFill();
   }
 
-  update() {
+  update(deltaMS = 16.66) {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
       this.view.rotation = this.body.angle;
     }
 
+    const dtRatio = deltaMS / 16.66;
+
     // --- 光圈动画逻辑 ---
     if (this.glow) {
         // 1. 透明度渐变 (Lerp)
-        const fadeSpeed = 0.1; // 渐变速度
+        const fadeSpeed = 0.1 * dtRatio; // 渐变速度
         if (Math.abs(this.glow.alpha - this.targetGlowAlpha) > 0.01) {
             this.glow.alpha += (this.targetGlowAlpha - this.glow.alpha) * fadeSpeed;
         } else {
@@ -228,7 +230,7 @@ export default class Striker {
 
         // 3. 只有可见时才进行旋转计算
         if (this.glow.visible) {
-            this.glow.rotation += 0.015; // 缓慢旋转
+            this.glow.rotation += 0.015 * dtRatio; // 缓慢旋转
         }
     }
   }

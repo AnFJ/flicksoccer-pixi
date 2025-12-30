@@ -312,8 +312,9 @@ export default class GameScene extends BaseScene {
         this.accumulator -= this.fixedTimeStep;
     }
 
-    this.strikers.forEach(s => s.update());
-    this.ball?.update();
+    // [更新] 传入 delta (毫秒) 以实现平滑的视觉更新
+    this.strikers.forEach(s => s.update(delta));
+    this.ball?.update(delta);
   }
 
   _fixedUpdate(dt) {
