@@ -189,6 +189,14 @@ export class GameRoom {
               payload: msg.payload
           });
           break;
+      
+      // [新增] 轨迹数据同步 (转发给其他人)
+      case 'TRAJECTORY_BATCH':
+          this.broadcast({
+              type: 'TRAJECTORY_BATCH',
+              payload: msg.payload
+          });
+          break;
 
       // [新增] 公平竞赛移出动画转发
       case 'FAIR_PLAY_MOVE':

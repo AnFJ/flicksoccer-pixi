@@ -8,25 +8,193 @@ import { GameConfig } from '../config.js';
 
 /**
  * 联机对战控制器
+ * 采用 "攻击方权威计算 - 防守方缓冲回放" 模式
  */
 export default class OnlineMatchController {
     constructor(scene) {
         this.scene = scene;
-        this.snapshotTimer = 0;
         this.pendingTurn = null;
         this.hasOpponentLeft = false;
+
+        // --- 录制相关 (Sender) ---
+        this.sendBuffer = []; // 待发送的帧列表
+        this.sendTimer = 0;   // 发送计时器
+
+        // --- 回放相关 (Receiver) ---
+        this.isReplaying = false;      // 是否处于被动回放模式
+        this.isBuffering = false;      // 是否正在缓冲数据
+        this.replayQueue = [];         // 接收到的帧队列
+        this.replayTime = 0;           // 当前回放的时间指针
+        this.totalBufferedTime = 0;    // 当前队列中总数据时长
+        
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
     }
 
+    /**
+     * 主循环调用
+     * @param {number} delta (ms)
+     */
     update(delta) {
-        if (this.scene.isMoving && this.scene.turnMgr.currentTurn === this.scene.myTeamId) {
-            this.snapshotTimer += delta;
-            // [修改] 使用配置的时间间隔
-            if (this.snapshotTimer > GameConfig.network.snapshotInterval) {
-                this.snapshotTimer = 0;
-                this._sendSnapshot();
+        const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
+
+        if (this.scene.isMoving) {
+            if (isMyTurn) {
+                // 1. 我是攻击方：记录当前帧
+                this._recordFrame(delta);
+            } else if (this.isReplaying) {
+                // 2. 我是防守方：播放回放
+                this._processPlayback(delta);
             }
         }
+    }
+
+    /**
+     * [Sender] 记录当前物理世界状态
+     */
+    _recordFrame(dt) {
+        // 只记录活跃物体
+        const frameData = {
+            t: dt, // 这一帧的时长
+            bodies: {}
+        };
+
+        let hasActive = false;
+
+        // 记录球
+        if (this.scene.ball && this.scene.ball.body) {
+            const b = this.scene.ball.body;
+            // 简单优化：静止物体不发送，但为了回放平滑，建议每一帧都发关键物体
+            frameData.bodies['ball'] = this._packBodyData(b);
+            hasActive = true;
+        }
+
+        // 记录所有棋子
+        this.scene.strikers.forEach(s => {
+            if (s.body) {
+                frameData.bodies[s.id] = this._packBodyData(s.body);
+            }
+        });
+
+        this.sendBuffer.push(frameData);
+        this.sendTimer += dt;
+
+        // 达到发送间隔，打包发送
+        if (this.sendTimer >= GameConfig.network.trajectorySendInterval) {
+            this._flushSendBuffer();
+        }
+    }
+
+    _packBodyData(body) {
+        return {
+            x: Number(body.position.x.toFixed(1)),
+            y: Number(body.position.y.toFixed(1)),
+            a: Number(body.angle.toFixed(3)),
+            vx: Number(body.velocity.x.toFixed(2)), // 速度用于客户端预测或特效
+            vy: Number(body.velocity.y.toFixed(2))
+        };
+    }
+
+    _flushSendBuffer() {
+        if (this.sendBuffer.length === 0) return;
+
+        NetworkMgr.send({
+            type: NetMsg.TRAJECTORY_BATCH,
+            payload: {
+                frames: this.sendBuffer
+            }
+        });
+
+        this.sendBuffer = [];
+        this.sendTimer = 0;
+    }
+
+    /**
+     * [Receiver] 处理回放逻辑
+     */
+    _processPlayback(dt) {
+        // 1. 缓冲阶段
+        if (this.isBuffering) {
+            // 检查缓冲区是否足够
+            if (this.totalBufferedTime >= GameConfig.network.replayBufferTime) {
+                console.log(`[Replay] Buffer ready (${this.totalBufferedTime}ms), starting playback.`);
+                this.isBuffering = false;
+            } else {
+                // 还在缓冲，直接返回，画面暂停或显示加载
+                return;
+            }
+        }
+
+        // 2. 播放阶段
+        if (this.replayQueue.length === 0) {
+            return;
+        }
+
+        let remainingDt = dt;
+
+        while (remainingDt > 0 && this.replayQueue.length > 0) {
+            const currentFrame = this.replayQueue[0];
+            
+            // [核心修改] 检查是否为事件帧 (如进球)
+            if (currentFrame.isEvent) {
+                this._handleReplayEvent(currentFrame);
+                this.replayQueue.shift(); // 移除事件帧
+                // 事件帧不消耗时间，直接继续处理下一帧
+                continue; 
+            }
+
+            // 处理普通物理帧
+            // 如果这一帧能覆盖剩余时间
+            if (currentFrame.t > remainingDt) {
+                currentFrame.t -= remainingDt;
+                this._applyFrameState(currentFrame);
+                remainingDt = 0;
+            } else {
+                // 这一帧时间耗尽，应用并移除
+                remainingDt -= currentFrame.t;
+                this._applyFrameState(currentFrame);
+                this.replayQueue.shift();
+                this.totalBufferedTime -= currentFrame.originalT || currentFrame.t; 
+            }
+        }
+    }
+
+    /**
+     * 处理队列中的特殊事件
+     */
+    _handleReplayEvent(frame) {
+        if (frame.eventType === NetMsg.GOAL) {
+            const { newScore } = frame.payload;
+            this.scene.rules.score = newScore;
+            this.scene._playGoalEffects(newScore);
+            console.log('[Replay] Executed delayed GOAL event.');
+        }
+    }
+
+    _applyFrameState(frame) {
+        const bodies = frame.bodies;
+        if (!bodies) return;
+
+        // 应用球的状态
+        if (bodies['ball'] && this.scene.ball) {
+            this._setBodyState(this.scene.ball.body, bodies['ball']);
+        }
+
+        // 应用棋子状态
+        for (const id in bodies) {
+            if (id === 'ball') continue;
+            const striker = this.scene.strikers.find(s => s.id === id);
+            if (striker) {
+                this._setBodyState(striker.body, bodies[id]);
+            }
+        }
+    }
+
+    _setBodyState(body, data) {
+        // 强制设置位置和角度
+        Matter.Body.setPosition(body, { x: data.x, y: data.y });
+        Matter.Body.setAngle(body, data.a);
+        // 同时设置速度，以便特效（如拖尾、火花）能正常计算
+        Matter.Body.setVelocity(body, { x: data.vx, y: data.vy });
     }
 
     onNetMessage(msg) {
@@ -34,31 +202,39 @@ export default class OnlineMatchController {
 
         switch (msg.type) {
             case NetMsg.MOVE:
-                scene.input.handleRemoteAim(NetMsg.AIM_END); 
+                scene.input.handleRemoteAim(NetMsg.AIM_END);
                 
+                this.pendingTurn = msg.payload.nextTurn;
+
                 const striker = scene.strikers.find(s => s.id === msg.payload.id);
-                if (striker) {
-                    const isMyStriker = (striker.teamId === scene.myTeamId);
-                    if (!isMyStriker) {
-                        // [关键修复] 直接从 MOVE 消息中获取技能状态，而不是依赖本地状态
-                        // 这样避免了网络时序导致的状态不一致
-                        const usedSkills = msg.payload.skills || {};
-
-                        if (usedSkills[SkillType.UNSTOPPABLE]) {
-                             if (scene.ball) scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
-                        }
-                        
-                        if (usedSkills[SkillType.SUPER_FORCE]) {
-                             if (scene.ball) scene.ball.setLightningMode(true);
-                        }
-
-                        Matter.Body.applyForce(striker.body, striker.body.position, msg.payload.force);
-                        scene.onActionFired();
-                        
-                        // 远程动作触发后，我们也重置本地的技能显示（防止 UI 状态残留）
-                        scene.skillMgr.consumeSkills();
+                if (striker && striker.teamId !== scene.myTeamId) {
+                    const usedSkills = msg.payload.skills || {};
+                    if (usedSkills[SkillType.UNSTOPPABLE] && scene.ball) {
+                         scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
                     }
-                    this.pendingTurn = msg.payload.nextTurn;
+                    if (usedSkills[SkillType.SUPER_FORCE] && scene.ball) {
+                         scene.ball.setLightningMode(true);
+                    }
+                    scene.skillMgr.consumeSkills();
+
+                    this.isReplaying = true;
+                    this.isBuffering = true;
+                    this.replayQueue = [];
+                    this.totalBufferedTime = 0;
+                    scene.onActionFired(true); 
+                }
+                break;
+
+            case NetMsg.TRAJECTORY_BATCH:
+                if (this.isReplaying) {
+                    const frames = msg.payload.frames;
+                    if (frames && frames.length > 0) {
+                        frames.forEach(f => {
+                            f.originalT = f.t; 
+                            this.replayQueue.push(f);
+                            this.totalBufferedTime += f.t;
+                        });
+                    }
                 }
                 break;
 
@@ -69,9 +245,7 @@ export default class OnlineMatchController {
                 break;
             
             case NetMsg.SKILL:
-                if (scene.skillMgr) {
-                    scene.skillMgr.handleRemoteSkill(msg.payload);
-                }
+                if (scene.skillMgr) scene.skillMgr.handleRemoteSkill(msg.payload);
                 break;
 
             case NetMsg.FAIR_PLAY_MOVE:
@@ -89,18 +263,28 @@ export default class OnlineMatchController {
                 }
                 break;
 
-            case NetMsg.SNAPSHOT:
-                this._handleSnapshot(msg.payload);
-                break;
-
             case NetMsg.TURN_SYNC:
                 this._handleTurnSync(msg.payload);
                 break;
 
             case NetMsg.GOAL:
-                const newScore = msg.payload.newScore;
-                scene.rules.score = newScore;
-                scene._playGoalEffects(newScore);
+                // [核心修改]
+                // 如果正在回放（防守方），不要立即执行进球逻辑
+                // 而是将进球事件推入回放队列，等待画面同步到那一刻
+                if (this.isReplaying) {
+                    this.replayQueue.push({
+                        isEvent: true,
+                        eventType: NetMsg.GOAL,
+                        payload: msg.payload,
+                        t: 0 // 事件帧不占用时间
+                    });
+                    console.log('[Replay] Queued GOAL event.');
+                } else {
+                    // 如果我是攻击方（或者异常状态），直接执行
+                    const newScore = msg.payload.newScore;
+                    scene.rules.score = newScore;
+                    scene._playGoalEffects(newScore);
+                }
                 break;
 
             case NetMsg.PLAYER_LEFT_GAME:
@@ -128,121 +312,18 @@ export default class OnlineMatchController {
         }
     }
 
-    /**
-     * 发送游戏状态快照
-     * 优化：同步所有运动中的物体（球 + 棋子），而不仅仅是球
-     */
-    _sendSnapshot() {
-        if (!this.scene.ball || !this.scene.ball.body) return;
-
-        const payload = {
-            bodies: []
-        };
-
-        // 辅助函数：提取刚体数据
-        const extractData = (id, body) => {
-            // 只同步有明显速度的物体，节省带宽
-            if (body.speed > 0.05 || Math.abs(body.angularVelocity) > 0.05) {
-                return {
-                    id: id,
-                    x: Number(body.position.x.toFixed(1)),
-                    y: Number(body.position.y.toFixed(1)),
-                    vx: Number(body.velocity.x.toFixed(2)),
-                    vy: Number(body.velocity.y.toFixed(2)),
-                    a: Number(body.angle.toFixed(2)), // 角度
-                    va: Number(body.angularVelocity.toFixed(3)) // 角速度
-                };
-            }
-            return null;
-        };
-
-        // 1. 足球
-        const ballData = extractData('ball', this.scene.ball.body);
-        if (ballData) payload.bodies.push(ballData);
-
-        // 2. 所有棋子
-        this.scene.strikers.forEach(s => {
-            const data = extractData(s.id, s.body);
-            if (data) payload.bodies.push(data);
-        });
-
-        // 只有当有物体在动时才发送
-        if (payload.bodies.length > 0) {
-            NetworkMgr.send({ type: NetMsg.SNAPSHOT, payload });
-        }
-    }
-
-    /**
-     * 处理收到的快照
-     * 优化：支持多物体同步，增加平滑插值逻辑
-     */
-    _handleSnapshot(payload) {
-        // 如果是自己的回合，忽略收到的快照（以本地计算为准）
-        if (this.scene.turnMgr.currentTurn === this.scene.myTeamId) return;
-        if (!payload.bodies) return;
-
-        payload.bodies.forEach(data => {
-            let body = null;
-
-            if (data.id === 'ball') {
-                body = this.scene.ball ? this.scene.ball.body : null;
-            } else {
-                const striker = this.scene.strikers.find(s => s.id === data.id);
-                body = striker ? striker.body : null;
-            }
-
-            if (body) {
-                this._applySyncToBody(body, data);
-            }
-        });
-    }
-
-    /**
-     * 将同步数据应用到刚体 (带插值)
-     */
-    _applySyncToBody(localBody, serverData) {
-        const localPos = localBody.position;
-        const dx = serverData.x - localPos.x;
-        const dy = serverData.y - localPos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        // 阈值 1: 极其微小的误差，忽略，避免抖动
-        if (dist < 2) return;
-
-        // 阈值 2: 误差过大，直接瞬移（防穿墙、防卡死）
-        if (dist > 60) {
-            Matter.Body.setPosition(localBody, { x: serverData.x, y: serverData.y });
-            Matter.Body.setVelocity(localBody, { x: serverData.vx, y: serverData.vy });
-            Matter.Body.setAngle(localBody, serverData.a);
-            Matter.Body.setAngularVelocity(localBody, serverData.va);
-            return;
-        }
-
-        // 阈值 3: 正常误差，进行线性插值 (Lerp)
-        const lerpFactor = 0.3; // 插值系数
-        const newX = localPos.x + dx * lerpFactor;
-        const newY = localPos.y + dy * lerpFactor;
-        
-        Matter.Body.setPosition(localBody, { x: newX, y: newY });
-        
-        // 速度和角度直接信任服务器，以保证预测轨迹一致
-        Matter.Body.setVelocity(localBody, { x: serverData.vx, y: serverData.vy });
-        
-        // 角度插值 (防止旋转突变)
-        const currentAngle = localBody.angle;
-        const targetAngle = serverData.a;
-        Matter.Body.setAngle(localBody, currentAngle + (targetAngle - currentAngle) * lerpFactor);
-        Matter.Body.setAngularVelocity(localBody, serverData.va);
-    }
-
     _handleTurnSync(payload) {
+        this.isReplaying = false;
+        this.isBuffering = false;
+        this.replayQueue = [];
+        
         if (payload.strikers) {
             payload.strikers.forEach(data => {
                 const s = this.scene.strikers.find(st => st.id === data.id);
                 if (s) {
                     Matter.Body.setPosition(s.body, data.pos);
                     Matter.Body.setVelocity(s.body, {x:0, y:0});
-                    Matter.Body.setAngularVelocity(s.body, 0); // 确保停转
+                    Matter.Body.setAngularVelocity(s.body, 0); 
                 }
             });
         }
@@ -251,12 +332,48 @@ export default class OnlineMatchController {
             Matter.Body.setVelocity(this.scene.ball.body, {x:0, y:0});
             Matter.Body.setAngularVelocity(this.scene.ball.body, 0);
         }
+
         if (this.scene.isMoving) {
             this.scene._endTurn();
         }
     }
 
-    _handlePlayerLeft(payload) {
+    handleLocalGoal(data) {
+        if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
+            this.scene.rules.score[data.scoreTeam]--; 
+            return true; 
+        }
+        NetworkMgr.send({
+            type: NetMsg.GOAL,
+            payload: { newScore: data.newScore }
+        });
+        return true; 
+    }
+
+    sendFairPlayMove(id, start, end, duration) {
+        NetworkMgr.send({
+            type: NetMsg.FAIR_PLAY_MOVE,
+            payload: { id, start, end, duration }
+        });
+    }
+
+    syncAllPositions() {
+        this._flushSendBuffer();
+
+        const payload = {
+            strikers: this.scene.strikers.map(s => ({ id: s.id, pos: { x: s.body.position.x, y: s.body.position.y } })),
+            ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y }
+        };
+        NetworkMgr.send({ type: NetMsg.TURN_SYNC, payload });
+    }
+
+    popPendingTurn() {
+        const turn = this.pendingTurn;
+        this.pendingTurn = null;
+        return turn;
+    }
+
+    _handlePlayerLeft(payload) { /* 同前 */
         const leftTeamId = payload.teamId;
         if (leftTeamId !== undefined) {
             this.hasOpponentLeft = true;
@@ -267,8 +384,7 @@ export default class OnlineMatchController {
             Platform.showToast("对方已离开，游戏暂停");
         }
     }
-
-    _handlePlayerOffline(payload) {
+    _handlePlayerOffline(payload) { /* 同前 */
         const offlineTeamId = payload.teamId; 
         if (offlineTeamId !== undefined) {
             if (!this.hasOpponentLeft) {
@@ -282,8 +398,7 @@ export default class OnlineMatchController {
             }
         }
     }
-
-    _handlePlayerReconnected() {
+    _handlePlayerReconnected() { /* 同前 */
         if (this.scene.isGamePaused) {
             this.hasOpponentLeft = false;
             this.scene.hud?.setPlayerOffline(0, false);
@@ -296,7 +411,6 @@ export default class OnlineMatchController {
             }
         }
     }
-
     restoreState(snapshot) {
         console.log('[OnlineMatch] Restoring state...', snapshot);
         const scene = this.scene;
@@ -318,39 +432,6 @@ export default class OnlineMatchController {
             }
         }
         Platform.showToast("已恢复对局");
-    }
-
-    handleLocalGoal(data) {
-        if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
-            this.scene.rules.score[data.scoreTeam]--;
-            return true; 
-        }
-        NetworkMgr.send({
-            type: NetMsg.GOAL,
-            payload: { newScore: data.newScore }
-        });
-        return true; 
-    }
-
-    sendFairPlayMove(id, start, end, duration) {
-        NetworkMgr.send({
-            type: NetMsg.FAIR_PLAY_MOVE,
-            payload: { id, start, end, duration }
-        });
-    }
-
-    syncAllPositions() {
-        const payload = {
-            strikers: this.scene.strikers.map(s => ({ id: s.id, pos: { x: s.body.position.x, y: s.body.position.y } })),
-            ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y }
-        };
-        NetworkMgr.send({ type: NetMsg.TURN_SYNC, payload });
-    }
-
-    popPendingTurn() {
-        const turn = this.pendingTurn;
-        this.pendingTurn = null;
-        return turn;
     }
 
     destroy() {

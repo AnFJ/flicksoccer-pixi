@@ -147,8 +147,6 @@ export default class GameScene extends BaseScene {
           const highlight = new PIXI.Graphics();
           highlight.lineStyle(6, 0xFFFF00);
           highlight.drawRoundedRect(0, 0, btnSize, btnSize, 20);
-          // [修复] 移除 highlight.position.set(-btnSize/2, -btnSize/2); 
-          // 按钮和高亮框都是从 (0,0) 开始绘制的，不需要偏移
           highlight.visible = false;
           btn.addChild(highlight);
           btn.highlight = highlight;
@@ -234,9 +232,17 @@ export default class GameScene extends BaseScene {
       SceneManager.changeScene(MenuScene);
   }
 
-  onActionFired() {
+  /**
+   * 动作触发（击球开始）
+   * @param {boolean} isRemote 是否是远程触发（如果是远程触发，说明是防守方）
+   */
+  onActionFired(isRemote = false) {
     this.isMoving = true;
-    AudioManager.playSFX('collision');
+    // 如果是远程触发（回放模式），不播放本地碰撞音效，因为还没撞呢
+    // 或者可以播放一个通用的开始音效
+    if (!isRemote) {
+        AudioManager.playSFX('collision');
+    }
     this.turnMgr.timer = 0; 
   }
 
@@ -318,27 +324,48 @@ export default class GameScene extends BaseScene {
   }
 
   _fixedUpdate(dt) {
-    this.physics.update(dt);
-    this.turnMgr.update(dt);
-    if (this.networkCtrl) this.networkCtrl.update(dt);
+    // [核心修改] 
+    // 只有在 单机模式 或 (联网模式且我是当前回合) 时，才运行物理引擎
+    // 如果是联网模式且是对方回合，我只负责根据网络数据重设位置，不跑物理计算
+    
+    const isPvpOnline = this.gameMode === 'pvp_online';
+    const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
+    
+    // 1. 物理计算决策
+    if (!isPvpOnline || isMyTurn) {
+        // 我是攻击方 (Authority)，运行物理引擎
+        this.physics.update(dt);
+    } else {
+        // 我是防守方 (Client)，跳过物理引擎，避免本地计算导致的不一致
+        // 注意：这里什么都不做，位置更新由 networkCtrl.update 里的 _processPlayback 处理
+    }
 
+    this.turnMgr.update(dt);
+    
+    // 2. 网络控制器更新 (负责 录制轨迹 或 回放轨迹)
+    if (this.networkCtrl) {
+        this.networkCtrl.update(dt);
+    }
+
+    // 3. 复位动画更新
     if (this.repositionAnimations.length > 0) {
         this._updateRepositionAnims(dt);
     }
 
-    const isPhysicsSleeping = this.physics.isSleeping();
-    const isAnimFinished = this.repositionAnimations.length === 0;
-
+    // 4. 回合结束判定
+    // 只有攻击方才有权决定物理何时静止
     if (this.isMoving) {
-        if (isPhysicsSleeping) {
-            if (isAnimFinished) {
-                const isAuthority = !this.networkCtrl || this.turnMgr.currentTurn === this.myTeamId;
-                if (isAuthority) {
-                    const startedAnyAnim = this._enforceFairPlay();
-                    if (!startedAnyAnim) {
-                        this._endTurn();
-                    }
-                }
+        // 如果是联网攻击方，检测物理静止
+        // 如果是单机模式，检测物理静止
+        if (!isPvpOnline || isMyTurn) {
+            const isPhysicsSleeping = this.physics.isSleeping();
+            const isAnimFinished = this.repositionAnimations.length === 0;
+
+            if (isPhysicsSleeping && isAnimFinished) {
+                 const startedAnyAnim = this._enforceFairPlay();
+                 if (!startedAnyAnim) {
+                     this._endTurn();
+                 }
             }
         }
     }
@@ -352,6 +379,7 @@ export default class GameScene extends BaseScene {
           this.ball.skillStates.fire = false;
       }
 
+      // 如果我是攻击方，发送最终同步包
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {
           this.networkCtrl.syncAllPositions();
       }
@@ -359,9 +387,14 @@ export default class GameScene extends BaseScene {
       if (!this.networkCtrl) {
           this.turnMgr.switchTurn();
       } else {
+          // 联网模式下，等待网络层处理 pendingTurn
           const pending = this.networkCtrl.popPendingTurn();
           if (pending !== null && pending !== undefined) {
               this.turnMgr.currentTurn = pending;
+          } else if (this.turnMgr.currentTurn === this.myTeamId) {
+              // [安全兜底] 如果我是攻击方且物理停了，但还没收到网络层下回合的通知
+              // 强制切换给对方，防止卡在自己回合
+              this.turnMgr.switchTurn();
           }
           this.turnMgr.resetTimer();
       }

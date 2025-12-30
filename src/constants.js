@@ -60,6 +60,9 @@ export const NetMsg = {
   // [新增] 公平竞赛移出同步
   FAIR_PLAY_MOVE: 'FAIR_PLAY_MOVE', 
 
+  // [核心新增] 批量轨迹数据包
+  TRAJECTORY_BATCH: 'TRAJECTORY_BATCH', 
+
   TURN_SYNC: 'TURN_SYNC', // 回合同步(回合结束时的最终一致性)
   SNAPSHOT: 'SNAPSHOT',   // 中间状态快照(移动过程中的位置修正)
   GOAL: 'GOAL',       // 进球

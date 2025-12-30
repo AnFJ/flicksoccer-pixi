@@ -100,8 +100,12 @@ export const GameConfig = {
 
   // [新增] 网络同步配置
   network: {
-      snapshotInterval: 50, // 游戏物体位置快照同步间隔 (ms)
-      aimSyncInterval: 100   // 拖拽瞄准线同步间隔 (ms)
+      snapshotInterval: 50, // 旧的快照间隔 (保留兼容)
+      aimSyncInterval: 100, // 拖拽瞄准线同步间隔 (ms)
+      
+      // [核心新增] 轨迹回放配置
+      trajectorySendInterval: 100, // 发送端：每多少毫秒打包发送一次轨迹数据包
+      replayBufferTime: 600,       // 接收端：开始播放前需要缓冲的时间 (ms)
   },
 
   // API 地址

@@ -218,16 +218,20 @@ export default class InputController {
 
         // --- 3. 发送网络消息 (携带技能数据) ---
         if (this.scene.gameMode === 'pvp_online') {
+            // 注意：因为采用了缓冲同步，MOVE 消息现在主要作为一个“开始信号”
+            // 对方收到 MOVE 后并不会模拟力，而是等待接收 Trajectory 数据
+            // 但 force 和 skills 仍然传递过去，用于 UI 显示或可能的预测校验
             NetworkMgr.send({
                 type: NetMsg.MOVE,
                 payload: { 
                     id: this.selectedEntityId, 
                     force: force,
-                    skills: usedSkills // [关键修复] 同步技能
+                    skills: usedSkills
                 }
             });
         }
         
+        // 本地立即应用力，开始模拟
         Matter.Body.applyForce(this.selectedBody, this.selectedBody.position, force);
         this.scene.onActionFired();
     }
