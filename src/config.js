@@ -54,7 +54,7 @@ export const GameConfig = {
     gravity: { x: 0, y: 0 }, 
     
     strikerFixedRotation: true, 
-    ballFixedRotation: false,  
+    ballFixedRotation: true,  
 
     // 低速急停配置
     stoppingFriction: {
@@ -81,13 +81,13 @@ export const GameConfig = {
   gameplay: {
     maxScore: 2,             
     maxDragDistance: 160,      // [修改] 增加一倍 (80 -> 160)，让瞄准线更长
-    forceMultiplier: 0.0020,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
-    turnTimeLimit: 30,
+    forceMultiplier: 0.0030,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
+    turnTimeLimit: 60,
     
     // [新增] 技能配置
     skills: {
         superAim: { bounces: 3, distance: 2000 },
-        superForce: { multiplier: 10 },
+        superForce: { multiplier: 3 },
         unstoppable: { duration: 3000 } // ms
     },
 
