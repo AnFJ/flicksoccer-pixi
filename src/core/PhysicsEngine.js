@@ -12,24 +12,33 @@ export default class PhysicsEngine {
     // 创建物理引擎，关闭重力
     this.engine = Matter.Engine.create({
       gravity: GameConfig.physics.gravity,
-      // 性能优化：降低迭代次数
-      positionIterations: 6, 
-      velocityIterations: 4
+      // 提高迭代次数以提升精度，减少穿墙
+      positionIterations: 8, 
+      velocityIterations: 6
     });
 
-    // 创建运行器
-    this.runner = Matter.Runner.create();
+    // 可以在这里设置 timing，但在 update 中手动控制更稳
+    // Matter.js 默认是变步长的，这会导致不同帧率设备物理结果不同
     
     console.log('[PhysicsEngine] Initialized');
   }
 
   /**
    * 每一帧更新物理世界
-   * @param {number} delta - 时间增量 (ms)
+   * @param {number} delta - 这里的 delta 实际上我们不直接传给 engine.update
+   * 为了保证确定性，我们强制传固定值
    */
   update(delta) {
     if (this.engine) {
-      Matter.Engine.update(this.engine, delta);
+      // [核心修改] 强制固定时间步长 16.666ms (60FPS)
+      // 无论屏幕刷新率是 120Hz 还是 30Hz，物理世界每一步都按 16.66ms 走
+      // 注意：这需要在 GameScene 的 accumulator 逻辑配合下使用
+      // Matter.Engine.update 的第二个参数是 correction，第三个是 delta (默认为 16.666)
+      
+      // 我们显式传入 16.666，确保不同设备计算一致
+      const FIXED_TIMESTEP = 1000 / 60;
+      
+      Matter.Engine.update(this.engine, FIXED_TIMESTEP);
       
       // 在物理计算后，应用自定义的“急停”逻辑
       this.applyStoppingFriction();
@@ -55,7 +64,6 @@ export default class PhysicsEngine {
         if (body.isStatic) continue;
         if (body.label !== 'Ball' && body.label !== 'Striker') continue;
 
-        // [修复] 如果 frictionAir 为 0 (说明处于无敌战车状态)，则跳过急停逻辑
         if (body.frictionAir === 0) continue;
 
         const speed = body.speed;
@@ -113,8 +121,6 @@ export default class PhysicsEngine {
     // 过滤掉静态墙壁，检查所有动态物体速度
     return bodies.every(body => {
       if (body.isStatic) return true;
-      // [修复] 如果是无敌战车状态，哪怕速度很快也认为它"没停" (其实不用改这里，因为速度大本来就返回false)
-      // 但为了保险，我们只检查速度
       return body.speed < VELOCITY_THRESHOLD && Math.abs(body.angularVelocity) < VELOCITY_THRESHOLD;
     });
   }
