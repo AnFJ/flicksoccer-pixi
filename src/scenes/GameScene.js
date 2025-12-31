@@ -57,8 +57,9 @@ export default class GameScene extends BaseScene {
 
     this.skillBtns = {};
 
-    this.accumulator = 0;
-    this.fixedTimeStep = 1000 / 60; 
+    // [修改] 移除 accumulator 相关变量，不再需要固定时间步长累积
+    // this.accumulator = 0;
+    // this.fixedTimeStep = 1000 / 60; 
   }
 
   async onEnter(params = {}) {
@@ -90,7 +91,7 @@ export default class GameScene extends BaseScene {
 
     this.isGameOver = false;
     this.isGamePaused = false;
-    this.accumulator = 0; 
+    // this.accumulator = 0; 
     
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
@@ -310,13 +311,16 @@ export default class GameScene extends BaseScene {
     this.sparkSystem?.update(delta);
     this._updateStrikerHighlights(); 
 
-    this.accumulator += delta;
-    if (this.accumulator > 100) this.accumulator = 100;
+    // [核心修改] 移除 accumulator 循环，直接调用 update
+    // this.accumulator += delta;
+    // if (this.accumulator > 100) this.accumulator = 100;
+    // while (this.accumulator >= this.fixedTimeStep) {
+    //     this._fixedUpdate(this.fixedTimeStep);
+    //     this.accumulator -= this.fixedTimeStep;
+    // }
 
-    while (this.accumulator >= this.fixedTimeStep) {
-        this._fixedUpdate(this.fixedTimeStep);
-        this.accumulator -= this.fixedTimeStep;
-    }
+    // 使用当前的实际 delta 进行物理和逻辑更新
+    this._fixedUpdate(delta);
 
     // [更新] 传入 delta (毫秒) 以实现平滑的视觉更新
     this.strikers.forEach(s => s.update(delta));

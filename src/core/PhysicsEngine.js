@@ -17,28 +17,22 @@ export default class PhysicsEngine {
       velocityIterations: 6
     });
 
-    // 可以在这里设置 timing，但在 update 中手动控制更稳
-    // Matter.js 默认是变步长的，这会导致不同帧率设备物理结果不同
-    
     console.log('[PhysicsEngine] Initialized');
   }
 
   /**
    * 每一帧更新物理世界
-   * @param {number} delta - 这里的 delta 实际上我们不直接传给 engine.update
-   * 为了保证确定性，我们强制传固定值
+   * @param {number} delta - 实际的时间间隔 (ms)
    */
   update(delta) {
     if (this.engine) {
-      // [核心修改] 强制固定时间步长 16.666ms (60FPS)
-      // 无论屏幕刷新率是 120Hz 还是 30Hz，物理世界每一步都按 16.66ms 走
-      // 注意：这需要在 GameScene 的 accumulator 逻辑配合下使用
-      // Matter.Engine.update 的第二个参数是 correction，第三个是 delta (默认为 16.666)
+      // [核心修改] 移除固定 16.66ms 限制，使用实际 delta 以获得更流畅的体验
+      // 限制最大 delta 为 100ms，防止浏览器后台挂起后切回导致的物理瞬移或穿透
+      const dt = Math.min(delta, 100);
       
-      // 我们显式传入 16.666，确保不同设备计算一致
-      const FIXED_TIMESTEP = 1000 / 60;
-      
-      Matter.Engine.update(this.engine, FIXED_TIMESTEP);
+      // Matter.Engine.update(engine, delta, correction)
+      // 第二个参数传入实际毫秒数，让物理模拟的时间流逝与渲染帧率同步
+      Matter.Engine.update(this.engine, dt);
       
       // 在物理计算后，应用自定义的“急停”逻辑
       this.applyStoppingFriction();
