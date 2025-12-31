@@ -58,13 +58,13 @@ export default class GameLayout {
         this._createAdBoards();
     }
 
-    /** 创建全屏背景（草地） */
+    /** 创建全屏背景（草地）- 作为底层兜底，防止黑边 */
     _createGlobalBackground(w, h) {
         const grassTex = ResourceManager.get('bg_grass');
         if (grassTex) {
             const bg = new PIXI.TilingSprite(grassTex, w, h);
             bg.tileScale.set(0.5);
-            bg.tint = 0x666666; // 稍微压暗，突出球场
+            bg.tint = 0x444444; // 压得更暗一些，因为主要视觉由新的大图提供
             this.layers.bg.addChild(bg);
         }
     }
@@ -75,25 +75,42 @@ export default class GameLayout {
         const centerX = x + w / 2;
         const centerY = y + h / 2;
 
-        // 球场草坪
-        const bgTex = ResourceManager.get('field_bg');
-        if (bgTex) {
-            const sprite = new PIXI.Sprite(bgTex);
+        // [核心修改] 使用合并后的长图 (27:9)
+        const combinedTex = ResourceManager.get('field_combined');
+        if (combinedTex) {
+            const sprite = new PIXI.Sprite(combinedTex);
             sprite.anchor.set(0.5);
-            sprite.width = w;
+            
+            // 需求：图片高度和球场高度一致
             sprite.height = h;
+            
+            // 需求：图片宽度保持自由比例 (不强制压缩/拉伸为 3:1)
+            // 设置高度后，scale.y 已经改变。将 scale.x 设为相同值即可保持原始比例。
+            sprite.scale.x = sprite.scale.y;
+
             sprite.position.set(centerX, centerY);
             this.layers.bg.addChild(sprite);
+        } else {
+            // 兜底：如果新图没加载到，使用旧逻辑显示一个纯色或旧纹理
+            const bgTex = ResourceManager.get('field_bg');
+            if (bgTex) {
+                const sprite = new PIXI.Sprite(bgTex);
+                sprite.anchor.set(0.5);
+                sprite.width = w;
+                sprite.height = h;
+                sprite.position.set(centerX, centerY);
+                this.layers.bg.addChild(sprite);
+            }
         }
 
-        // 球场边框
+        // 球场边框线 (放在上面)
         const borderTex = ResourceManager.get('field_border');
         if (borderTex) {
             const border = new PIXI.Sprite(borderTex);
             border.anchor.set(0.5);
             const goalDepth = GameConfig.dimensions.goalWidth * 2;
-            border.width = w + goalDepth + 20;
-            border.height = h + 20;
+            border.width = w + goalDepth;
+            border.height = h + 14;
             border.position.set(centerX, centerY);
             this.layers.over.addChild(border);
         }

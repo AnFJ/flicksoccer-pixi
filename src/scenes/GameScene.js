@@ -372,6 +372,10 @@ export default class GameScene extends BaseScene {
   }
   
   _endTurn() {
+      // [修复] 防止重复调用导致回合死锁
+      // 如果已经处于非移动状态，忽略再次结束回合的请求
+      if (!this.isMoving) return;
+
       this.isMoving = false;
       
       if (this.ball) {

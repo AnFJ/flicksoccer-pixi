@@ -12,7 +12,9 @@ class ResourceManager {
 
     // 2. 游戏主体资源
     this.gameManifest = {
-      field_bg: 'assets/images/field_bg.png',
+      // [修改] 使用新的合并长图 (27:9 比例)
+      field_combined: 'assets/images/field_combined.png', 
+      
       field_border: 'assets/images/field_border.png',
       bg_grass: 'assets/images/grass_texture.png',
       
