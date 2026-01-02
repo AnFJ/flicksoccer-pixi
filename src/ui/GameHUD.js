@@ -184,7 +184,10 @@ export default class GameHUD extends PIXI.Container {
     this.createSkillBar(teamId, container, isInteractive);
     this.createOfflineUI(teamId, container, size);
     this.addChild(container);
-    this.avatarComponents[teamId] = { container };
+    
+    // [修复] 确保不覆盖 createOfflineUI 中创建的对象
+    if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
+    this.avatarComponents[teamId].container = container;
   }
 
   createOfflineUI(teamId, container, size) {
@@ -205,9 +208,20 @@ export default class GameHUD extends PIXI.Container {
       offlineText.position.set(offTextX, 0);
       offlineText.visible = false;
       container.addChild(overlay, offlineText);
+      
       if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
       this.avatarComponents[teamId].overlay = overlay;
       this.avatarComponents[teamId].offlineText = offlineText;
+  }
+  
+  // 设置玩家掉线状态
+  setPlayerOffline(teamId, isOffline, text = '已掉线') {
+      const comp = this.avatarComponents[teamId];
+      if (comp && comp.overlay && comp.offlineText) {
+          comp.overlay.visible = isOffline;
+          comp.offlineText.visible = isOffline;
+          comp.offlineText.text = text;
+      }
   }
 
   createSkillBar(teamId, parent, isInteractive) {
