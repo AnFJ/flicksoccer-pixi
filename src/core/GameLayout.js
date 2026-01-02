@@ -131,9 +131,17 @@ export default class GameLayout {
             collisionFilter: { category: CollisionCategory.WALL }
         };
 
+        // [修改] 垂直方向的内缩修正值 (px)
+        // 增加这个值会让上下墙壁向中心靠拢，解决球“陷进”底边的问题
+        const vCorrection = 10; 
+
         const walls = [
-            Matter.Bodies.rectangle(centerX, y - t / 2, w + t * 2, t, { ...wallOptions, label: 'WallTop' }),
-            Matter.Bodies.rectangle(centerX, y + h + t / 2, w + t * 2, t, { ...wallOptions, label: 'WallBottom' }),
+            // Top Wall: 增加 vCorrection 使其下移
+            Matter.Bodies.rectangle(centerX, y - t / 2 + vCorrection, w + t * 2, t, { ...wallOptions, label: 'WallTop' }),
+            
+            // Bottom Wall: 减去 vCorrection 使其上移 (修复底部位置过低)
+            Matter.Bodies.rectangle(centerX, y + h + t / 2 - vCorrection, w + t * 2, t, { ...wallOptions, label: 'WallBottom' }),
+            
             Matter.Bodies.rectangle(x - t / 2, y + sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallLeftTop' }),
             Matter.Bodies.rectangle(x - t / 2, y + h - sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallLeftBottom' }),
             Matter.Bodies.rectangle(x + w + t / 2, y + sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallRightTop' }),

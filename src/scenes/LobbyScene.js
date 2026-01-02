@@ -142,7 +142,7 @@ export default class LobbyScene extends BaseScene {
               this.joinRoom(roomId);
           }
       });
-      confirmBtn.position.set(-300, 150); // 相对于 box 中心 (-300)
+      confirmBtn.position.set(-300, 120); // [修改] 上调至 120 (原150)，增加底部留白
       box.addChild(confirmBtn);
 
       // 取消按钮 (红色/灰色)
@@ -157,7 +157,7 @@ export default class LobbyScene extends BaseScene {
               this.initNormalLobby(w, h);
           }
       });
-      cancelBtn.position.set(20, 150); // 相对于 box 中心 (20)
+      cancelBtn.position.set(20, 120); // [修改] 上调至 120
       box.addChild(cancelBtn);
 
       this.container.addChild(dialog);
