@@ -1,6 +1,8 @@
 
 import Platform from './Platform.js';
 import NetworkMgr from './NetworkMgr.js';
+import EventBus from './EventBus.js';
+import { Events } from '../constants.js';
 
 class AccountMgr {
   constructor() {
@@ -10,7 +12,7 @@ class AccountMgr {
       avatarUrl: '', 
       level: 1,
       coins: 0,
-      items: []
+      items: [] // 存储结构: [{id: 'item_id', count: 10}, ...]
     };
     this.isLoggedIn = false;
     this.isNewUser = false; // 是否为新注册用户
@@ -111,6 +113,12 @@ class AccountMgr {
       this.userInfo.avatarUrl = '';
       this.userInfo.coins = 200;
       this.userInfo.id = 'offline_' + Date.now();
+      // 离线模式给一些基础道具用于测试
+      this.userInfo.items = [
+          { id: 'super_aim', count: 99 },
+          { id: 'super_force', count: 99 },
+          { id: 'unstoppable', count: 99 }
+      ];
       this.isLoggedIn = true;
       this.isNewUser = false; // 离线模式默认不当做新用户处理
   }
@@ -133,7 +141,7 @@ class AccountMgr {
   }
 
   /**
-   * 同步数据到服务器 (金币/等级)
+   * 同步数据到服务器 (金币/等级/物品)
    */
   async sync() {
       if (!this.isLoggedIn || this.userInfo.id.startsWith('offline_')) return;
@@ -159,6 +167,37 @@ class AccountMgr {
       return true;
     }
     return false;
+  }
+
+  /**
+   * [新增] 获取物品数量
+   * @param {string} itemId 物品ID (如 skill_super_aim)
+   */
+  getItemCount(itemId) {
+      if (!this.userInfo.items) return 0;
+      const item = this.userInfo.items.find(i => i.id === itemId);
+      return item ? item.count : 0;
+  }
+
+  /**
+   * [新增] 消耗物品
+   * @param {string} itemId 
+   * @param {number} amount 
+   */
+  consumeItem(itemId, amount = 1) {
+      if (!this.userInfo.items) this.userInfo.items = [];
+      
+      const item = this.userInfo.items.find(i => i.id === itemId);
+      if (item) {
+          if (item.count >= amount) {
+              item.count -= amount;
+              this.sync();
+              EventBus.emit(Events.ITEM_UPDATE, { itemId, count: item.count });
+              console.log(`[Account] Consumed item ${itemId}, remaining: ${item.count}`);
+              return true;
+          }
+      }
+      return false;
   }
 }
 

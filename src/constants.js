@@ -38,7 +38,8 @@ export const Events = {
   SYNC_STATE: 'sync_state', // 网络同步
   COLLISION_HIT: 'collision_hit', // 物理碰撞产生火花
   NET_MESSAGE: 'net_message', // 网络消息
-  SKILL_ACTIVATED: 'skill_activated' // 技能激活
+  SKILL_ACTIVATED: 'skill_activated', // 技能激活
+  ITEM_UPDATE: 'item_update' // [新增] 物品/技能数量更新
 };
 
 // 网络消息类型

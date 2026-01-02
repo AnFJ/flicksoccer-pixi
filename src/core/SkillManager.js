@@ -4,6 +4,7 @@ import { GameConfig } from '../config.js';
 import EventBus from '../managers/EventBus.js';
 import NetworkMgr from '../managers/NetworkMgr.js';
 import Platform from '../managers/Platform.js';
+import AccountMgr from '../managers/AccountMgr.js';
 
 export default class SkillManager {
     constructor(scene) {
@@ -43,6 +44,15 @@ export default class SkillManager {
         if (this.scene.gameMode === 'pve' && !isMyTurn) {
              Platform.showToast("非自己回合");
             return;
+        }
+
+        // [新增] 检查物品数量
+        if (!this.activeSkills[type]) { // 如果是尝试激活
+            const count = AccountMgr.getItemCount(type);
+            if (count <= 0) {
+                Platform.showToast("道具数量不足");
+                return;
+            }
         }
 
         // 切换状态
@@ -95,16 +105,25 @@ export default class SkillManager {
         // 重置所有一次性技能
         for (const key in this.activeSkills) {
             if (this.activeSkills[key]) {
-                this.activeSkills[key] = false;
-                // 通知 UI 关闭高亮
-                EventBus.emit(Events.SKILL_ACTIVATED, { type: key, active: false, teamId: this.scene.turnMgr.currentTurn });
+                // [新增] 实际扣除物品数量并同步数据库
+                const consumed = AccountMgr.consumeItem(key, 1);
                 
-                // 联网同步关闭状态
-                if (this.scene.gameMode === 'pvp_online') {
-                    NetworkMgr.send({
-                        type: NetMsg.SKILL,
-                        payload: { type: key, active: false, teamId: this.scene.turnMgr.currentTurn }
-                    });
+                if (consumed) {
+                    this.activeSkills[key] = false;
+                    // 通知 UI 关闭高亮
+                    EventBus.emit(Events.SKILL_ACTIVATED, { type: key, active: false, teamId: this.scene.turnMgr.currentTurn });
+                    
+                    // 联网同步关闭状态
+                    if (this.scene.gameMode === 'pvp_online') {
+                        NetworkMgr.send({
+                            type: NetMsg.SKILL,
+                            payload: { type: key, active: false, teamId: this.scene.turnMgr.currentTurn }
+                        });
+                    }
+                } else {
+                    // 理论上不会走到这里，因为 toggle 时检查了数量
+                    console.warn(`[Skill] Failed to consume ${key}`);
+                    this.activeSkills[key] = false; 
                 }
             }
         }

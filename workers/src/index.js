@@ -30,6 +30,13 @@ const response = (data, status = 200) => {
  */
 const generateNickname = () => `Player_${Math.floor(Math.random() * 10000)}`;
 
+// 默认道具配置
+const INITIAL_ITEMS = [
+    { id: 'super_aim', count: 5 },
+    { id: 'super_force', count: 5 },
+    { id: 'unstoppable', count: 5 }
+];
+
 export default {
   async fetch(request, env, ctx) {
     // 处理预检请求 (CORS)
@@ -96,7 +103,6 @@ export default {
 
         if (!user) {
           isNewUser = true;
-          // 注册新用户
           user = {
             user_id: deviceId,
             platform: 'web',
@@ -104,7 +110,7 @@ export default {
             avatar_url: '',
             level: 1,
             coins: 200,
-            items: '[]'
+            items: JSON.stringify(INITIAL_ITEMS)
           };
 
           await env.DB.prepare(
@@ -114,8 +120,23 @@ export default {
           // 重新查询
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
-          // 更新登录时间
-          await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours') WHERE user_id = ?").bind(deviceId).run();
+          // [老用户] 检查并补充 items
+          let itemsStr = user.items;
+          let itemsChanged = false;
+          if (!itemsStr || itemsStr === '[]') {
+              itemsStr = JSON.stringify(INITIAL_ITEMS);
+              user.items = itemsStr; // 更新返回对象
+              itemsChanged = true;
+          }
+
+          // 更新登录时间 (和物品)
+          if (itemsChanged) {
+               await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours'), items = ? WHERE user_id = ?")
+                   .bind(itemsStr, deviceId).run();
+          } else {
+               await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours') WHERE user_id = ?")
+                   .bind(deviceId).run();
+          }
         }
 
         return response({ ...user, is_new_user: isNewUser });
@@ -144,12 +165,12 @@ export default {
         let isNewUser = false;
 
         // 确定要存入的昵称和头像 (优先用前端传的，其次用数据库旧的，最后用默认)
-        // 注意：如果是静默登录(silent login)，userInfo 是空的，这里会保留数据库原值或生成随机名
         const newNick = userInfo?.nickName || user?.nickname || generateNickname();
         const newAvatar = userInfo?.avatarUrl || user?.avatar_url || '';
 
         if (!user) {
           isNewUser = true;
+
           // 注册
           user = {
             user_id: openId,
@@ -158,7 +179,7 @@ export default {
             avatar_url: newAvatar,
             level: 1,
             coins: 200,
-            items: '[]'
+            items: JSON.stringify(INITIAL_ITEMS)
           };
           
           await env.DB.prepare(
@@ -168,15 +189,27 @@ export default {
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
         } else {
-          // 更新
-          // 只有当 userInfo 传了新的有效值时，才更新资料；否则只更新登录时间
-          // 这样静默登录时不会覆盖掉用户之前已授权的头像
+          // [老用户] 检查并补充 items
+          let itemsStr = user.items;
+          let itemsChanged = false;
+          if (!itemsStr || itemsStr === '[]') {
+              itemsStr = JSON.stringify(INITIAL_ITEMS);
+              user.items = itemsStr; // 更新返回对象
+              itemsChanged = true;
+          }
+
+          // 更新逻辑
           let sql = "UPDATE users SET last_login = datetime('now', '+8 hours')";
           const args = [];
           
           if (userInfo && userInfo.nickName) {
               sql += ", nickname = ?, avatar_url = ?";
               args.push(userInfo.nickName, userInfo.avatarUrl);
+          }
+
+          if (itemsChanged) {
+              sql += ", items = ?";
+              args.push(itemsStr);
           }
           
           sql += " WHERE user_id = ?";

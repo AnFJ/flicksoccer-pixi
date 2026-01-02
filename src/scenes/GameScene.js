@@ -152,6 +152,23 @@ export default class GameScene extends BaseScene {
           btn.addChild(highlight);
           btn.highlight = highlight;
 
+          // [新增] 数量标签
+          const count = AccountMgr.getItemCount(skill.type);
+          const countBg = new PIXI.Graphics();
+          countBg.beginFill(0x333333);
+          countBg.drawCircle(0, 0, 18);
+          countBg.endFill();
+          countBg.position.set(btnSize - 10, 10);
+          
+          const countText = new PIXI.Text(count.toString(), {
+              fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold'
+          });
+          countText.anchor.set(0.5);
+          countBg.addChild(countText);
+          
+          btn.addChild(countBg);
+          btn.countText = countText; // 存储引用以便更新
+
           this.skillBtns[skill.type] = btn;
           this.layout.layers.ui.addChild(btn);
       });
@@ -162,6 +179,7 @@ export default class GameScene extends BaseScene {
     EventBus.on(Events.GAME_OVER, this.onGameOver, this);
     EventBus.on(Events.COLLISION_HIT, (data) => this.sparkSystem?.emit(data.x, data.y, data.intensity), this);
     EventBus.on(Events.SKILL_ACTIVATED, this.onSkillStateChange, this);
+    EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); // [新增] 监听物品更新
   }
 
   setupFormation() {
@@ -222,6 +240,14 @@ export default class GameScene extends BaseScene {
           if (skillName) {
               Platform.showToast(`对方开启了 ${skillName} !`);
           }
+      }
+  }
+
+  // [新增] 物品更新回调
+  onItemUpdate(data) {
+      const { itemId, count } = data;
+      if (this.skillBtns[itemId] && this.skillBtns[itemId].countText) {
+          this.skillBtns[itemId].countText.text = count.toString();
       }
   }
 
@@ -544,6 +570,7 @@ export default class GameScene extends BaseScene {
     EventBus.off(Events.GAME_OVER, this);
     EventBus.off(Events.COLLISION_HIT, this);
     EventBus.off(Events.SKILL_ACTIVATED, this); 
+    EventBus.off(Events.ITEM_UPDATE, this); // [新增]
     if (this.networkCtrl) {
         this.networkCtrl.destroy();
         this.networkCtrl = null;
