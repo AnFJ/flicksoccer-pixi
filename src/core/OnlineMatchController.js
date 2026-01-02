@@ -8,7 +8,6 @@ import { GameConfig } from '../config.js';
 
 /**
  * 联机对战控制器
- * 采用 "攻击方权威计算 - 防守方缓冲回放" 模式
  */
 export default class OnlineMatchController {
     constructor(scene) {
@@ -17,58 +16,46 @@ export default class OnlineMatchController {
         this.hasOpponentLeft = false;
 
         // --- 录制相关 (Sender) ---
-        this.sendBuffer = []; // 待发送的帧列表
-        this.sendTimer = 0;   // 发送计时器
+        this.sendBuffer = []; 
+        this.sendTimer = 0;   
 
         // --- 回放相关 (Receiver) ---
-        this.isReplaying = false;      // 是否处于被动回放模式
-        this.isBuffering = false;      // 是否正在缓冲数据
-        this.replayQueue = [];         // 接收到的帧队列
-        this.replayTime = 0;           // 当前回放的时间指针
-        this.totalBufferedTime = 0;    // 当前队列中总数据时长
+        this.isReplaying = false;      
+        this.isBuffering = false;      
+        this.replayQueue = [];         
+        this.replayTime = 0;           
+        this.totalBufferedTime = 0;    
         
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
     }
 
-    /**
-     * 主循环调用
-     * @param {number} delta (ms)
-     */
     update(delta) {
         const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
 
         if (this.scene.isMoving) {
             if (isMyTurn) {
-                // 1. 我是攻击方：记录当前帧
+                // 我是攻击方：记录当前帧
                 this._recordFrame(delta);
             } else if (this.isReplaying) {
-                // 2. 我是防守方：播放回放
+                // 我是防守方：播放回放
                 this._processPlayback(delta);
             }
         }
     }
 
-    /**
-     * [Sender] 记录当前物理世界状态
-     */
     _recordFrame(dt) {
-        // 只记录活跃物体
         const frameData = {
-            t: dt, // 这一帧的时长
+            t: dt, 
             bodies: {}
         };
 
         let hasActive = false;
-
-        // 记录球
         if (this.scene.ball && this.scene.ball.body) {
             const b = this.scene.ball.body;
-            // 简单优化：静止物体不发送，但为了回放平滑，建议每一帧都发关键物体
             frameData.bodies['ball'] = this._packBodyData(b);
             hasActive = true;
         }
 
-        // 记录所有棋子
         this.scene.strikers.forEach(s => {
             if (s.body) {
                 frameData.bodies[s.id] = this._packBodyData(s.body);
@@ -78,7 +65,6 @@ export default class OnlineMatchController {
         this.sendBuffer.push(frameData);
         this.sendTimer += dt;
 
-        // 达到发送间隔，打包发送
         if (this.sendTimer >= GameConfig.network.trajectorySendInterval) {
             this._flushSendBuffer();
         }
@@ -89,67 +75,47 @@ export default class OnlineMatchController {
             x: Number(body.position.x.toFixed(1)),
             y: Number(body.position.y.toFixed(1)),
             a: Number(body.angle.toFixed(3)),
-            vx: Number(body.velocity.x.toFixed(2)), // 速度用于客户端预测或特效
+            vx: Number(body.velocity.x.toFixed(2)), 
             vy: Number(body.velocity.y.toFixed(2))
         };
     }
 
     _flushSendBuffer() {
         if (this.sendBuffer.length === 0) return;
-
         NetworkMgr.send({
             type: NetMsg.TRAJECTORY_BATCH,
-            payload: {
-                frames: this.sendBuffer
-            }
+            payload: { frames: this.sendBuffer }
         });
-
         this.sendBuffer = [];
         this.sendTimer = 0;
     }
 
-    /**
-     * [Receiver] 处理回放逻辑
-     */
     _processPlayback(dt) {
-        // 1. 缓冲阶段
         if (this.isBuffering) {
-            // 检查缓冲区是否足够
             if (this.totalBufferedTime >= GameConfig.network.replayBufferTime) {
-                console.log(`[Replay] Buffer ready (${this.totalBufferedTime}ms), starting playback.`);
                 this.isBuffering = false;
             } else {
-                // 还在缓冲，直接返回，画面暂停或显示加载
                 return;
             }
         }
 
-        // 2. 播放阶段
-        if (this.replayQueue.length === 0) {
-            return;
-        }
+        if (this.replayQueue.length === 0) return;
 
         let remainingDt = dt;
-
         while (remainingDt > 0 && this.replayQueue.length > 0) {
             const currentFrame = this.replayQueue[0];
             
-            // [核心修改] 检查是否为事件帧 (如进球)
             if (currentFrame.isEvent) {
                 this._handleReplayEvent(currentFrame);
-                this.replayQueue.shift(); // 移除事件帧
-                // 事件帧不消耗时间，直接继续处理下一帧
+                this.replayQueue.shift(); 
                 continue; 
             }
 
-            // 处理普通物理帧
-            // 如果这一帧能覆盖剩余时间
             if (currentFrame.t > remainingDt) {
                 currentFrame.t -= remainingDt;
                 this._applyFrameState(currentFrame);
                 remainingDt = 0;
             } else {
-                // 这一帧时间耗尽，应用并移除
                 remainingDt -= currentFrame.t;
                 this._applyFrameState(currentFrame);
                 this.replayQueue.shift();
@@ -158,15 +124,11 @@ export default class OnlineMatchController {
         }
     }
 
-    /**
-     * 处理队列中的特殊事件
-     */
     _handleReplayEvent(frame) {
         if (frame.eventType === NetMsg.GOAL) {
             const { newScore } = frame.payload;
             this.scene.rules.score = newScore;
             this.scene._playGoalEffects(newScore);
-            console.log('[Replay] Executed delayed GOAL event.');
         }
     }
 
@@ -174,12 +136,9 @@ export default class OnlineMatchController {
         const bodies = frame.bodies;
         if (!bodies) return;
 
-        // 应用球的状态
         if (bodies['ball'] && this.scene.ball) {
             this._setBodyState(this.scene.ball.body, bodies['ball']);
         }
-
-        // 应用棋子状态
         for (const id in bodies) {
             if (id === 'ball') continue;
             const striker = this.scene.strikers.find(s => s.id === id);
@@ -190,10 +149,8 @@ export default class OnlineMatchController {
     }
 
     _setBodyState(body, data) {
-        // 强制设置位置和角度
         Matter.Body.setPosition(body, { x: data.x, y: data.y });
         Matter.Body.setAngle(body, data.a);
-        // 同时设置速度，以便特效（如拖尾、火花）能正常计算
         Matter.Body.setVelocity(body, { x: data.vx, y: data.vy });
     }
 
@@ -203,19 +160,27 @@ export default class OnlineMatchController {
         switch (msg.type) {
             case NetMsg.MOVE:
                 scene.input.handleRemoteAim(NetMsg.AIM_END);
-                
                 this.pendingTurn = msg.payload.nextTurn;
 
                 const striker = scene.strikers.find(s => s.id === msg.payload.id);
+                // 只有当击球者不是我的时候，才进入回放逻辑
                 if (striker && striker.teamId !== scene.myTeamId) {
                     const usedSkills = msg.payload.skills || {};
+                    
+                    // 应用技能特效到球上
                     if (usedSkills[SkillType.UNSTOPPABLE] && scene.ball) {
                          scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
                     }
                     if (usedSkills[SkillType.SUPER_FORCE] && scene.ball) {
                          scene.ball.setLightningMode(true);
                     }
-                    scene.skillMgr.consumeSkills();
+                    
+                    // [核心修改] 
+                    // 对方已经出球了，技能效果已经生效。
+                    // 此时应该重置 UI 上显示的对手技能图标（熄灭它们）。
+                    if (scene.skillMgr) {
+                        scene.skillMgr.resetRemoteSkills(striker.teamId);
+                    }
 
                     this.isReplaying = true;
                     this.isBuffering = true;
@@ -244,6 +209,7 @@ export default class OnlineMatchController {
                 scene.input.handleRemoteAim(msg.type, msg.payload);
                 break;
             
+            // [同步技能选中状态]
             case NetMsg.SKILL:
                 if (scene.skillMgr) scene.skillMgr.handleRemoteSkill(msg.payload);
                 break;
@@ -268,19 +234,14 @@ export default class OnlineMatchController {
                 break;
 
             case NetMsg.GOAL:
-                // [核心修改]
-                // 如果正在回放（防守方），不要立即执行进球逻辑
-                // 而是将进球事件推入回放队列，等待画面同步到那一刻
                 if (this.isReplaying) {
                     this.replayQueue.push({
                         isEvent: true,
                         eventType: NetMsg.GOAL,
                         payload: msg.payload,
-                        t: 0 // 事件帧不占用时间
+                        t: 0 
                     });
-                    console.log('[Replay] Queued GOAL event.');
                 } else {
-                    // 如果我是攻击方（或者异常状态），直接执行
                     const newScore = msg.payload.newScore;
                     scene.rules.score = newScore;
                     scene._playGoalEffects(newScore);
@@ -359,7 +320,6 @@ export default class OnlineMatchController {
 
     syncAllPositions() {
         this._flushSendBuffer();
-
         const payload = {
             strikers: this.scene.strikers.map(s => ({ id: s.id, pos: { x: s.body.position.x, y: s.body.position.y } })),
             ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y }
@@ -373,7 +333,7 @@ export default class OnlineMatchController {
         return turn;
     }
 
-    _handlePlayerLeft(payload) { /* 同前 */
+    _handlePlayerLeft(payload) { 
         const leftTeamId = payload.teamId;
         if (leftTeamId !== undefined) {
             this.hasOpponentLeft = true;
@@ -384,7 +344,7 @@ export default class OnlineMatchController {
             Platform.showToast("对方已离开，游戏暂停");
         }
     }
-    _handlePlayerOffline(payload) { /* 同前 */
+    _handlePlayerOffline(payload) { 
         const offlineTeamId = payload.teamId; 
         if (offlineTeamId !== undefined) {
             if (!this.hasOpponentLeft) {
@@ -398,7 +358,7 @@ export default class OnlineMatchController {
             }
         }
     }
-    _handlePlayerReconnected() { /* 同前 */
+    _handlePlayerReconnected() { 
         if (this.scene.isGamePaused) {
             this.hasOpponentLeft = false;
             this.scene.hud?.setPlayerOffline(0, false);
@@ -412,7 +372,6 @@ export default class OnlineMatchController {
         }
     }
     restoreState(snapshot) {
-        console.log('[OnlineMatch] Restoring state...', snapshot);
         const scene = this.scene;
         if (snapshot.scores) {
             scene.rules.score = snapshot.scores;

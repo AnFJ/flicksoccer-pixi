@@ -190,7 +190,16 @@ export class GameRoom {
           });
           break;
       
+      // [新增] 技能状态同步 (转发给其他人)
+      case 'SKILL':
+          this.broadcast({
+              type: 'SKILL',
+              payload: msg.payload
+          });
+          break;
+
       // [新增] 轨迹数据同步 (转发给其他人)
+      // 修正消息名为 TRAJECTORY_BATCH 以匹配客户端
       case 'TRAJECTORY_BATCH':
           this.broadcast({
               type: 'TRAJECTORY_BATCH',

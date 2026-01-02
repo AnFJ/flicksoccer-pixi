@@ -11,14 +11,12 @@ export default class SkillManager {
         this.scene = scene;
         
         // 记录当前激活的技能 (key: SkillType, value: boolean)
+        // 注意：这只存储"我"（本地操作者）的技能状态
         this.activeSkills = {
             [SkillType.SUPER_AIM]: false,
             [SkillType.SUPER_FORCE]: false,
             [SkillType.UNSTOPPABLE]: false
         };
-
-        // 技能冷却或状态标记 (用于UI反馈)
-        this.skillStates = {};
     }
 
     /**
@@ -46,8 +44,8 @@ export default class SkillManager {
             return;
         }
 
-        // [新增] 检查物品数量
-        if (!this.activeSkills[type]) { // 如果是尝试激活
+        // 检查物品数量 (如果是激活操作)
+        if (!this.activeSkills[type]) { 
             const count = AccountMgr.getItemCount(type);
             if (count <= 0) {
                 Platform.showToast("道具数量不足");
@@ -55,17 +53,17 @@ export default class SkillManager {
             }
         }
 
-        // 切换状态
+        // 1. 切换本地状态
         this.activeSkills[type] = !this.activeSkills[type];
         const isActive = this.activeSkills[type];
 
         console.log(`[Skill] Toggled ${type}: ${isActive}`);
 
-        // 发送事件通知 UI 更新
+        // 2. 发送事件通知 UI 更新 (显示高亮)
         EventBus.emit(Events.SKILL_ACTIVATED, { type, active: isActive, teamId: this.scene.myTeamId });
 
-        // 如果是联网对战，需要同步技能状态给对方
-        // 注意：SUPER_AIM 通常是本地辅助，但这里为了让对方知道你在用挂，也可以同步
+        // 3. 联网同步：发送状态给对手
+        // 这样对手的 HUD 上对应的图标也会点亮/熄灭
         if (this.scene.gameMode === 'pvp_online') {
             NetworkMgr.send({
                 type: NetMsg.SKILL,
@@ -79,19 +77,33 @@ export default class SkillManager {
     }
 
     /**
-     * 处理远程玩家的技能消息
+     * 处理远程玩家的技能消息 (接收端)
+     * 当对手点击技能按钮时触发
      */
     handleRemoteSkill(payload) {
-        if (payload.teamId === this.scene.myTeamId) return; // 忽略自己的回包
+        // 忽略自己的回包 (虽然服务器通常不会发给自己，但兜底)
+        if (payload.teamId === this.scene.myTeamId) return; 
 
         const { type, active } = payload;
         
-        // 触发事件供 UI 显示（例如对方开启了技能，显示个图标）
+        // 触发事件供 UI 显示（例如对方开启了技能，对方头像旁的图标点亮）
+        // GameScene -> GameHUD 会响应该事件
         EventBus.emit(Events.SKILL_ACTIVATED, { type, active, teamId: payload.teamId });
     }
 
     /**
-     * 检查技能是否激活
+     * 重置指定队伍的远程技能显示状态 (通常在对手出球后调用)
+     * 强制熄灭该队伍的所有技能图标
+     */
+    resetRemoteSkills(teamId) {
+        // 遍历所有技能类型，发送 active: false 的事件
+        Object.values(SkillType).forEach(type => {
+            EventBus.emit(Events.SKILL_ACTIVATED, { type, active: false, teamId: teamId });
+        });
+    }
+
+    /**
+     * 检查本地是否激活某技能
      */
     isActive(type) {
         return !!this.activeSkills[type];
@@ -105,24 +117,23 @@ export default class SkillManager {
         // 重置所有一次性技能
         for (const key in this.activeSkills) {
             if (this.activeSkills[key]) {
-                // [新增] 实际扣除物品数量并同步数据库
+                // 实际扣除物品数量并同步数据库
                 const consumed = AccountMgr.consumeItem(key, 1);
                 
                 if (consumed) {
                     this.activeSkills[key] = false;
-                    // 通知 UI 关闭高亮
-                    EventBus.emit(Events.SKILL_ACTIVATED, { type: key, active: false, teamId: this.scene.turnMgr.currentTurn });
                     
-                    // 联网同步关闭状态
+                    // 通知本地 UI 关闭高亮
+                    EventBus.emit(Events.SKILL_ACTIVATED, { type: key, active: false, teamId: this.scene.myTeamId });
+                    
+                    // 联网同步关闭状态 (兜底，防止MOVE包丢包导致对方状态卡死)
                     if (this.scene.gameMode === 'pvp_online') {
                         NetworkMgr.send({
                             type: NetMsg.SKILL,
-                            payload: { type: key, active: false, teamId: this.scene.turnMgr.currentTurn }
+                            payload: { type: key, active: false, teamId: this.scene.myTeamId }
                         });
                     }
                 } else {
-                    // 理论上不会走到这里，因为 toggle 时检查了数量
-                    console.warn(`[Skill] Failed to consume ${key}`);
                     this.activeSkills[key] = false; 
                 }
             }
