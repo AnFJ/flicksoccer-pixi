@@ -1,23 +1,37 @@
 
 import * as PIXI from 'pixi.js';
 import { GameConfig } from '../config.js';
-import { TeamId } from '../constants.js';
+import { TeamId, SkillType } from '../constants.js';
 import AccountMgr from '../managers/AccountMgr.js';
+import Button from './Button.js'; // 引入 Button 组件
 
 export default class GameHUD extends PIXI.Container {
-  constructor(gameMode) {
+  /**
+   * @param {string} gameMode 
+   * @param {number} myTeamId 当前玩家的队伍ID
+   * @param {Function} onSkillClick 点击技能的回调 (skillType, teamId) => void
+   */
+  constructor(gameMode, myTeamId, onSkillClick) {
     super();
     this.gameMode = gameMode;
+    this.myTeamId = myTeamId;
+    this.onSkillClick = onSkillClick;
     
     this.leftScoreText = null;
     this.rightScoreText = null;
     this.turnText = null;
     
-    // 存储倒计时图形的引用 { [TeamId]: PIXI.Graphics }
+    // 存储倒计时图形
     this.timerGraphics = {};
     
-    // 存储头像相关组件引用，用于更新掉线状态
-    this.avatarComponents = {}; // { [TeamId]: { container, overlay, statusText } }
+    // 存储头像组件
+    this.avatarComponents = {}; 
+    
+    // 存储技能按钮/图标的引用 { [TeamId]: { [SkillType]: PIXI.Container|Button } }
+    this.skillMap = {
+        [TeamId.LEFT]: {},
+        [TeamId.RIGHT]: {}
+    };
 
     this.init();
   }
@@ -26,25 +40,20 @@ export default class GameHUD extends PIXI.Container {
     const { designWidth, visuals } = GameConfig;
     const uiColors = visuals.ui;
 
-    // 1. 顶部状态栏背景 (Top Bar)
+    // 1. 顶部状态栏背景
     const barHeight = 140;
     const barG = new PIXI.Graphics();
-    
-    // 主背景色
     barG.beginFill(uiColors.topBarBg);
     const topW = designWidth;
     const bottomW = designWidth * 0.95; 
     const slant = (topW - bottomW) / 2;
-    
     barG.drawPolygon([
-        0, 0,
-        designWidth, 0,
-        designWidth - slant, barHeight,
-        slant, barHeight
+        0, 0, designWidth, 0,
+        designWidth - slant, barHeight, slant, barHeight
     ]);
     barG.endFill();
-
-    // 底部高光条
+    
+    // 底部高光
     barG.beginFill(uiColors.topBarAccent);
     barG.drawPolygon([
         slant, barHeight - 10,
@@ -53,10 +62,9 @@ export default class GameHUD extends PIXI.Container {
         slant + 5, barHeight
     ]);
     barG.endFill();
-
     this.addChild(barG);
 
-    // 2. 中央计分板 (Scoreboard)
+    // 2. 中央计分板
     const scoreBoxW = 340;
     const scoreBoxH = 90;
     const scoreBoxY = 10;
@@ -71,7 +79,7 @@ export default class GameHUD extends PIXI.Container {
     scoreBg.position.set(centerX, 0);
     this.addChild(scoreBg);
 
-    // 中间装饰
+    // VS装饰
     const decoCircle = new PIXI.Graphics();
     decoCircle.beginFill(0xf1c40f); 
     decoCircle.lineStyle(4, 0xffffff);
@@ -85,42 +93,28 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(decoCircle);
 
     // 左比分
-    this.leftScoreText = new PIXI.Text('0', {
-        fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText
-    });
+    this.leftScoreText = new PIXI.Text('0', { fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText });
     this.leftScoreText.anchor.set(0.5);
     this.leftScoreText.position.set(centerX - 90, scoreBoxY + scoreBoxH / 2);
     this.addChild(this.leftScoreText);
 
     // 右比分
-    this.rightScoreText = new PIXI.Text('0', {
-        fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText
-    });
+    this.rightScoreText = new PIXI.Text('0', { fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText });
     this.rightScoreText.anchor.set(0.5);
     this.rightScoreText.position.set(centerX + 90, scoreBoxY + scoreBoxH / 2);
     this.addChild(this.rightScoreText);
 
-    // 3. 头像 (Avatars)
+    // 3. 头像与技能栏
     const myInfo = AccountMgr.userInfo;
-
     const avatarSpacing = 380; 
-    
-    // [修正] 
-    // 左边 (Left/Red) = 玩家/P1
-    // 右边 (Right/Blue) = AI/P2
-    
-    const leftInfo = {
-        name: myInfo.nickname || "You",
-        avatar: myInfo.avatarUrl
-    };
-    
-    const rightInfo = {
-        name: this.gameMode === 'pve' ? "Easy AI" : "Player 2",
-        avatar: '' 
-    };
 
-    this.createAvatar(centerX - avatarSpacing, 60, TeamId.LEFT, leftInfo);
-    this.createAvatar(centerX + avatarSpacing, 60, TeamId.RIGHT, rightInfo);
+    // 左边 (Left/Red)
+    const leftInfo = { name: myInfo.nickname || "You", avatar: myInfo.avatarUrl };
+    // 右边 (Right/Blue)
+    const rightInfo = { name: this.gameMode === 'pve' ? "Easy AI" : "Player 2", avatar: '' };
+
+    this.createAvatarWithSkills(centerX - avatarSpacing, 60, TeamId.LEFT, leftInfo);
+    this.createAvatarWithSkills(centerX + avatarSpacing, 60, TeamId.RIGHT, rightInfo);
 
     // 4. 回合提示文本
     this.turnText = new PIXI.Text('等待开球...', {
@@ -132,14 +126,14 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(this.turnText);
   }
 
-  createAvatar(x, y, teamId, info) {
+  createAvatarWithSkills(x, y, teamId, info) {
     const container = new PIXI.Container();
     container.position.set(x, y);
 
     const size = 100; 
     const teamColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
 
-    // --- 1. 金色流光边框 (Golden Frame) ---
+    // --- A. 头像框体 ---
     const frame = new PIXI.Graphics();
     frame.beginFill(0xB8860B); 
     frame.drawRoundedRect(-size/2 - 4, -size/2 - 4, size + 8, size + 8, 12);
@@ -147,39 +141,30 @@ export default class GameHUD extends PIXI.Container {
     frame.beginFill(0xFFD700); 
     frame.drawRoundedRect(-size/2, -size/2, size, size, 10);
     frame.endFill();
-    frame.lineStyle(2, 0xFFFACD, 0.5);
-    frame.drawRoundedRect(-size/2 + 2, -size/2 + 2, size - 4, size - 4, 8);
-    frame.endFill();
 
-    // --- 2. 头像背景 (兜底) ---
+    // 头像背景
     const innerSize = size - 12; 
     const bg = new PIXI.Graphics();
     bg.beginFill(teamColor);
     bg.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     bg.endFill();
-    
-    // --- 3. 头像内容 (Icon/Image) ---
+
+    // 头像图片/文字
     let avatarNode;
-    let avatarMask = null; 
-    
+    let avatarMask = null;
     if (info.avatar && info.avatar.startsWith('http')) {
         const sprite = new PIXI.Sprite(); 
         sprite.anchor.set(0.5);
-        
         PIXI.Texture.fromURL(info.avatar).then(tex => {
             sprite.texture = tex;
             const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
             sprite.scale.set(scale); 
-        }).catch(e => {
-            console.warn('Avatar load failed, using default.', e);
-        });
-        
+        }).catch(()=>{});
         avatarMask = new PIXI.Graphics();
         avatarMask.beginFill(0xffffff);
         avatarMask.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
         avatarMask.endFill();
         sprite.mask = avatarMask;
-
         avatarNode = sprite;
     } else {
         avatarNode = new PIXI.Text(info.name.substring(0,1).toUpperCase() || '?', { 
@@ -188,12 +173,10 @@ export default class GameHUD extends PIXI.Container {
         avatarNode.anchor.set(0.5);
     }
 
-    // --- 4. 倒计时蒙版 (Timer Mask) ---
+    // 倒计时蒙版
     const timerG = new PIXI.Graphics();
     timerG.angle = -90; 
     this.timerGraphics[teamId] = timerG;
-
-    // 遮罩
     const maskG = new PIXI.Graphics();
     maskG.beginFill(0xffffff);
     maskG.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
@@ -201,86 +184,227 @@ export default class GameHUD extends PIXI.Container {
     container.addChild(maskG);
     timerG.mask = maskG;
 
-    // --- 5. 名字标签 ---
+    // 名字标签
     const nameTag = new PIXI.Graphics();
     nameTag.beginFill(0x000000, 0.7);
     const tagW = 120;
     const tagH = 30;
     nameTag.drawRoundedRect(-tagW/2, size/2 + 5, tagW, tagH, 15);
     nameTag.endFill();
-
+    
     let displayName = info.name;
     if (displayName.length > 8) displayName = displayName.substring(0, 7) + '..';
-
     const nameText = new PIXI.Text(displayName, { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
     nameText.anchor.set(0.5);
     nameText.position.set(0, size/2 + 20);
 
-    // --- 新增：6. 掉线灰色蒙层 (Overlay) ---
-    const overlay = new PIXI.Graphics();
-    overlay.beginFill(0x333333, 0.7); // 深灰色半透明
-    overlay.drawRoundedRect(-size/2, -size/2, size, size, 10);
-    overlay.endFill();
-    overlay.visible = false; // 默认隐藏
-
-    // --- 新增：7. 掉线提示文字 (Offline Text) ---
-    // 放在头像的“外侧”
-    // 左边队伍(LEFT=0) 文字在左边，右边队伍(RIGHT=1) 文字在右边
-    const isLeft = teamId === TeamId.LEFT;
-    const offTextX = isLeft ? (-size/2 - 20) : (size/2 + 20);
-    const offTextAnchor = isLeft ? 1 : 0; // 左队右对齐，右队左对齐
-
-    const offlineText = new PIXI.Text('玩家已掉线\n请等待...', {
-        fontFamily: 'Arial',
-        fontSize: 24,
-        fill: 0xFF0000,
-        stroke: 0xFFFFFF,
-        strokeThickness: 3,
-        fontWeight: 'bold',
-        align: isLeft ? 'right' : 'left'
-    });
-    offlineText.anchor.set(offTextAnchor, 0.5);
-    offlineText.position.set(offTextX, 0);
-    offlineText.visible = false;
-
-    // 添加所有子节点
+    // 添加头像元素
     container.addChild(frame, bg, avatarNode);
     if (avatarMask) container.addChild(avatarMask);
     container.addChild(timerG, nameTag, nameText);
-    
-    // 添加掉线相关UI (在最上层)
-    container.addChild(overlay, offlineText);
-    
-    this.addChild(container);
 
-    // 存储引用
-    this.avatarComponents[teamId] = {
-        container,
-        overlay,
-        offlineText
-    };
+    // --- B. 技能栏 (Skill Bar) ---
+    // 判断是否可操作
+    // 1. 本地PVP: 双方都可操作
+    // 2. 联网/PVE: 只有 myTeamId 可操作，对方只显示图标
+    let isInteractive = false;
+    if (this.gameMode === 'pvp_local') {
+        isInteractive = true;
+    } else {
+        isInteractive = (teamId === this.myTeamId);
+    }
+
+    this.createSkillBar(teamId, container, isInteractive);
+
+    // --- C. 掉线UI ---
+    this.createOfflineUI(teamId, container, size);
+
+    this.addChild(container);
+    this.avatarComponents[teamId] = { container };
+  }
+
+  createOfflineUI(teamId, container, size) {
+      const overlay = new PIXI.Graphics();
+      overlay.beginFill(0x333333, 0.7);
+      overlay.drawRoundedRect(-size/2, -size/2, size, size, 10);
+      overlay.endFill();
+      overlay.visible = false;
+
+      const isLeft = teamId === TeamId.LEFT;
+      const offTextX = isLeft ? (-size/2 - 20) : (size/2 + 20);
+      const offTextAnchor = isLeft ? 1 : 0;
+
+      const offlineText = new PIXI.Text('已掉线', {
+          fontFamily: 'Arial', fontSize: 24, fill: 0xFF0000,
+          stroke: 0xFFFFFF, strokeThickness: 3, fontWeight: 'bold', align: isLeft ? 'right' : 'left'
+      });
+      offlineText.anchor.set(offTextAnchor, 0.5);
+      offlineText.position.set(offTextX, 0);
+      offlineText.visible = false;
+
+      container.addChild(overlay, offlineText);
+      
+      // 存入缓存以便后续更新
+      if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
+      this.avatarComponents[teamId].overlay = overlay;
+      this.avatarComponents[teamId].offlineText = offlineText;
+  }
+
+  createSkillBar(teamId, parent, isInteractive) {
+      const skills = [
+          { type: SkillType.SUPER_AIM,   label: '瞄', color: 0x9b59b6 },
+          { type: SkillType.SUPER_FORCE, label: '力', color: 0x3498db },
+          { type: SkillType.UNSTOPPABLE, label: '无', color: 0xe74c3c },
+      ];
+
+      // [修改] 按钮尺寸放大到约 90 (接近头像100)
+      const btnSize = 90; 
+      const gap = 20;
+      
+      const isLeft = teamId === TeamId.LEFT;
+      
+      // [修改] 方向逻辑
+      // 左队 (Left/Red): 图标排在头像左侧 -> 这里的 direction 应该是 -1
+      // 右队 (Right/Blue): 图标排在头像右侧 -> 这里的 direction 应该是 1
+      const dir = isLeft ? -1 : 1;
+      
+      // [修改] 起始偏移计算
+      // Avatar Frame半径 ~55, Button半径 45, Gap 20
+      // Offset = 55 + 20 + 45 = 120
+      const startOffset = 120;
+
+      skills.forEach((skill, index) => {
+          // 计算相对于头像中心的坐标
+          const dist = startOffset + index * (btnSize + gap);
+          const xCenter = dir * dist;
+          const yCenter = 0; // 垂直居中
+
+          if (isInteractive) {
+              // --- 交互式按钮 (自己/本地PVP) ---
+              // Button 默认锚点在左上角，需要修正位置
+              const btn = new Button({
+                  text: skill.label,
+                  width: btnSize,
+                  height: btnSize,
+                  color: skill.color,
+                  fontSize: 36, // [修改] 字号放大
+                  onClick: () => {
+                      if (this.onSkillClick) this.onSkillClick(skill.type, teamId);
+                  }
+              });
+              // 居中修正
+              btn.position.set(xCenter - btnSize/2, yCenter - btnSize/2);
+
+              // 高亮框
+              const highlight = new PIXI.Graphics();
+              highlight.lineStyle(6, 0xFFFF00); // 线条加粗
+              highlight.drawRoundedRect(0, 0, btnSize, btnSize, 20); // Button内坐标系
+              highlight.visible = false;
+              btn.addChild(highlight);
+              btn.highlight = highlight;
+
+              // 数量角标
+              const count = AccountMgr.getItemCount(skill.type);
+              const countBg = new PIXI.Graphics();
+              countBg.beginFill(0x333333);
+              countBg.drawCircle(0, 0, 18); // 角标放大
+              countBg.endFill();
+              countBg.position.set(btnSize - 10, 10);
+              
+              const countText = new PIXI.Text(count.toString(), {
+                  fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold'
+              });
+              countText.anchor.set(0.5);
+              countBg.addChild(countText);
+              
+              btn.addChild(countBg);
+              btn.countText = countText;
+
+              parent.addChild(btn);
+              this.skillMap[teamId][skill.type] = btn;
+
+          } else {
+              // --- 纯展示图标 (对方/AI) ---
+              const icon = new PIXI.Container();
+              icon.position.set(xCenter, yCenter);
+
+              // 背景 (默认半透明变灰，激活时高亮)
+              const bg = new PIXI.Graphics();
+              bg.beginFill(skill.color); 
+              bg.drawCircle(0, 0, btnSize/2);
+              bg.endFill();
+              bg.alpha = 0.3; // 默认暗淡
+              
+              // 文字
+              const txt = new PIXI.Text(skill.label, {
+                  fontFamily: 'Arial', fontSize: 36, fill: 0xffffff, fontWeight: 'bold'
+              });
+              txt.anchor.set(0.5);
+              txt.alpha = 0.5;
+
+              // 高亮环 (激活时显示)
+              const ring = new PIXI.Graphics();
+              ring.lineStyle(5, 0xFFFF00);
+              ring.drawCircle(0, 0, btnSize/2 + 2);
+              ring.visible = false;
+
+              icon.addChild(bg, txt, ring);
+              parent.addChild(icon);
+
+              this.skillMap[teamId][skill.type] = {
+                  isIcon: true,
+                  bg: bg,
+                  txt: txt,
+                  highlight: ring,
+                  container: icon
+              };
+          }
+      });
   }
 
   /**
-   * 设置指定玩家的掉线/离开状态
-   * @param {number} teamId 
-   * @param {boolean} isOffline 
-   * @param {string} [customText] 自定义提示文本 (例如 "玩家已离开")
+   * 更新技能激活状态 (高亮)
    */
-  setPlayerOffline(teamId, isOffline, customText) {
-      const comps = this.avatarComponents[teamId];
-      if (comps) {
-          comps.overlay.visible = isOffline;
-          comps.offlineText.visible = isOffline;
+  updateSkillState(teamId, type, active) {
+      const item = this.skillMap[teamId] && this.skillMap[teamId][type];
+      if (!item) return;
+
+      if (item.isIcon) {
+          // 纯图标模式 (对手)
+          item.highlight.visible = active;
+          item.bg.alpha = active ? 1.0 : 0.3;
+          item.txt.alpha = active ? 1.0 : 0.5;
           
-          if (isOffline) {
-              comps.offlineText.alpha = 1;
-              if (customText) {
-                  comps.offlineText.text = customText;
-              } else {
-                  comps.offlineText.text = '玩家已掉线\n请等待...';
-              }
+          if (active) {
+              // 简单的缩放动画
+              item.container.scale.set(1.5);
+              const animate = () => {
+                  if (item.container.scale.x > 1.0) {
+                      item.container.scale.x -= 0.1;
+                      item.container.scale.y -= 0.1;
+                      requestAnimationFrame(animate);
+                  } else {
+                      item.container.scale.set(1.0);
+                  }
+              };
+              animate();
           }
+
+      } else {
+          // 按钮模式 (自己)
+          if (item.highlight) item.highlight.visible = active;
+          item.alpha = active ? 1.0 : 0.9;
+      }
+  }
+
+  /**
+   * 更新道具数量
+   */
+  updateItemCount(teamId, type, count) {
+      // 只有交互式按钮有 countText
+      const btn = this.skillMap[teamId] && this.skillMap[teamId][type];
+      if (btn && btn.countText) {
+          btn.countText.text = count.toString();
       }
   }
 
@@ -293,9 +417,8 @@ export default class GameHUD extends PIXI.Container {
     for (const teamId in this.timerGraphics) {
         const g = this.timerGraphics[teamId];
         g.clear();
-
         if (parseInt(teamId) === activeTeamId && ratio > 0) {
-            const bigRadius = 200; 
+            const bigRadius = 160; 
             g.beginFill(0x00FF00, 0.4);
             g.moveTo(0, 0);
             g.arc(0, 0, bigRadius, 0, Math.PI * 2 * ratio);
@@ -309,7 +432,6 @@ export default class GameHUD extends PIXI.Container {
     if (!this.turnText) return;
     const isLeft = currentTurn === TeamId.LEFT;
     let str = "";
-    // [修正] Left 是 P1, Right 是 P2
     if (isLeft) {
         str = "红方回合 (Player 1)";
     } else {

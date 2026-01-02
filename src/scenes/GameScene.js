@@ -55,11 +55,7 @@ export default class GameScene extends BaseScene {
     this.sparkSystem = null;
     this.repositionAnimations = [];
 
-    this.skillBtns = {};
-
-    // [修改] 移除 accumulator 相关变量，不再需要固定时间步长累积
-    // this.accumulator = 0;
-    // this.fixedTimeStep = 1000 / 60; 
+    // [修改] 移除 this.skillBtns，现在由 HUD 管理
   }
 
   async onEnter(params = {}) {
@@ -91,7 +87,6 @@ export default class GameScene extends BaseScene {
 
     this.isGameOver = false;
     this.isGamePaused = false;
-    // this.accumulator = 0; 
     
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
@@ -99,7 +94,16 @@ export default class GameScene extends BaseScene {
   }
 
   _createUI() {
-    this.hud = new GameHUD(this.gameMode);
+    // [修改] 创建 HUD 时传入 myTeamId 和 点击回调
+    this.hud = new GameHUD(
+        this.gameMode, 
+        this.myTeamId, 
+        (skillType, teamId) => {
+            // 本地双人模式下，根据点击的阵营切换操作
+            // 或者简单地只调用 toggleSkill，SkillManager 会检查回合
+            this.skillMgr.toggleSkill(skillType);
+        }
+    );
     this.layout.layers.ui.addChild(this.hud);
 
     this.goalBanner = new GoalBanner();
@@ -110,7 +114,7 @@ export default class GameScene extends BaseScene {
     });
     this.layout.layers.ui.addChild(menuBtn);
 
-    this._createSkillButtons();
+    // [修改] 移除 _createSkillButtons 调用，因为已经集成在 HUD 中
 
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
@@ -118,68 +122,12 @@ export default class GameScene extends BaseScene {
     this.turnMgr.resetTimer();
   }
 
-  _createSkillButtons() {
-      const btnSize = 100;
-      const gap = 20;
-      // [修复] 修正起始坐标，因为 Button 锚点在左上角 (0,0)，之前减去 btnSize/2 会导致右下角溢出屏幕
-      const startX = GameConfig.designWidth - btnSize - 60;
-      const startY = GameConfig.designHeight - btnSize - 60;
-
-      const skills = [
-          { type: SkillType.UNSTOPPABLE, label: '无敌\n战车', color: 0xe74c3c },
-          { type: SkillType.SUPER_FORCE, label: '大力\n水手', color: 0x3498db },
-          { type: SkillType.SUPER_AIM,   label: '超距\n瞄准', color: 0x9b59b6 },
-      ];
-
-      skills.forEach((skill, index) => {
-          const btn = new Button({
-              text: skill.label,
-              width: btnSize,
-              height: btnSize,
-              color: skill.color,
-              fontSize: 24,
-              onClick: () => {
-                  this.skillMgr.toggleSkill(skill.type);
-              }
-          });
-          
-          btn.position.set(startX - index * (btnSize + gap), startY);
-          
-          const highlight = new PIXI.Graphics();
-          highlight.lineStyle(6, 0xFFFF00);
-          highlight.drawRoundedRect(0, 0, btnSize, btnSize, 20);
-          highlight.visible = false;
-          btn.addChild(highlight);
-          btn.highlight = highlight;
-
-          // [新增] 数量标签
-          const count = AccountMgr.getItemCount(skill.type);
-          const countBg = new PIXI.Graphics();
-          countBg.beginFill(0x333333);
-          countBg.drawCircle(0, 0, 18);
-          countBg.endFill();
-          countBg.position.set(btnSize - 10, 10);
-          
-          const countText = new PIXI.Text(count.toString(), {
-              fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold'
-          });
-          countText.anchor.set(0.5);
-          countBg.addChild(countText);
-          
-          btn.addChild(countBg);
-          btn.countText = countText; // 存储引用以便更新
-
-          this.skillBtns[skill.type] = btn;
-          this.layout.layers.ui.addChild(btn);
-      });
-  }
-
   _setupEvents() {
     EventBus.on(Events.GOAL_SCORED, this.onGoal, this);
     EventBus.on(Events.GAME_OVER, this.onGameOver, this);
     EventBus.on(Events.COLLISION_HIT, (data) => this.sparkSystem?.emit(data.x, data.y, data.intensity), this);
     EventBus.on(Events.SKILL_ACTIVATED, this.onSkillStateChange, this);
-    EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); // [新增] 监听物品更新
+    EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); 
   }
 
   setupFormation() {
@@ -228,12 +176,13 @@ export default class GameScene extends BaseScene {
   onSkillStateChange(data) {
       const { type, active, teamId } = data;
       
-      if (teamId === this.myTeamId && this.skillBtns[type]) {
-          this.skillBtns[type].highlight.visible = active;
-          this.skillBtns[type].alpha = active ? 1.0 : 0.8; 
+      // [修改] 统一调用 HUD 更新状态，HUD 内部会判断是高亮按钮还是点亮图标
+      if (this.hud) {
+          this.hud.updateSkillState(teamId, type, active);
       }
 
-      if (teamId !== this.myTeamId && active) {
+      // 如果是对手，弹出 Toast 提示
+      if (teamId !== this.myTeamId && active && this.gameMode !== 'pvp_local') {
           let skillName = "";
           if (type === SkillType.SUPER_FORCE) skillName = "大力水手";
           if (type === SkillType.UNSTOPPABLE) skillName = "无敌战车";
@@ -243,11 +192,16 @@ export default class GameScene extends BaseScene {
       }
   }
 
-  // [新增] 物品更新回调
   onItemUpdate(data) {
       const { itemId, count } = data;
-      if (this.skillBtns[itemId] && this.skillBtns[itemId].countText) {
-          this.skillBtns[itemId].countText.text = count.toString();
+      // [修改] 通知 HUD 更新数量，HUD 会自动找到对应 teamId (通常是自己)
+      if (this.hud) {
+          this.hud.updateItemCount(this.myTeamId, itemId, count);
+          // 在本地双人模式下，如果左右都是玩家，理论上共享 inventory (或根据设计分离)
+          // 当前 AccountMgr 只有一套数据，所以如果是本地双人，可能两边显示一样
+          if (this.gameMode === 'pvp_local') {
+             this.hud.updateItemCount(TeamId.RIGHT, itemId, count);
+          }
       }
   }
 
@@ -259,14 +213,8 @@ export default class GameScene extends BaseScene {
       SceneManager.changeScene(MenuScene);
   }
 
-  /**
-   * 动作触发（击球开始）
-   * @param {boolean} isRemote 是否是远程触发（如果是远程触发，说明是防守方）
-   */
   onActionFired(isRemote = false) {
     this.isMoving = true;
-    // 如果是远程触发（回放模式），不播放本地碰撞音效，因为还没撞呢
-    // 或者可以播放一个通用的开始音效
     if (!isRemote) {
         AudioManager.playSFX('collision');
     }
@@ -337,56 +285,31 @@ export default class GameScene extends BaseScene {
     this.sparkSystem?.update(delta);
     this._updateStrikerHighlights(); 
 
-    // [核心修改] 移除 accumulator 循环，直接调用 update
-    // this.accumulator += delta;
-    // if (this.accumulator > 100) this.accumulator = 100;
-    // while (this.accumulator >= this.fixedTimeStep) {
-    //     this._fixedUpdate(this.fixedTimeStep);
-    //     this.accumulator -= this.fixedTimeStep;
-    // }
-
-    // 使用当前的实际 delta 进行物理和逻辑更新
     this._fixedUpdate(delta);
 
-    // [更新] 传入 delta (毫秒) 以实现平滑的视觉更新
     this.strikers.forEach(s => s.update(delta));
     this.ball?.update(delta);
   }
 
   _fixedUpdate(dt) {
-    // [核心修改] 
-    // 只有在 单机模式 或 (联网模式且我是当前回合) 时，才运行物理引擎
-    // 如果是联网模式且是对方回合，我只负责根据网络数据重设位置，不跑物理计算
-    
     const isPvpOnline = this.gameMode === 'pvp_online';
     const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
     
-    // 1. 物理计算决策
     if (!isPvpOnline || isMyTurn) {
-        // 我是攻击方 (Authority)，运行物理引擎
         this.physics.update(dt);
-    } else {
-        // 我是防守方 (Client)，跳过物理引擎，避免本地计算导致的不一致
-        // 注意：这里什么都不做，位置更新由 networkCtrl.update 里的 _processPlayback 处理
-    }
+    } 
 
     this.turnMgr.update(dt);
     
-    // 2. 网络控制器更新 (负责 录制轨迹 或 回放轨迹)
     if (this.networkCtrl) {
         this.networkCtrl.update(dt);
     }
 
-    // 3. 复位动画更新
     if (this.repositionAnimations.length > 0) {
         this._updateRepositionAnims(dt);
     }
 
-    // 4. 回合结束判定
-    // 只有攻击方才有权决定物理何时静止
     if (this.isMoving) {
-        // 如果是联网攻击方，检测物理静止
-        // 如果是单机模式，检测物理静止
         if (!isPvpOnline || isMyTurn) {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
@@ -402,8 +325,6 @@ export default class GameScene extends BaseScene {
   }
   
   _endTurn() {
-      // [修复] 防止重复调用导致回合死锁
-      // 如果已经处于非移动状态，忽略再次结束回合的请求
       if (!this.isMoving) return;
 
       this.isMoving = false;
@@ -413,7 +334,6 @@ export default class GameScene extends BaseScene {
           this.ball.skillStates.fire = false;
       }
 
-      // 如果我是攻击方，发送最终同步包
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {
           this.networkCtrl.syncAllPositions();
       }
@@ -421,13 +341,10 @@ export default class GameScene extends BaseScene {
       if (!this.networkCtrl) {
           this.turnMgr.switchTurn();
       } else {
-          // 联网模式下，等待网络层处理 pendingTurn
           const pending = this.networkCtrl.popPendingTurn();
           if (pending !== null && pending !== undefined) {
               this.turnMgr.currentTurn = pending;
           } else if (this.turnMgr.currentTurn === this.myTeamId) {
-              // [安全兜底] 如果我是攻击方且物理停了，但还没收到网络层下回合的通知
-              // 强制切换给对方，防止卡在自己回合
               this.turnMgr.switchTurn();
           }
           this.turnMgr.resetTimer();
@@ -570,7 +487,7 @@ export default class GameScene extends BaseScene {
     EventBus.off(Events.GAME_OVER, this);
     EventBus.off(Events.COLLISION_HIT, this);
     EventBus.off(Events.SKILL_ACTIVATED, this); 
-    EventBus.off(Events.ITEM_UPDATE, this); // [新增]
+    EventBus.off(Events.ITEM_UPDATE, this); 
     if (this.networkCtrl) {
         this.networkCtrl.destroy();
         this.networkCtrl = null;
