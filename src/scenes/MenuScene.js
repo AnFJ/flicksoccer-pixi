@@ -16,6 +16,9 @@ export default class MenuScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
+    // [新增] 进入主页时展示 Banner 广告
+    Platform.showBannerAd();
+
     // 1. 背景 (优先使用图片，失败则回退到纯色)
     const bgTex = ResourceManager.get('main_bg');
     if (bgTex) {
@@ -109,6 +112,12 @@ export default class MenuScene extends BaseScene {
   onResize(width, height) {
       this.alignUserInfo();
   }
+  
+  // [新增] 离开场景时隐藏 Banner 广告 (防止遮挡游戏画面)
+  onExit() {
+      super.onExit();
+      Platform.hideBannerAd();
+  }
 
   alignUserInfo() {
       if (!this.userInfoContainer) return;
@@ -176,6 +185,58 @@ export default class MenuScene extends BaseScene {
         this.createDefaultAvatar(avatarContainer, user.nickname, radius);
     }
     container.addChild(avatarContainer);
+
+    // --- [新增] 社交按钮 (朋友圈风格图标) ---
+    // 放在头像下方
+    const socialBtn = new PIXI.Container();
+    const btnRadius = 24;
+    const btnX = radius;
+    const btnY = radius * 2 + 35; // 头像底部是 radius*2，再往下一点
+
+    // 1. 白色圆底
+    const sBg = new PIXI.Graphics();
+    sBg.beginFill(0xFFFFFF);
+    sBg.drawCircle(0, 0, btnRadius);
+    sBg.endFill();
+    // 2. 灰色边框
+    sBg.lineStyle(2, 0xDDDDDD);
+    sBg.drawCircle(0, 0, btnRadius);
+    socialBtn.addChild(sBg);
+
+    // 3. 绘制图标 (模拟多彩光圈/朋友圈图标)
+    const icon = new PIXI.Graphics();
+    const iconR = btnRadius * 0.6;
+    const strokeW = 4;
+    // 简化版：画一个彩色的圆环
+    // 红
+    icon.lineStyle(strokeW, 0xFF5252);
+    icon.arc(0, 0, iconR, 0, Math.PI * 0.5);
+    // 绿
+    icon.lineStyle(strokeW, 0x4CAF50);
+    icon.arc(0, 0, iconR, Math.PI * 0.5, Math.PI);
+    // 蓝
+    icon.lineStyle(strokeW, 0x2196F3);
+    icon.arc(0, 0, iconR, Math.PI, Math.PI * 1.5);
+    // 黄
+    icon.lineStyle(strokeW, 0xFFC107);
+    icon.arc(0, 0, iconR, Math.PI * 1.5, Math.PI * 2);
+
+    socialBtn.addChild(icon);
+    
+    // 交互逻辑
+    socialBtn.position.set(btnX, btnY);
+    socialBtn.interactive = true;
+    socialBtn.buttonMode = true;
+    
+    socialBtn.on('pointerdown', () => { socialBtn.scale.set(0.9); });
+    socialBtn.on('pointerupoutside', () => { socialBtn.scale.set(1.0); });
+    socialBtn.on('pointerup', () => { 
+        socialBtn.scale.set(1.0);
+        Platform.handleSocialAction();
+    });
+
+    container.addChild(socialBtn);
+    // ------------------------------------
 
     // --- 2. 文本区域 ---
     const textX = radius * 2 + 30;

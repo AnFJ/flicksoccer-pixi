@@ -26,7 +26,7 @@ export const GameConfig = {
   // 视觉配置
   visuals: {
     strikerThickness: 15,    // 棋子圆柱体厚度
-    shadowOffset: 8,        // [修改] 增大阴影偏移 (5 -> 12)，配合更实的阴影绘制
+    shadowOffset: 12,        // [修改] 增大阴影偏移 (5 -> 12)，配合更实的阴影绘制
     aimLineColorStart: 0x2ecc71, // 瞄准线起始颜色
     aimLineColorEnd: 0xe74c3c,   // 瞄准线结束颜色
     dashedLineColor: 0xffffff,   // 后方虚线颜色
@@ -40,11 +40,18 @@ export const GameConfig = {
       menuBtnColor: 0x27ae60,  // 菜单按钮绿色
       menuBtnShadow: 0x1e8449, // 菜单按钮阴影色
       adBoardColors: [0xf1c40f, 0x3498db, 0xe74c3c], // 广告牌随机色
-      // 新增：广告牌远程图片列表
-      adImages: [
-          // 这里放置你的广告图URL，示例使用占位图服务
-          "https://youke2.picui.cn/s1/2025/12/26/694e3dc16f5a9.png",
-          "https://youke2.picui.cn/s1/2025/12/26/694e3dc15fce2.png"
+      // 场景内广告牌配置 (互推/自家广告)
+      adBoardConfig: [
+          {
+              imageUrl: "https://youke2.picui.cn/s1/2025/12/26/694e3dc16f5a9.png",
+              targetAppId: "", // 点击跳转的小程序AppID (留空则不跳转)
+              path: ""         // 跳转路径
+          },
+          {
+              imageUrl: "https://youke2.picui.cn/s1/2025/12/26/694e3dc15fce2.png",
+              targetAppId: "",
+              path: ""
+          }
       ]
     }
   },
@@ -81,7 +88,7 @@ export const GameConfig = {
   gameplay: {
     maxScore: 2,             
     maxDragDistance: 160,      // [修改] 增加一倍 (80 -> 160)，让瞄准线更长
-    forceMultiplier: 0.0045,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
+    forceMultiplier: 0.0030,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
     turnTimeLimit: 60,
     
     // [新增] 技能配置
@@ -106,6 +113,16 @@ export const GameConfig = {
       // [核心新增] 轨迹回放配置
       trajectorySendInterval: 100, // 发送端：每多少毫秒打包发送一次轨迹数据包
       replayBufferTime: 500,       // 接收端：开始播放前需要缓冲的时间 (ms)
+  },
+
+  // [新增] 平台广告ID配置 (请替换为你的真实ID)
+  adConfig: {
+      wechat: {
+          bannerId: 'adunit-xxxxxxxx' 
+      },
+      douyin: {
+          bannerId: 'adunit-yyyyyyyy'
+      }
   },
 
   // API 地址

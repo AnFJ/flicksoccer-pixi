@@ -191,36 +191,82 @@ export default class GameHUD extends PIXI.Container {
   }
 
   createOfflineUI(teamId, container, size) {
+      // 1. 蒙版 (保持原样，覆盖头像)
       const overlay = new PIXI.Graphics();
       overlay.beginFill(0x333333, 0.7);
       overlay.drawRoundedRect(-size/2, -size/2, size, size, 10);
       overlay.endFill();
       overlay.visible = false;
+      container.addChild(overlay);
 
-      const isLeft = teamId === TeamId.LEFT;
-      const offTextX = isLeft ? (-size/2 - 20) : (size/2 + 20);
-      const offTextAnchor = isLeft ? 1 : 0;
-      const offlineText = new PIXI.Text('已掉线', {
-          fontFamily: 'Arial', fontSize: 24, fill: 0xFF0000,
-          stroke: 0xFFFFFF, strokeThickness: 3, fontWeight: 'bold', align: isLeft ? 'right' : 'left'
-      });
-      offlineText.anchor.set(offTextAnchor, 0.5);
-      offlineText.position.set(offTextX, 0);
-      offlineText.visible = false;
-      container.addChild(overlay, offlineText);
+      // 2. 气泡容器
+      const bubble = new PIXI.Container();
+      // 昵称标签大约在 y = size/2 + 20 的位置，我们将气泡放在更下方
+      // y = 50(半高) + 50(偏移) = 100
+      bubble.position.set(0, size/2 + 45); 
+      bubble.visible = false;
+
+      // 3. 气泡背景绘制
+      const bubbleW = 130;
+      const bubbleH = 40;
+      const arrowH = 10; // 箭头高度
+      const bubbleColor = 0xFFFFFF;
+
+      const bg = new PIXI.Graphics();
       
+      // 阴影
+      bg.beginFill(0x000000, 0.3);
+      bg.drawRoundedRect(-bubbleW/2 + 3, arrowH + 3, bubbleW, bubbleH, 8);
+      bg.endFill();
+
+      // 主体
+      bg.beginFill(bubbleColor);
+      // 绘制箭头 (向上指向昵称)
+      bg.moveTo(0, 0);       // 尖端
+      bg.lineTo(-8, arrowH); // 左基点
+      bg.lineTo(8, arrowH);  // 右基点
+      bg.lineTo(0, 0);
+      
+      // 绘制圆角矩形主体
+      bg.drawRoundedRect(-bubbleW/2, arrowH, bubbleW, bubbleH, 8);
+      bg.endFill();
+
+      bubble.addChild(bg);
+
+      // 4. 文字
+      const offlineText = new PIXI.Text('已掉线', {
+          fontFamily: 'Arial', fontSize: 22, fill: 0xFF0000, fontWeight: 'bold'
+      });
+      offlineText.anchor.set(0.5);
+      // 文字垂直居中于矩形框内 (需要加上箭头高度偏移)
+      offlineText.position.set(0, arrowH + bubbleH/2);
+      bubble.addChild(offlineText);
+
+      container.addChild(bubble);
+      
+      // 保存引用
       if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
       this.avatarComponents[teamId].overlay = overlay;
+      this.avatarComponents[teamId].offlineBubble = bubble;
       this.avatarComponents[teamId].offlineText = offlineText;
   }
   
   // 设置玩家掉线状态
   setPlayerOffline(teamId, isOffline, text = '已掉线') {
       const comp = this.avatarComponents[teamId];
-      if (comp && comp.overlay && comp.offlineText) {
-          comp.overlay.visible = isOffline;
-          comp.offlineText.visible = isOffline;
-          comp.offlineText.text = text;
+      if (comp) {
+          if (comp.overlay) comp.overlay.visible = isOffline;
+          
+          if (comp.offlineBubble && comp.offlineText) {
+              comp.offlineBubble.visible = isOffline;
+              comp.offlineText.text = text;
+              // 如果文字过长，可以简单缩放一下 (可选)
+              if (text.length > 5) {
+                  comp.offlineText.style.fontSize = 18;
+              } else {
+                  comp.offlineText.style.fontSize = 22;
+              }
+          }
       }
   }
 

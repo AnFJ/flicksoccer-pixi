@@ -1,6 +1,7 @@
 
 import * as PIXI from 'pixi.js';
 import { GameConfig } from '../config.js';
+import Platform from '../managers/Platform.js';
 
 export default class AdBoard extends PIXI.Container {
   /**
@@ -14,6 +15,10 @@ export default class AdBoard extends PIXI.Container {
     this.boardHeight = height;
     this.index = index;
     
+    // 从配置中获取对应的广告数据
+    const adConfig = GameConfig.visuals.ui.adBoardConfig || [];
+    this.adData = adConfig[index % adConfig.length];
+
     this.bgGraphics = null;     // 背景层
     this.imageSprite = null;    // 图片层
     this.placeholderText = null;// 占位文字
@@ -23,6 +28,9 @@ export default class AdBoard extends PIXI.Container {
     
     // 初始化后立即开始异步加载图片，不阻塞主线程
     this.loadRemoteImage();
+    
+    // 初始化交互
+    this.initInteraction();
   }
 
   init() {
@@ -65,13 +73,31 @@ export default class AdBoard extends PIXI.Container {
     this.rotation = this.index === 0 ? 0.05 : -0.05;
   }
 
-  async loadRemoteImage() {
-    const urls = GameConfig.visuals.ui.adImages;
-    if (!urls || urls.length === 0) return;
+  initInteraction() {
+      // 如果配置了 AppID，说明这是个可跳转的广告位
+      if (this.adData && this.adData.targetAppId) {
+          this.interactive = true;
+          this.buttonMode = true; // 鼠标手型(Web有效)
 
-    // 根据索引轮询获取 URL
-    const url = urls[this.index % urls.length];
-    if (!url) return;
+          this.on('pointerdown', () => {
+              this.scale.set(0.95);
+          });
+
+          this.on('pointerup', () => {
+              this.scale.set(1.0);
+              // 执行跳转
+              Platform.navigateToMiniProgram(this.adData.targetAppId, this.adData.path);
+          });
+          
+          this.on('pointerupoutside', () => {
+              this.scale.set(1.0);
+          });
+      }
+  }
+
+  async loadRemoteImage() {
+    if (!this.adData || !this.adData.imageUrl) return;
+    const url = this.adData.imageUrl;
 
     try {
         // 异步加载纹理
@@ -91,7 +117,6 @@ export default class AdBoard extends PIXI.Container {
 
         // 插入层级：背景之上，边框之下
         // 现在的 children 顺序是: [0:Bg, 1:Text, 2:Border]
-        // 我们想让 Sprite 盖住 Bg，但在 Text(如果还显示) 和 Border 之下，或者直接替换 Text
         
         // 隐藏占位文字
         if (this.placeholderText) {
