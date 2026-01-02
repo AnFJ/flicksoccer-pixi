@@ -81,7 +81,7 @@ export const GameConfig = {
   gameplay: {
     maxScore: 2,             
     maxDragDistance: 160,      // [修改] 增加一倍 (80 -> 160)，让瞄准线更长
-    forceMultiplier: 0.0030,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
+    forceMultiplier: 0.0045,   // [修改] 减半 (0.0040 -> 0.0020)，保持最大力度不变
     turnTimeLimit: 60,
     
     // [新增] 技能配置

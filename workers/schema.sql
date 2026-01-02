@@ -19,3 +19,5 @@ CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);
 DELETE FROM users WHERE user_id = "oCQN01z3Mhnbmfjt46QnkVz1jw5g";
 -- 更新用户信息
 UPDATE users SET nickname = "edge笔记本用户" WHERE user_id = "acc7564a-0a69-4137-88b5-754a56d8dbe9";
+DELETE FROM users WHERE nickname = "edge笔记本用户";
+- [{"id":"super_aim","count":500},{"id":"super_force","count":500},{"id":"unstoppable","count":500}]

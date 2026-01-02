@@ -27,7 +27,7 @@ export default class GameHUD extends PIXI.Container {
     const uiColors = visuals.ui;
 
     // 1. 顶部状态栏背景 (Top Bar)
-    const barHeight = 136;
+    const barHeight = 140;
     const barG = new PIXI.Graphics();
     
     // 主背景色
@@ -136,7 +136,7 @@ export default class GameHUD extends PIXI.Container {
     const container = new PIXI.Container();
     container.position.set(x, y);
 
-    const size = 110; 
+    const size = 100; 
     const teamColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
 
     // --- 1. 金色流光边框 (Golden Frame) ---
