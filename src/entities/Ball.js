@@ -37,10 +37,9 @@ export default class Ball {
     
     // --- 渲染顺序：阴影 -> 拖尾 -> 技能特效(底) -> 足球本体 -> 技能特效(顶) ---
 
-    // A. 阴影 
-    const shadow = this.createShadowGraphics();
-    shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5);
-    shadow.alpha = 0.8; 
+    // A. 阴影 (使用 Canvas 渐变纹理)
+    const shadow = this.createShadowSprite();
+    shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
     this.view.addChild(shadow);
 
     // B. 常规拖尾特效 (Trail Effect)
@@ -126,22 +125,49 @@ export default class Ball {
       this.body.friction = 0;
   }
 
-  createShadowGraphics() {
-    const g = new PIXI.Graphics();
+  /**
+   * [核心优化] 使用 Canvas 生成径向渐变阴影
+   * 球体的阴影特点是接触点最黑，向四周快速衰减
+   */
+  createShadowSprite() {
     const r = this.radius;
-    const steps = 5;
-    const maxR = r * 1.3; 
-    const alphaPerStep = 0.15; 
-    for (let i = 0; i < steps; i++) {
-        const ratio = i / steps; 
-        const currentR = maxR * (1 - ratio);
-        if (currentR <= 0) break;
-        g.beginFill(0x000000, alphaPerStep);
-        g.drawCircle(0, 0, currentR);
-        g.endFill();
+    // 阴影范围比球体大，模拟漫反射
+    const size = r * 2.8; 
+    
+    if (typeof document !== 'undefined' && document.createElement) {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            const cx = size / 2;
+            const cy = size / 2;
+
+            // 径向渐变：内黑 -> 外透
+            // r * 0.2 是深色核心区
+            // r * 1.3 是完全消散区
+            const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.5);
+            grd.addColorStop(0, 'rgba(0, 0, 0, 0.6)');   // 接触点：深黑
+            grd.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)'); // 中间：半透
+            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');     // 边缘：完全透明
+
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, size, size);
+
+            const sprite = new PIXI.Sprite(PIXI.Texture.from(canvas));
+            sprite.anchor.set(0.5);
+            return sprite;
+
+        } catch(e) {
+            console.warn('Canvas shadow gen failed', e);
+        }
     }
-    g.beginFill(0x000000, 0.2);
-    g.drawCircle(0, 0, r * 0.8);
+    
+    // 兜底
+    const g = new PIXI.Graphics();
+    g.beginFill(0x000000, 0.4);
+    g.drawCircle(0, 0, r);
     g.endFill();
     return g;
   }

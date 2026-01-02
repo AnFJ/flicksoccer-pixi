@@ -44,11 +44,10 @@ export default class Striker {
     // 绑定实体引用
     this.view.entity = this;
     
-    // --- 绘制阴影 ---
-    const shadow = this.createShadowGraphics();
-    shadow.position.set(GameConfig.visuals.shadowOffset || 5, GameConfig.visuals.shadowOffset || 5); 
-    shadow.alpha = 0.8; 
-    
+    // --- 绘制阴影 (使用 Canvas 渐变纹理) ---
+    const shadow = this.createShadowSprite();
+    // 设置偏移量，制造悬浮感
+    shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset); 
     this.view.addChild(shadow);
 
     // --- 新增：选中光圈 (Glow Ring) ---
@@ -149,33 +148,50 @@ export default class Striker {
   }
 
   /**
-   * 性能优化：减少同心圆层数 (30 -> 5)
+   * [核心优化] 使用 Canvas 生成真实的柔边阴影纹理
    */
-  createShadowGraphics() {
-    const g = new PIXI.Graphics();
+  createShadowSprite() {
     const r = this.radius;
+    // 留出足够的 Padding 给模糊边缘
+    const padding = 20; 
+    const size = (r + padding) * 2;
     
-    // 优化：降低层数
-    const steps = 5; 
-    const maxR = r * 1.1; 
-    const alphaPerStep = 0.15; // 稍微增加每层不透明度以补偿层数减少
+    // 尝试创建 Canvas
+    if (typeof document !== 'undefined' && document.createElement) {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // 使用 shadowBlur 来实现完美的高斯模糊阴影
+            // 这种方式比径向渐变更像“投影”
+            ctx.shadowColor = "rgba(0, 0, 0, 0.4)"; // 阴影颜色
+            ctx.shadowBlur = 25; // 模糊半径
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; // 实体颜色 (半透明)
+            
+            ctx.beginPath();
+            // 画一个比本体略小的圆，让模糊效果向外扩散
+            ctx.arc(size/2, size/2, r - 5, 0, Math.PI * 2);
+            ctx.fill();
 
-    for (let i = 0; i < steps; i++) {
-        const ratio = i / steps; 
-        const currentR = maxR * (1 - ratio);
-        
-        if (currentR <= 0) break;
+            const sprite = new PIXI.Sprite(PIXI.Texture.from(canvas));
+            sprite.anchor.set(0.5);
+            return sprite;
 
-        g.beginFill(0x000000, alphaPerStep);
-        g.drawCircle(0, 0, currentR);
-        g.endFill();
+        } catch (e) {
+            console.warn('Canvas shadow generation failed:', e);
+        }
     }
 
-    // 底部接触阴影
-    g.beginFill(0x000000, 0.2);
-    g.drawCircle(0, 0, r * 0.9);
+    // 兜底：如果无法使用 Canvas，回退到简单的 Graphics
+    const g = new PIXI.Graphics();
+    g.beginFill(0x000000, 0.4);
+    g.drawCircle(0, 0, r);
     g.endFill();
-
     return g;
   }
 
