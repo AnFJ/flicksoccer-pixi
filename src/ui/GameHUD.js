@@ -3,7 +3,8 @@ import * as PIXI from 'pixi.js';
 import { GameConfig } from '../config.js';
 import { TeamId, SkillType } from '../constants.js';
 import AccountMgr from '../managers/AccountMgr.js';
-import Button from './Button.js'; // 引入 Button 组件
+import ResourceManager from '../managers/ResourceManager.js';
+import Button from './Button.js';
 
 export default class GameHUD extends PIXI.Container {
   constructor(gameMode, myTeamId, onSkillClick) {
@@ -25,80 +26,90 @@ export default class GameHUD extends PIXI.Container {
   init() {
     const { designWidth, visuals } = GameConfig;
     const uiColors = visuals.ui;
-
-    // 1. 顶部状态栏背景
-    const barHeight = 140;
-    const barG = new PIXI.Graphics();
-    barG.beginFill(uiColors.topBarBg);
-    const topW = designWidth;
-    const bottomW = designWidth * 0.95; 
-    const slant = (topW - bottomW) / 2;
-    barG.drawPolygon([0, 0, designWidth, 0, designWidth - slant, barHeight, slant, barHeight]);
-    barG.endFill();
-    
-    // 底部高光
-    barG.beginFill(uiColors.topBarAccent);
-    barG.drawPolygon([slant, barHeight - 10, designWidth - slant, barHeight - 10, designWidth - slant - 5, barHeight, slant + 5, barHeight]);
-    barG.endFill();
-    this.addChild(barG);
-
-    // 2. 中央计分板
-    const scoreBoxW = 340;
-    const scoreBoxH = 90;
-    const scoreBoxY = 10;
     const centerX = designWidth / 2;
+
+    // 1. 顶部全屏遮罩/状态栏背景
+    const hudBgTex = ResourceManager.get('hud_bg');
+    if (hudBgTex) {
+        const bgSprite = new PIXI.Sprite(hudBgTex);
+        bgSprite.width = designWidth;
+        bgSprite.height = 150; 
+        this.addChild(bgSprite);
+    }
+
+    // 2. 核心比分板容器 (根据截图定制)
+    const boardW = 460;
+    const boardH = 100;
+    const boardY = 15;
     
-    const scoreBg = new PIXI.Graphics();
-    scoreBg.beginFill(0xbdc3c7); 
-    scoreBg.drawRoundedRect(-scoreBoxW/2 - 4, scoreBoxY - 4, scoreBoxW + 8, scoreBoxH + 8, 15);
-    scoreBg.beginFill(uiColors.scoreBoxBg); 
-    scoreBg.drawRoundedRect(-scoreBoxW/2, scoreBoxY, scoreBoxW, scoreBoxH, 12);
-    scoreBg.endFill();
-    scoreBg.position.set(centerX, 0);
-    this.addChild(scoreBg);
+    const scoreBoard = new PIXI.Container();
+    scoreBoard.position.set(centerX, boardY);
+    this.addChild(scoreBoard);
 
-    // VS装饰
-    const decoCircle = new PIXI.Graphics();
-    decoCircle.beginFill(0xf1c40f); 
-    decoCircle.lineStyle(4, 0xffffff);
-    decoCircle.drawCircle(0, 0, 35);
-    decoCircle.endFill();
-    decoCircle.position.set(centerX, scoreBoxY + scoreBoxH / 2);
-    const vsText = new PIXI.Text('VS', { fontFamily: 'Arial Black', fontSize: 24, fill: 0xffffff });
+
+    // 3. 内部元素：比分与VS
+    // 金黄色 VS
+    const vsText = new PIXI.Text('vs', { 
+        fontFamily: 'Arial Black', 
+        fontSize: 42, 
+        fill: 0xf1c40f,
+        fontStyle: 'italic',
+        fontWeight: 'bold'
+    });
     vsText.anchor.set(0.5);
-    decoCircle.addChild(vsText);
-    this.addChild(decoCircle);
+    vsText.position.set(0, boardH / 2);
+    scoreBoard.addChild(vsText);
 
-    // 左比分
-    this.leftScoreText = new PIXI.Text('0', { fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText });
+    // 左比分 (白色加粗)
+    this.leftScoreText = new PIXI.Text('0', { 
+        fontFamily: 'Arial Black', 
+        fontSize: 64, 
+        fill: 0xffffff,
+        dropShadow: true,
+        dropShadowDistance: 2,
+        dropShadowColor: 0x000000
+    });
     this.leftScoreText.anchor.set(0.5);
-    this.leftScoreText.position.set(centerX - 90, scoreBoxY + scoreBoxH / 2);
-    this.addChild(this.leftScoreText);
+    this.leftScoreText.position.set(-110, boardH / 2);
+    scoreBoard.addChild(this.leftScoreText);
 
-    // 右比分
-    this.rightScoreText = new PIXI.Text('0', { fontFamily: 'Arial Black', fontSize: 50, fill: uiColors.scoreText });
+    // 右比分 (白色加粗)
+    this.rightScoreText = new PIXI.Text('0', { 
+        fontFamily: 'Arial Black', 
+        fontSize: 64, 
+        fill: 0xffffff,
+        dropShadow: true,
+        dropShadowDistance: 2,
+        dropShadowColor: 0x000000
+    });
     this.rightScoreText.anchor.set(0.5);
-    this.rightScoreText.position.set(centerX + 90, scoreBoxY + scoreBoxH / 2);
-    this.addChild(this.rightScoreText);
+    this.rightScoreText.position.set(110, boardH / 2);
+    scoreBoard.addChild(this.rightScoreText);
 
-    // 3. 头像与技能栏
+    // 4. 回合提示文本 (位于比分板正下方)
+    this.turnText = new PIXI.Text('等待开球...', {
+        fontFamily: 'Arial', 
+        fontSize: 32, 
+        fill: 0xcc6666,
+        fontWeight: 'bold',
+        dropShadow: true, 
+        dropShadowBlur: 2, 
+        dropShadowColor: 0x000000,
+        dropShadowDistance: 1
+    });
+    this.turnText.anchor.set(0.5);
+    this.turnText.position.set(centerX, boardY + boardH + 25);
+    this.addChild(this.turnText);
+
+    // 5. 头像与技能栏 (稍微拉开距离，避免与新比分板重叠)
     const myInfo = AccountMgr.userInfo;
-    const avatarSpacing = 380; 
+    const avatarSpacing = 480; 
 
     const leftInfo = { name: myInfo.nickname || "You", avatar: myInfo.avatarUrl };
     const rightInfo = { name: this.gameMode === 'pve' ? "Easy AI" : "Player 2", avatar: '' };
 
     this.createAvatarWithSkills(centerX - avatarSpacing, 60, TeamId.LEFT, leftInfo);
     this.createAvatarWithSkills(centerX + avatarSpacing, 60, TeamId.RIGHT, rightInfo);
-
-    // 4. 回合提示文本
-    this.turnText = new PIXI.Text('等待开球...', {
-        fontFamily: 'Arial', fontSize: 28, fill: 0xffffff,
-        dropShadow: true, dropShadowBlur: 4, dropShadowColor: 0x000000
-    });
-    this.turnText.anchor.set(0.5);
-    this.turnText.position.set(centerX, barHeight - 15);
-    this.addChild(this.turnText);
   }
 
   createAvatarWithSkills(x, y, teamId, info) {
@@ -173,7 +184,6 @@ export default class GameHUD extends PIXI.Container {
     if (avatarMask) container.addChild(avatarMask);
     container.addChild(timerG, nameTag, nameText);
 
-    // --- B. 技能栏 ---
     let isInteractive = false;
     if (this.gameMode === 'pvp_local') {
         isInteractive = true;
@@ -185,13 +195,11 @@ export default class GameHUD extends PIXI.Container {
     this.createOfflineUI(teamId, container, size);
     this.addChild(container);
     
-    // [修复] 确保不覆盖 createOfflineUI 中创建的对象
     if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
     this.avatarComponents[teamId].container = container;
   }
 
   createOfflineUI(teamId, container, size) {
-      // 1. 蒙版 (保持原样，覆盖头像)
       const overlay = new PIXI.Graphics();
       overlay.beginFill(0x333333, 0.7);
       overlay.drawRoundedRect(-size/2, -size/2, size, size, 10);
@@ -199,68 +207,51 @@ export default class GameHUD extends PIXI.Container {
       overlay.visible = false;
       container.addChild(overlay);
 
-      // 2. 气泡容器
       const bubble = new PIXI.Container();
-      // 昵称标签大约在 y = size/2 + 20 的位置，我们将气泡放在更下方
-      // y = 50(半高) + 50(偏移) = 100
       bubble.position.set(0, size/2 + 45); 
       bubble.visible = false;
 
-      // 3. 气泡背景绘制
       const bubbleW = 130;
       const bubbleH = 40;
-      const arrowH = 10; // 箭头高度
+      const arrowH = 10;
       const bubbleColor = 0xFFFFFF;
 
       const bg = new PIXI.Graphics();
-      
-      // 阴影
       bg.beginFill(0x000000, 0.3);
       bg.drawRoundedRect(-bubbleW/2 + 3, arrowH + 3, bubbleW, bubbleH, 8);
       bg.endFill();
 
-      // 主体
       bg.beginFill(bubbleColor);
-      // 绘制箭头 (向上指向昵称)
-      bg.moveTo(0, 0);       // 尖端
-      bg.lineTo(-8, arrowH); // 左基点
-      bg.lineTo(8, arrowH);  // 右基点
+      bg.moveTo(0, 0);
+      bg.lineTo(-8, arrowH);
+      bg.lineTo(8, arrowH);
       bg.lineTo(0, 0);
-      
-      // 绘制圆角矩形主体
       bg.drawRoundedRect(-bubbleW/2, arrowH, bubbleW, bubbleH, 8);
       bg.endFill();
-
       bubble.addChild(bg);
 
-      // 4. 文字
       const offlineText = new PIXI.Text('已掉线', {
           fontFamily: 'Arial', fontSize: 22, fill: 0xFF0000, fontWeight: 'bold'
       });
       offlineText.anchor.set(0.5);
-      // 文字垂直居中于矩形框内 (需要加上箭头高度偏移)
       offlineText.position.set(0, arrowH + bubbleH/2);
       bubble.addChild(offlineText);
 
       container.addChild(bubble);
       
-      // 保存引用
       if (!this.avatarComponents[teamId]) this.avatarComponents[teamId] = {};
       this.avatarComponents[teamId].overlay = overlay;
       this.avatarComponents[teamId].offlineBubble = bubble;
       this.avatarComponents[teamId].offlineText = offlineText;
   }
   
-  // 设置玩家掉线状态
   setPlayerOffline(teamId, isOffline, text = '已掉线') {
       const comp = this.avatarComponents[teamId];
       if (comp) {
           if (comp.overlay) comp.overlay.visible = isOffline;
-          
           if (comp.offlineBubble && comp.offlineText) {
               comp.offlineBubble.visible = isOffline;
               comp.offlineText.text = text;
-              // 如果文字过长，可以简单缩放一下 (可选)
               if (text.length > 5) {
                   comp.offlineText.style.fontSize = 18;
               } else {
@@ -328,7 +319,7 @@ export default class GameHUD extends PIXI.Container {
               bg.beginFill(skill.color); 
               bg.drawCircle(0, 0, btnSize/2);
               bg.endFill();
-              bg.alpha = 0.3; // 默认暗淡
+              bg.alpha = 0.3;
               
               const txt = new PIXI.Text(skill.label, {
                   fontFamily: 'Arial', fontSize: 36, fill: 0xffffff, fontWeight: 'bold'
@@ -360,11 +351,9 @@ export default class GameHUD extends PIXI.Container {
       if (!item) return;
 
       if (item.isIcon) {
-          // 纯图标模式 (对手)
           item.highlight.visible = active;
           item.bg.alpha = active ? 1.0 : 0.3;
           item.txt.alpha = active ? 1.0 : 0.5;
-          
           if (active) {
               item.container.scale.set(1.2);
               const animate = () => {
@@ -378,12 +367,9 @@ export default class GameHUD extends PIXI.Container {
               };
               animate();
           } else {
-              // 取消选中时，确保恢复原状
               item.container.scale.set(1.0);
           }
-
       } else {
-          // 按钮模式 (自己)
           if (item.highlight) item.highlight.visible = active;
           item.alpha = active ? 1.0 : 0.9;
       }
@@ -426,6 +412,7 @@ export default class GameHUD extends PIXI.Container {
         str = this.gameMode === 'pve' ? "蓝方回合 (AI)" : "蓝方回合 (Player 2)";
     }
     this.turnText.text = str;
-    this.turnText.style.fill = isLeft ? 0xe74c3c : 0x3498db;
+    // 根据回合动态改变文字颜色：红方回合用红色，蓝方回合用蓝色
+    this.turnText.style.fill = isLeft ? 0xcc3333 : 0x3366cc;
   }
 }

@@ -27,7 +27,10 @@ class ResourceManager {
 
       // UI
       main_bg: 'assets/images/main_bg.png',
-      btn_menu: 'assets/images/btn_menu.png' // 假设你有这个按钮图，或者你需要添加它
+      btn_menu: 'assets/images/btn_menu.png', // 假设你有这个按钮图，或者你需要添加它
+      
+      // [新增] HUD 顶部背景图
+      hud_bg: 'assets/images/hud_bg.png'
     };
   }
 
