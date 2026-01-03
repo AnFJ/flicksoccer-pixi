@@ -174,7 +174,16 @@ export default class GameScene extends BaseScene {
     }
   }
 
+  /**
+   * 播放音效处理函数
+   * [核心修复] 在联机模式下，如果不是自己的回合（即处于接收回放状态），
+   * 屏蔽 GameRules 发出的物理碰撞音效，防止重复或错误播放。
+   * 接收方的音效将完全由 OnlineMatchController 的回放系统驱动。
+   */
   onPlaySound(key) {
+      if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
+          return;
+      }
       AudioManager.playSFX(key);
   }
 

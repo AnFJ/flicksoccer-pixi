@@ -5,6 +5,7 @@ import EventBus from '../managers/EventBus.js';
 import Platform from '../managers/Platform.js';
 import { Events, NetMsg, TeamId, SkillType } from '../constants.js';
 import { GameConfig } from '../config.js';
+import AudioManager from '../managers/AudioManager.js';
 
 /**
  * 联机对战控制器
@@ -27,6 +28,7 @@ export default class OnlineMatchController {
         this.totalBufferedTime = 0;    
         
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
+        EventBus.on(Events.PLAY_SOUND, this.onLocalSound, this); // [新增] 监听本地音效
     }
 
     update(delta) {
@@ -40,6 +42,22 @@ export default class OnlineMatchController {
                 // 我是防守方：播放回放
                 this._processPlayback(delta);
             }
+        }
+    }
+
+    /**
+     * [新增] 监听并记录本地音效
+     */
+    onLocalSound(key) {
+        const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
+        // 只有发送方（我的回合）才记录音效并发送给对方
+        if (isMyTurn && this.scene.isMoving) {
+            this.sendBuffer.push({
+                t: 0, // 音效事件通常附着在当前时刻，时间增量设为0以便立即处理
+                isEvent: true,
+                eventType: 'SOUND',
+                key: key
+            });
         }
     }
 
@@ -129,6 +147,9 @@ export default class OnlineMatchController {
             const { newScore } = frame.payload;
             this.scene.rules.score = newScore;
             this.scene._playGoalEffects(newScore);
+        } else if (frame.eventType === 'SOUND') {
+            // [新增] 播放同步的碰撞音效
+            AudioManager.playSFX(frame.key);
         }
     }
 
@@ -175,9 +196,6 @@ export default class OnlineMatchController {
                          scene.ball.setLightningMode(true);
                     }
                     
-                    // [核心修改] 
-                    // 对方已经出球了，技能效果已经生效。
-                    // 此时应该重置 UI 上显示的对手技能图标（熄灭它们）。
                     if (scene.skillMgr) {
                         scene.skillMgr.resetRemoteSkills(striker.teamId);
                     }
@@ -197,7 +215,9 @@ export default class OnlineMatchController {
                         frames.forEach(f => {
                             f.originalT = f.t; 
                             this.replayQueue.push(f);
-                            this.totalBufferedTime += f.t;
+                            if (!f.isEvent) {
+                                this.totalBufferedTime += f.t;
+                            }
                         });
                     }
                 }
@@ -209,7 +229,6 @@ export default class OnlineMatchController {
                 scene.input.handleRemoteAim(msg.type, msg.payload);
                 break;
             
-            // [同步技能选中状态]
             case NetMsg.SKILL:
                 if (scene.skillMgr) scene.skillMgr.handleRemoteSkill(msg.payload);
                 break;
@@ -395,5 +414,6 @@ export default class OnlineMatchController {
 
     destroy() {
         EventBus.off(Events.NET_MESSAGE, this.onNetMessage, this);
+        EventBus.off(Events.PLAY_SOUND, this.onLocalSound, this);
     }
 }

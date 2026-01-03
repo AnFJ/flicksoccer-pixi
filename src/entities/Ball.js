@@ -39,7 +39,7 @@ export default class Ball {
 
     // A. 阴影 (使用 Canvas 渐变纹理)
     const shadow = this.createShadowSprite();
-    shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
+    shadow.position.set(GameConfig.visuals.shadowOffset - 5, GameConfig.visuals.shadowOffset - 5);
     this.view.addChild(shadow);
 
     // B. 常规拖尾特效 (Trail Effect)
