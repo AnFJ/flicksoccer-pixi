@@ -14,10 +14,15 @@ export default class LevelSelectScene extends BaseScene {
     constructor() {
         super();
         this.scrollContainer = null;
-        this.isDragging = false;
-        this.lastY = 0;
-        this.minY = 0;
-        this.maxY = 0;
+        
+        // 滚动状态
+        this.isDragging = false; // 是否触发了拖拽逻辑
+        this.isTouching = false; // 手指是否按下
+        this.touchStartY = 0;    // 按下时的Y坐标
+        this.lastY = 0;          // 上一帧的Y坐标
+        this.minY = 0;           // 滚动下限
+        this.maxY = 0;           // 滚动上限
+        this.animating = false;  // 是否正在执行回弹动画
     }
 
     onEnter() {
@@ -101,11 +106,27 @@ export default class LevelSelectScene extends BaseScene {
         // 计算滚动边界
         const totalRows = Math.ceil(totalLevels / cols);
         const contentHeight = startY + totalRows * (btnSize + gapY);
-        this.minY = Math.min(0, maskH - contentHeight); // 最底部
-        this.maxY = 0; // 最顶部
+        // 内容高度如果小于视口，minY = 0；否则允许向上滚动 (y < 0)
+        // 注意：scrollContainer 初始 y = maskY。
+        // 内容坐标是相对于 scrollContainer 的 (0,0) 开始的。
+        // 我们移动的是 scrollContainer 的 y 坐标。
+        // 初始位置 scrollContainer.y = maskY 显示内容的顶部。
+        // 向上滚动：scrollContainer.y 减小。
+        // 最底部：显示内容底部。内容底部坐标 = contentHeight。
+        // 视口底部坐标 = maskY + maskH。
+        // scrollContainer.y + contentHeight = maskY + maskH
+        // minScrollY = maskY + maskH - contentHeight
+        
+        // 我们这里的 scrollContainer 初始放在 (0, maskY)，即 y=150。
+        // 如果我们改变 scrollContainer.y：
+        // 顶部边界：y = 150 (初始位置)
+        // 底部边界：y = 150 - (contentHeight - maskH)
+        
+        this.maxY = maskY;
+        this.minY = Math.min(maskY, maskY - (contentHeight - maskH));
 
         // 添加交互事件
-        this.initScrolling(w, h, maskY);
+        this.initScrolling(w, h);
     }
 
     createLevelButton(level, x, y, size, isLocked, config) {
@@ -154,7 +175,8 @@ export default class LevelSelectScene extends BaseScene {
             btn.interactive = true;
             btn.buttonMode = true;
             btn.on('pointertap', () => {
-                if (!this.isDragging) { // 防止拖动时误触
+                // 只有在没有触发拖动逻辑时才进入关卡
+                if (!this.isDragging) {
                     SceneManager.changeScene(GameScene, { mode: 'pve', level: level });
                 }
             });
@@ -163,39 +185,99 @@ export default class LevelSelectScene extends BaseScene {
         this.scrollContainer.addChild(btn);
     }
 
-    initScrolling(w, h, topOffset) {
-        const area = new PIXI.Graphics();
-        area.beginFill(0x000000, 0); // 透明点击区
-        area.drawRect(0, topOffset, w, h - topOffset);
-        area.endFill();
-        area.interactive = true;
-        this.container.addChildAt(area, 0); // 放在底层
+    initScrolling(w, h) {
+        // 设置容器为可交互，确保点击空白处也能触发
+        this.container.interactive = true;
+        this.container.hitArea = new PIXI.Rectangle(0, 0, w, h);
 
-        area.on('pointerdown', (e) => {
-            this.isDragging = true;
-            this.lastY = e.data.global.y;
-            this.dragDist = 0; // 记录拖动距离判断是点击还是拖动
-        });
+        this.container.on('pointerdown', this.onScrollStart, this);
+        this.container.on('pointermove', this.onScrollMove, this);
+        this.container.on('pointerup', this.onScrollEnd, this);
+        this.container.on('pointerupoutside', this.onScrollEnd, this);
+    }
 
-        area.on('pointermove', (e) => {
-            if (this.isDragging) {
-                const currentY = e.data.global.y;
-                const dy = currentY - this.lastY;
-                this.lastY = currentY;
-                this.scrollContainer.y += dy;
-                this.dragDist += Math.abs(dy);
+    onScrollStart(e) {
+        this.animating = false; // 停止回弹动画
+        this.isTouching = true;
+        this.isDragging = false; // 重置拖拽标记
+        this.touchStartY = e.data.global.y;
+        this.lastY = e.data.global.y;
+    }
 
-                // 简单的边界阻尼
-                if (this.scrollContainer.y > this.maxY) this.scrollContainer.y = this.maxY;
-                if (this.scrollContainer.y < this.minY) this.scrollContainer.y = this.minY;
+    onScrollMove(e) {
+        if (!this.isTouching) return;
+
+        const currentY = e.data.global.y;
+        const delta = currentY - this.lastY;
+        this.lastY = currentY;
+
+        // 判断是否超过阈值，判定为拖拽
+        if (!this.isDragging) {
+            if (Math.abs(currentY - this.touchStartY) > 10) {
+                this.isDragging = true;
             }
-        });
+        }
 
-        const endDrag = () => {
-            this.isDragging = false;
-        };
+        if (this.isDragging) {
+            // 移动容器
+            let effectiveDelta = delta;
+            
+            // 边界阻尼效果：超出边界时移动变慢
+            if (this.scrollContainer.y > this.maxY || this.scrollContainer.y < this.minY) {
+                effectiveDelta *= 0.5;
+            }
+            
+            this.scrollContainer.y += effectiveDelta;
+        }
+    }
 
-        area.on('pointerup', endDrag);
-        area.on('pointerupoutside', endDrag);
+    onScrollEnd(e) {
+        this.isTouching = false;
+        
+        // 只有拖拽结束时才触发回弹
+        // 如果只是点击（isDragging=false），不需要回弹逻辑，也不需要修正位置（因为没动）
+        if (this.isDragging) {
+            this.animateBounce();
+        }
+        
+        // 注意：这里不要立即把 isDragging 设为 false，
+        // 因为 Button 的 pointertap 事件可能在 pointerup 之后触发，
+        // 需要保留状态让按钮判断是否是拖拽释放。
+        // 下一次 pointerdown 会重置它。
+    }
+
+    animateBounce() {
+        // 计算目标位置（限制在边界内）
+        let targetY = this.scrollContainer.y;
+        if (targetY > this.maxY) targetY = this.maxY;
+        if (targetY < this.minY) targetY = this.minY;
+
+        // 如果需要回弹
+        if (targetY !== this.scrollContainer.y) {
+            this.animating = true;
+            const startY = this.scrollContainer.y;
+            const diff = targetY - startY;
+            const duration = 300; // ms
+            const startTime = Date.now();
+
+            const tick = () => {
+                if (!this.animating || this.isTouching) return;
+
+                const now = Date.now();
+                const progress = Math.min((now - startTime) / duration, 1);
+                
+                // Ease Out Quad
+                const ease = progress * (2 - progress);
+                
+                this.scrollContainer.y = startY + diff * ease;
+
+                if (progress < 1) {
+                    requestAnimationFrame(tick);
+                } else {
+                    this.animating = false;
+                }
+            };
+            requestAnimationFrame(tick);
+        }
     }
 }

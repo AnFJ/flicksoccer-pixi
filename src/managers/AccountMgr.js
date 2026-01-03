@@ -105,8 +105,9 @@ class AccountMgr {
       this.userInfo.id = data.user_id;
       this.userInfo.nickname = data.nickname;
       this.userInfo.avatarUrl = data.avatar_url;
-      this.userInfo.level = data.level || 1; // 确保至少是第一关
-      this.userInfo.coins = data.coins;
+      // 强制转为整数，防止数据库或API返回字符串导致比较失败
+      this.userInfo.level = parseInt(data.level) || 1; 
+      this.userInfo.coins = parseInt(data.coins) || 0;
       
       try {
           this.userInfo.items = JSON.parse(data.items || '[]');
@@ -118,6 +119,8 @@ class AccountMgr {
   async sync() {
       if (!this.isLoggedIn || this.userInfo.id.startsWith('offline_')) return;
       
+      // 添加时间戳防止请求被缓存
+      console.log('[Account] Syncing data:', this.userInfo);
       await NetworkMgr.post('/api/user/update', {
           userId: this.userInfo.id,
           coins: this.userInfo.coins,
@@ -126,10 +129,17 @@ class AccountMgr {
       });
   }
 
-  addCoins(amount) {
+  /**
+   * 增加金币
+   * @param {number} amount 数量
+   * @param {boolean} autoSync 是否立即同步服务器 (默认true，批量操作建议设为false)
+   */
+  addCoins(amount, autoSync = true) {
     this.userInfo.coins += amount;
-    this.sync(); 
-    console.log(`[Account] Coins updated: ${this.userInfo.coins}`);
+    if (autoSync) {
+        this.sync(); 
+    }
+    console.log(`[Account] Coins updated: ${this.userInfo.coins}, autoSync: ${autoSync}`);
   }
 
   consumeCoins(amount) {
@@ -164,15 +174,19 @@ class AccountMgr {
   }
 
   /**
-   * [新增] 完成关卡
+   * 完成关卡
    * @param {number} levelId 刚刚完成的关卡ID
+   * @param {boolean} autoSync 是否立即同步 (默认true)
    * @returns {boolean} 是否升级了
    */
-  completeLevel(levelId) {
-      if (levelId === this.userInfo.level) {
+  completeLevel(levelId, autoSync = true) {
+      // 确保类型一致
+      if (Number(levelId) === Number(this.userInfo.level)) {
           this.userInfo.level++;
-          this.sync();
           console.log(`[Account] Level Up! Now at level ${this.userInfo.level}`);
+          if (autoSync) {
+              this.sync();
+          }
           return true;
       }
       return false;

@@ -278,12 +278,16 @@ export default class GameScene extends BaseScene {
         // PVE 胜利逻辑
         if (this.gameMode === 'pve') {
              if (isWinner) {
-                 // 1. 加金币
-                 const reward = 50; // PVE 奖励少点
-                 AccountMgr.addCoins(reward);
+                 // 1. 加金币 (不立即同步，等待和等级一起同步)
+                 const reward = 50; 
+                 AccountMgr.addCoins(reward, false);
                  
-                 // 2. 检查升级
-                 const isLevelUp = AccountMgr.completeLevel(this.currentLevel);
+                 // 2. 检查升级 (不立即同步，最后统一同步)
+                 const isLevelUp = AccountMgr.completeLevel(this.currentLevel, false);
+                 
+                 // 3. 统一执行一次同步，确保 coins 和 level 同时提交，避免竞态条件
+                 AccountMgr.sync();
+
                  if (isLevelUp) {
                      Platform.showToast(`通关！解锁第 ${this.currentLevel + 1} 关！`);
                  } else {
@@ -296,7 +300,7 @@ export default class GameScene extends BaseScene {
         else if (this.gameMode === 'pvp_online') {
             if (isWinner) {
                 const reward = economyConfig.winReward;
-                AccountMgr.addCoins(reward);
+                AccountMgr.addCoins(reward); // 这里保持默认 true 即可
                 Platform.showToast(`胜利！获得 ${reward} 金币`);
             } else {
                 const fee = economyConfig.entryFee;
