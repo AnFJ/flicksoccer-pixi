@@ -189,9 +189,9 @@ export default class MenuScene extends BaseScene {
     // --- [新增] 社交按钮 (朋友圈风格图标) ---
     // 放在头像下方
     const socialBtn = new PIXI.Container();
-    const btnRadius = 24;
+    const btnRadius = 40;
     const btnX = radius;
-    const btnY = radius * 2 + 35; // 头像底部是 radius*2，再往下一点
+    const btnY = radius * 2 + 65; // 头像底部是 radius*2，再往下一点
 
     // 1. 白色圆底
     const sBg = new PIXI.Graphics();

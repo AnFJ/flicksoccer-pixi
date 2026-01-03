@@ -35,10 +35,61 @@ export default class GameRules {
         // 2. 检查撞网 (模拟网兜吸能)
         this.checkNetCollision(bodyA, bodyB);
 
-        // 3. 新增：检查 棋子 vs 足球 的碰撞，触发火星特效
+        // 3. 检查 棋子 vs 足球 的碰撞，触发火星特效
         this.checkStrikerBallCollision(pair);
+
+        // 4. [新增] 检查并触发各类碰撞音效
+        this.checkSoundEffects(pair);
       }
     });
+  }
+
+  /**
+   * 检查并触发音效
+   * 逻辑：根据 body.label 判断碰撞类型，并根据相对速度过滤轻微碰撞
+   */
+  checkSoundEffects(pair) {
+      const { bodyA, bodyB } = pair;
+      
+      // 计算相对速度 (强度)
+      const relativeVelocity = Matter.Vector.sub(bodyA.velocity, bodyB.velocity);
+      const intensity = Matter.Vector.magnitude(relativeVelocity);
+
+      // 音效触发阈值 (避免静止接触或微小滑动时噪音)
+      const SOUND_THRESHOLD = 1.0; 
+
+      if (intensity < SOUND_THRESHOLD) return;
+
+      const labels = [bodyA.label, bodyB.label];
+
+      // 1. 足球 vs 棋子 (hit_ball)
+      if (labels.includes('Ball') && labels.includes('Striker')) {
+          EventBus.emit(Events.PLAY_SOUND, 'hit_ball');
+          return;
+      }
+
+      // 2. 足球 vs 墙壁 (hit_wall)
+      // 墙壁包括 WallTop, WallBottom, WallLeftTop 等，label 都包含 'Wall'
+      if (labels.includes('Ball')) {
+          const other = bodyA.label === 'Ball' ? bodyB : bodyA;
+          if (other.label && other.label.includes('Wall')) {
+              EventBus.emit(Events.PLAY_SOUND, 'hit_wall');
+              return;
+          }
+      }
+
+      // 3. 棋子 vs 棋子 (hit_striker)
+      if (bodyA.label === 'Striker' && bodyB.label === 'Striker') {
+          EventBus.emit(Events.PLAY_SOUND, 'hit_striker');
+          return;
+      }
+
+      // 4. 足球 vs 球门框 (hit_post)
+      // 这里的球门框是指门柱 (GoalPost)，不包含网兜 (GoalNet)
+      if (labels.includes('Ball') && labels.includes('GoalPost')) {
+           EventBus.emit(Events.PLAY_SOUND, 'hit_post');
+           return;
+      }
   }
 
   checkStrikerBallCollision(pair) {

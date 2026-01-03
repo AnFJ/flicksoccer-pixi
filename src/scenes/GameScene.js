@@ -126,6 +126,7 @@ export default class GameScene extends BaseScene {
     EventBus.on(Events.GOAL_SCORED, this.onGoal, this);
     EventBus.on(Events.GAME_OVER, this.onGameOver, this);
     EventBus.on(Events.COLLISION_HIT, (data) => this.sparkSystem?.emit(data.x, data.y, data.intensity), this);
+    EventBus.on(Events.PLAY_SOUND, this.onPlaySound, this); // [新增] 监听音效请求
     EventBus.on(Events.SKILL_ACTIVATED, this.onSkillStateChange, this);
     EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); 
   }
@@ -173,6 +174,10 @@ export default class GameScene extends BaseScene {
     }
   }
 
+  onPlaySound(key) {
+      AudioManager.playSFX(key);
+  }
+
   onSkillStateChange(data) {
       const { type, active, teamId } = data;
       
@@ -216,7 +221,9 @@ export default class GameScene extends BaseScene {
   onActionFired(isRemote = false) {
     this.isMoving = true;
     if (!isRemote) {
-        AudioManager.playSFX('collision');
+        // [修改] 这里是射门/击球瞬间，播放挥杆/发射音效，而不是 collision
+        // 如果没有专门的 shoot 音效，可以暂时用 collision 或者留空
+        AudioManager.playSFX('collision'); 
     }
     this.turnMgr.timer = 0; 
   }
@@ -486,6 +493,7 @@ export default class GameScene extends BaseScene {
     EventBus.off(Events.GOAL_SCORED, this);
     EventBus.off(Events.GAME_OVER, this);
     EventBus.off(Events.COLLISION_HIT, this);
+    EventBus.off(Events.PLAY_SOUND, this); // 清除监听
     EventBus.off(Events.SKILL_ACTIVATED, this); 
     EventBus.off(Events.ITEM_UPDATE, this); 
     if (this.networkCtrl) {

@@ -37,6 +37,7 @@ export const Events = {
   GAME_OVER: 'game_over',
   SYNC_STATE: 'sync_state', // 网络同步
   COLLISION_HIT: 'collision_hit', // 物理碰撞产生火花
+  PLAY_SOUND: 'play_sound', // [新增] 播放音效事件
   NET_MESSAGE: 'net_message', // 网络消息
   SKILL_ACTIVATED: 'skill_activated', // 技能激活
   ITEM_UPDATE: 'item_update' // [新增] 物品/技能数量更新

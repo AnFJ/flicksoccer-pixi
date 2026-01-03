@@ -44,8 +44,8 @@ head_sampling_rate = 1
 [vars]
 WX_APP_ID = "wxbb12178265bc883c"
 WX_APP_SECRET = "0a61baa8d8274a5b8e81be80fac76ba2"
-DY_APP_ID = ""
-DY_APP_SECRET = ""
+DY_APP_ID = "tt4ace3c73d4ac0c4902"
+DY_APP_SECRET = "04891e29900176e8722a675d539787a572711e07"
 
 # 允许跨域
 [dev]
