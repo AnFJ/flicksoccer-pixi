@@ -24,28 +24,27 @@ export default class GameHUD extends PIXI.Container {
   }
 
   init() {
-    const { designWidth, visuals } = GameConfig;
-    const uiColors = visuals.ui;
+    const { designWidth } = GameConfig;
     const centerX = designWidth / 2;
 
-    // 1. 顶部全屏遮罩/状态栏背景
+    // 1. 顶部状态栏背景 (修改：宽度减少300px并水平居中)
     const hudBgTex = ResourceManager.get('hud_bg');
     if (hudBgTex) {
         const bgSprite = new PIXI.Sprite(hudBgTex);
-        bgSprite.width = designWidth;
-        bgSprite.height = 150; 
+        bgSprite.width = designWidth - 300; // 宽度减少300px
+        bgSprite.height = 150;
+        bgSprite.x = 150; // (designWidth - (designWidth - 300)) / 2 = 150，实现整体居中
         this.addChild(bgSprite);
     }
 
     // 2. 核心比分板容器 (根据截图定制)
     const boardW = 460;
-    const boardH = 100;
-    const boardY = 15;
+    const boardH = 85; 
+    const boardY = 10;  
     
     const scoreBoard = new PIXI.Container();
     scoreBoard.position.set(centerX, boardY);
     this.addChild(scoreBoard);
-
 
     // 3. 内部元素：比分与VS
     // 金黄色 VS
@@ -98,10 +97,10 @@ export default class GameHUD extends PIXI.Container {
         dropShadowDistance: 1
     });
     this.turnText.anchor.set(0.5);
-    this.turnText.position.set(centerX, boardY + boardH + 25);
+    this.turnText.position.set(centerX, boardY + boardH + 30);
     this.addChild(this.turnText);
 
-    // 5. 头像与技能栏 (稍微拉开距离，避免与新比分板重叠)
+    // 5. 头像与技能栏
     const myInfo = AccountMgr.userInfo;
     const avatarSpacing = 480; 
 
@@ -412,7 +411,6 @@ export default class GameHUD extends PIXI.Container {
         str = this.gameMode === 'pve' ? "蓝方回合 (AI)" : "蓝方回合 (Player 2)";
     }
     this.turnText.text = str;
-    // 根据回合动态改变文字颜色：红方回合用红色，蓝方回合用蓝色
     this.turnText.style.fill = isLeft ? 0xcc3333 : 0x3366cc;
   }
 }
