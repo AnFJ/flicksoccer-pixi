@@ -257,12 +257,23 @@ export default class GameHUD extends PIXI.Container {
   }
 
   createSkillBar(teamId, parent, isInteractive) {
-      // [修改] 为技能配置对应的素材图片 Key
-      const skills = [
-          { type: SkillType.SUPER_AIM, tex: 'skill_aim_bg' },
-          { type: SkillType.SUPER_FORCE, tex: 'skill_force_bg' },
-          { type: SkillType.UNSTOPPABLE, tex: 'skill_unstoppable_bg' },
+      // 获取配置中的解锁等级
+      const skillConfig = GameConfig.gameplay.skills;
+
+      // 定义所有可能的技能 (按解锁顺序排列: 瞄准(4) -> 战车(7) -> 大力(10))
+      const allSkills = [
+          { type: SkillType.SUPER_AIM, tex: 'skill_aim_bg', unlockLevel: skillConfig.superAim.unlockLevel, label: "瞄准" },
+          { type: SkillType.UNSTOPPABLE, tex: 'skill_unstoppable_bg', unlockLevel: skillConfig.unstoppable.unlockLevel, label: "战车" },
+          { type: SkillType.SUPER_FORCE, tex: 'skill_force_bg', unlockLevel: skillConfig.superForce.unlockLevel, label: "大力" },
       ];
+
+      // 获取当前用户的闯关等级
+      const userLevel = AccountMgr.userInfo.level || 1;
+
+      // 过滤出当前等级已解锁的技能
+      // 注意：为了界面一致性，我们在PVE和PVP中都应用这个逻辑
+      // 如果你希望PVP全解锁，可以在这里加 gameMode 判断
+      const visibleSkills = allSkills.filter(skill => userLevel >= skill.unlockLevel);
 
       const btnSize = 100; 
       const gap = 25;
@@ -270,7 +281,7 @@ export default class GameHUD extends PIXI.Container {
       const dir = isLeft ? -1 : 1;
       const startOffset = 120;
 
-      skills.forEach((skill, index) => {
+      visibleSkills.forEach((skill, index) => {
           const dist = startOffset + index * (btnSize + gap);
           const xCenter = dir * dist;
           const yCenter = 0; 
@@ -278,12 +289,12 @@ export default class GameHUD extends PIXI.Container {
           const skillTex = ResourceManager.get(skill.tex);
 
           if (isInteractive) {
-              // [修改] 传入 texture 参数，使用素材图作为按钮背景
+              // 传入 texture 参数，使用素材图作为按钮背景
               const btn = new Button({
                   text: skill.label, 
                   width: btnSize, 
                   height: btnSize, 
-                  color: skill.color, 
+                  color: 0x333333, // 默认颜色，如果有 texture 会被覆盖
                   texture: skillTex, 
                   fontSize: 36,
                   onClick: () => {
@@ -321,14 +332,14 @@ export default class GameHUD extends PIXI.Container {
 
               let iconBg;
               if (skillTex) {
-                  // [修改] 如果有素材图，远程玩家也显示素材图
+                  // 如果有素材图，远程玩家也显示素材图
                   iconBg = new PIXI.Sprite(skillTex);
                   iconBg.anchor.set(0.5);
                   iconBg.width = btnSize;
                   iconBg.height = btnSize;
               } else {
                   iconBg = new PIXI.Graphics();
-                  iconBg.beginFill(skill.color); 
+                  iconBg.beginFill(0x555555); 
                   iconBg.drawCircle(0, 0, btnSize/2);
                   iconBg.endFill();
               }

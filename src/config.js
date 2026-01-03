@@ -92,10 +92,11 @@ export const GameConfig = {
     turnTimeLimit: 60,
     
     // [新增] 技能配置
+    // unlockLevel: 对应技能解锁所需的玩家等级
     skills: {
-        superAim: { bounces: 3, distance: 2000 },
-        superForce: { multiplier: 3 },
-        unstoppable: { duration: 3000 } // ms
+        superAim: { bounces: 3, distance: 2000, unlockLevel: 4 },
+        superForce: { multiplier: 3, unlockLevel: 10 },
+        unstoppable: { duration: 3000, unlockLevel: 7 }
     },
 
     // [新增] 经济系统配置

@@ -22,6 +22,7 @@ import GoalBanner from '../ui/GoalBanner.js';
 import SparkSystem from '../vfx/SparkSystem.js';
 import MenuScene from './MenuScene.js';
 import LobbyScene from './LobbyScene.js';
+import LevelSelectScene from './LevelSelectScene.js'; // 引入
 import Button from '../ui/Button.js'; 
 
 import GameLayout from '../core/GameLayout.js';
@@ -42,6 +43,7 @@ export default class GameScene extends BaseScene {
     this.networkCtrl = null; 
     
     this.gameMode = 'pve'; 
+    this.currentLevel = 1; // 当前关卡
     this.strikers = [];
     this.ball = null;
     this.isMoving = false; 
@@ -63,6 +65,7 @@ export default class GameScene extends BaseScene {
   async onEnter(params = {}) {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
+    this.currentLevel = params.level || 1; // 获取关卡参数
     
     if (this.gameMode === 'pvp_online') {
         const me = params.players.find(p => p.id === AccountMgr.userInfo.id);
@@ -80,7 +83,9 @@ export default class GameScene extends BaseScene {
     this.physics.init();
     this.layout.init();
     this.input.init();
-    this.turnMgr.init(this.gameMode, params.startTurn);
+    
+    // 初始化回合管理器，传入关卡参数 (用于PVE AI配置)
+    this.turnMgr.init(this.gameMode, params.startTurn, this.currentLevel);
     
     this.rules = new GameRules(this.physics);
     this.setupFormation();
@@ -95,6 +100,11 @@ export default class GameScene extends BaseScene {
 
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
+    }
+
+    // PVE 提示
+    if (this.gameMode === 'pve') {
+        Platform.showToast(`第 ${this.currentLevel} 关 开始!`);
     }
   }
 
@@ -179,12 +189,6 @@ export default class GameScene extends BaseScene {
     }
   }
 
-  /**
-   * 播放音效处理函数
-   * [核心修复] 在联机模式下，如果不是自己的回合（即处于接收回放状态），
-   * 屏蔽 GameRules 发出的物理碰撞音效，防止重复或错误播放。
-   * 接收方的音效将完全由 OnlineMatchController 的回放系统驱动。
-   */
   onPlaySound(key) {
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
           return;
@@ -216,8 +220,6 @@ export default class GameScene extends BaseScene {
       // [修改] 通知 HUD 更新数量，HUD 会自动找到对应 teamId (通常是自己)
       if (this.hud) {
           this.hud.updateItemCount(this.myTeamId, itemId, count);
-          // 在本地双人模式下，如果左右都是玩家，理论上共享 inventory (或根据设计分离)
-          // 当前 AccountMgr 只有一套数据，所以如果是本地双人，可能两边显示一样
           if (this.gameMode === 'pvp_local') {
              this.hud.updateItemCount(TeamId.RIGHT, itemId, count);
           }
@@ -229,14 +231,17 @@ export default class GameScene extends BaseScene {
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
       }
-      SceneManager.changeScene(MenuScene);
+      // PVE 返回关卡选择
+      if (this.gameMode === 'pve') {
+          SceneManager.changeScene(LevelSelectScene);
+      } else {
+          SceneManager.changeScene(MenuScene);
+      }
   }
 
   onActionFired(isRemote = false) {
     this.isMoving = true;
     if (!isRemote) {
-        // [修改] 这里是射门/击球瞬间，播放挥杆/发射音效，而不是 collision
-        // 如果没有专门的 shoot 音效，可以暂时用 collision 或者留空
         AudioManager.playSFX('collision'); 
     }
     this.turnMgr.timer = 0; 
@@ -270,7 +275,25 @@ export default class GameScene extends BaseScene {
         const isWinner = (this.myTeamId === data.winner);
         const economyConfig = GameConfig.gameplay.economy;
 
-        if (this.gameMode === 'pve' || this.gameMode === 'pvp_online') {
+        // PVE 胜利逻辑
+        if (this.gameMode === 'pve') {
+             if (isWinner) {
+                 // 1. 加金币
+                 const reward = 50; // PVE 奖励少点
+                 AccountMgr.addCoins(reward);
+                 
+                 // 2. 检查升级
+                 const isLevelUp = AccountMgr.completeLevel(this.currentLevel);
+                 if (isLevelUp) {
+                     Platform.showToast(`通关！解锁第 ${this.currentLevel + 1} 关！`);
+                 } else {
+                     Platform.showToast(`挑战成功！获得 ${reward} 金币`);
+                 }
+             } else {
+                 Platform.showToast("挑战失败，请再接再厉");
+             }
+        } 
+        else if (this.gameMode === 'pvp_online') {
             if (isWinner) {
                 const reward = economyConfig.winReward;
                 AccountMgr.addCoins(reward);
@@ -294,7 +317,13 @@ export default class GameScene extends BaseScene {
 
     setTimeout(() => {
         if (this.gameMode === 'pvp_online') NetworkMgr.close();
-        SceneManager.changeScene(this.gameMode === 'pvp_online' ? LobbyScene : MenuScene);
+        
+        // PVE 回到关卡选择
+        if (this.gameMode === 'pve') {
+            SceneManager.changeScene(LevelSelectScene);
+        } else {
+            SceneManager.changeScene(this.gameMode === 'pvp_online' ? LobbyScene : MenuScene);
+        }
     }, 3000);
   }
 
@@ -302,42 +331,30 @@ export default class GameScene extends BaseScene {
     if (this.isLoading || !this.physics.engine) return;
     if (this.isGamePaused) return;
 
-    // 1. 视觉更新 (使用实际 delta 以保证动画流畅)
     this.goalBanner?.update(delta);
     this.sparkSystem?.update(delta);
     this._updateStrikerHighlights(); 
 
-    // 2. 物理与逻辑更新 (使用 Accumulator 实现固定时间步长)
     this.accumulator += delta;
     
-    // 防止累积过多时间 (例如后台切回)，最大追赶5帧
     if (this.accumulator > this.fixedTimeStep * 5) {
         this.accumulator = this.fixedTimeStep * 5;
     }
 
-    // 消耗累加器，执行固定次数的物理步进
     while (this.accumulator >= this.fixedTimeStep) {
         this._fixedUpdate(this.fixedTimeStep);
         this.accumulator -= this.fixedTimeStep;
     }
 
-    // 3. 实体视图同步
-    // 更新视图位置以匹配物理刚体
-    // 注意：strikers 和 ball 的 visual effects 依赖 delta，我们传入实际 delta 保证特效流畅，
-    // 但位置更新实际上是基于 Physics body 的 (而 Body 刚刚按固定步长更新了)
     this.strikers.forEach(s => s.update(delta));
     this.ball?.update(delta);
   }
 
-  /**
-   * 固定步长更新核心逻辑 (每秒被逻辑调用60次)
-   */
   _fixedUpdate(dt) {
     const isPvpOnline = this.gameMode === 'pvp_online';
     const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
     
     if (!isPvpOnline || isMyTurn) {
-        // 更新物理引擎
         this.physics.update(dt);
     } 
 
@@ -528,7 +545,7 @@ export default class GameScene extends BaseScene {
     EventBus.off(Events.GOAL_SCORED, this);
     EventBus.off(Events.GAME_OVER, this);
     EventBus.off(Events.COLLISION_HIT, this);
-    EventBus.off(Events.PLAY_SOUND, this); // 清除监听
+    EventBus.off(Events.PLAY_SOUND, this); 
     EventBus.off(Events.SKILL_ACTIVATED, this); 
     EventBus.off(Events.ITEM_UPDATE, this); 
     if (this.networkCtrl) {
