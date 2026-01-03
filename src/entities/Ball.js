@@ -196,13 +196,22 @@ export default class Ball {
           }
       }
 
-      // --- 2. 拖尾显隐控制 (优先级: 火焰 > 闪电 > 普通) ---
-      if (this.skillStates.fire && speed > 0.5) {
-          // 激活火焰拖尾
-          this.updateFireEffect(velocity, speed);
+      // --- 2. 拖尾显隐控制 ---
+      
+      // 始终更新现有的火焰粒子 (让它们自然消失)
+      this.updateFireParticlesState();
+
+      if (this.skillStates.fire) {
+          // A. 火焰状态：强制隐藏其他拖尾
           this.trail.visible = false;
           this.lightningTrail.clear();
+
+          // 只要还在移动，就持续生成火焰 (阈值降低到 0.1)
+          if (speed > 0.1) {
+              this.spawnFireParticles(velocity, speed);
+          }
       } else {
+          // B. 非火焰状态：清除残留火焰，并处理其他拖尾
           this.fireContainer.removeChildren();
           
           if (this.skillStates.lightning && speed > 0.5) {
@@ -254,7 +263,7 @@ export default class Ball {
     }
   }
 
-  updateFireEffect(vel, speed) {
+  spawnFireParticles(vel, speed) {
       // 燃烧强度
       const intensity = Math.min(speed, 12) / 12;
       const angle = Math.atan2(vel.y, vel.x) + Math.PI; // 反方向
@@ -289,7 +298,9 @@ export default class Ball {
           
           this.fireContainer.addChild(p);
       }
+  }
 
+  updateFireParticlesState() {
       // 更新粒子
       for (let i = this.fireContainer.children.length - 1; i >= 0; i--) {
           const p = this.fireContainer.children[i];
@@ -302,5 +313,11 @@ export default class Ball {
               this.fireContainer.removeChild(p);
           }
       }
+  }
+
+  // 兼容旧调用（如果有）
+  updateFireEffect(vel, speed) {
+      this.spawnFireParticles(vel, speed);
+      this.updateFireParticlesState();
   }
 }
