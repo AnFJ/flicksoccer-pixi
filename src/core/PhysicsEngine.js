@@ -22,17 +22,13 @@ export default class PhysicsEngine {
 
   /**
    * 每一帧更新物理世界
-   * @param {number} delta - 实际的时间间隔 (ms)
+   * @param {number} delta - 固定时间步长 (ms)
    */
   update(delta) {
     if (this.engine) {
-      // [核心修改] 移除固定 16.66ms 限制，使用实际 delta 以获得更流畅的体验
-      // 限制最大 delta 为 100ms，防止浏览器后台挂起后切回导致的物理瞬移或穿透
-      const dt = Math.min(delta, 100);
-      
-      // Matter.Engine.update(engine, delta, correction)
-      // 第二个参数传入实际毫秒数，让物理模拟的时间流逝与渲染帧率同步
-      Matter.Engine.update(this.engine, dt);
+      // [核心修改] 强制使用外部传入的 delta (应由 GameScene 保证为固定 16.66ms)
+      // 这样能保证在不同刷新率设备上，物理模拟的步长一致，从而保证碰撞结果一致
+      Matter.Engine.update(this.engine, delta);
       
       // 在物理计算后，应用自定义的“急停”逻辑
       this.applyStoppingFriction();

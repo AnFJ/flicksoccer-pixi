@@ -55,7 +55,9 @@ export default class GameScene extends BaseScene {
     this.sparkSystem = null;
     this.repositionAnimations = [];
 
-    // [修改] 移除 this.skillBtns，现在由 HUD 管理
+    // [修改] 固定帧率更新相关变量
+    this.accumulator = 0;
+    this.fixedTimeStep = 1000 / 60; // 强制 16.666 ms
   }
 
   async onEnter(params = {}) {
@@ -88,6 +90,9 @@ export default class GameScene extends BaseScene {
     this.isGameOver = false;
     this.isGamePaused = false;
     
+    // 重置累加器
+    this.accumulator = 0;
+
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
     }
@@ -297,21 +302,42 @@ export default class GameScene extends BaseScene {
     if (this.isLoading || !this.physics.engine) return;
     if (this.isGamePaused) return;
 
+    // 1. 视觉更新 (使用实际 delta 以保证动画流畅)
     this.goalBanner?.update(delta);
     this.sparkSystem?.update(delta);
     this._updateStrikerHighlights(); 
 
-    this._fixedUpdate(delta);
+    // 2. 物理与逻辑更新 (使用 Accumulator 实现固定时间步长)
+    this.accumulator += delta;
+    
+    // 防止累积过多时间 (例如后台切回)，最大追赶5帧
+    if (this.accumulator > this.fixedTimeStep * 5) {
+        this.accumulator = this.fixedTimeStep * 5;
+    }
 
+    // 消耗累加器，执行固定次数的物理步进
+    while (this.accumulator >= this.fixedTimeStep) {
+        this._fixedUpdate(this.fixedTimeStep);
+        this.accumulator -= this.fixedTimeStep;
+    }
+
+    // 3. 实体视图同步
+    // 更新视图位置以匹配物理刚体
+    // 注意：strikers 和 ball 的 visual effects 依赖 delta，我们传入实际 delta 保证特效流畅，
+    // 但位置更新实际上是基于 Physics body 的 (而 Body 刚刚按固定步长更新了)
     this.strikers.forEach(s => s.update(delta));
     this.ball?.update(delta);
   }
 
+  /**
+   * 固定步长更新核心逻辑 (每秒被逻辑调用60次)
+   */
   _fixedUpdate(dt) {
     const isPvpOnline = this.gameMode === 'pvp_online';
     const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
     
     if (!isPvpOnline || isMyTurn) {
+        // 更新物理引擎
         this.physics.update(dt);
     } 
 
