@@ -119,7 +119,7 @@ export const GameConfig = {
   // [新增] 平台广告ID配置 (请替换为你的真实ID)
   adConfig: {
       wechat: {
-          bannerId: 'adunit-xxxxxxxx' 
+          bannerId: 'adunit-66e3cd5a02de9eab' 
       },
       douyin: {
           bannerId: 'adunit-yyyyyyyy'

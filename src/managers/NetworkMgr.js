@@ -96,7 +96,10 @@ class NetworkMgr {
     // 注意：Cloudflare Worker 如果是 https，ws 需要是 wss
     const protocol = this.baseUrl.startsWith('https') ? 'wss' : 'ws';
     const host = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''); // 去掉协议头和尾部斜杠
-    const wsUrl = `${protocol}://${host}/api/room/${roomId}/websocket?userId=${userId}&nickname=${encodeURIComponent(userInfo.nickname)}&avatar=${encodeURIComponent(userInfo.avatarUrl)}`;
+    
+    // [修改] 增加 level 参数传递
+    const level = userInfo.level || 1;
+    const wsUrl = `${protocol}://${host}/api/room/${roomId}/websocket?userId=${userId}&nickname=${encodeURIComponent(userInfo.nickname)}&avatar=${encodeURIComponent(userInfo.avatarUrl)}&level=${level}`;
 
     console.log(`[Network] Connecting WS: ${wsUrl}`);
 

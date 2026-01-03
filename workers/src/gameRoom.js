@@ -12,7 +12,7 @@ export class GameRoom {
     this.sessions = [];
     // 房间内存数据
     this.roomData = {
-      players: [], // { id, nickname, avatar, ready, teamId, socket }
+      players: [], // { id, nickname, avatar, level, ready, teamId, socket }
       status: 'WAITING', // WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
@@ -58,18 +58,19 @@ export class GameRoom {
     const userId = url.searchParams.get('userId');
     const nickname = url.searchParams.get('nickname') || 'Unknown';
     const avatar = url.searchParams.get('avatar') || '';
+    const level = parseInt(url.searchParams.get('level') || '1'); // [新增] 获取等级
 
     if (!userId) {
       return new Response("Missing userId", { status: 400 });
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
-    await this.handleSession(server, userId, nickname, avatar);
+    await this.handleSession(server, userId, nickname, avatar, level);
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handleSession(webSocket, userId, nickname, avatar) {
+  async handleSession(webSocket, userId, nickname, avatar, level) {
     webSocket.accept();
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
@@ -85,6 +86,7 @@ export class GameRoom {
       id: userId,
       nickname,
       avatar,
+      level, // [新增] 存储等级
       ready: false,
       teamId: -1
     };
@@ -96,7 +98,7 @@ export class GameRoom {
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
       
-      // 更新引用
+      // 更新引用 (更新 info 以防昵称/等级/头像变化)
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
       // --- 新加入逻辑 ---
@@ -123,7 +125,7 @@ export class GameRoom {
                 // 发送最近一次同步的位置，如果没有则让客户端自行重置
                 positions: this.roomData.positions, 
                 players: this.roomData.players.map(p => ({
-                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar
+                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level
                 }))
             }
         }));
@@ -283,6 +285,7 @@ export class GameRoom {
       id: p.id,
       nickname: p.nickname,
       avatar: p.avatar,
+      level: p.level, // [新增] 广播等级
       ready: p.ready,
       teamId: p.teamId
     }));

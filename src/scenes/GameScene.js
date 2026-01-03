@@ -56,6 +56,7 @@ export default class GameScene extends BaseScene {
     this.goalBanner = null;
     this.sparkSystem = null;
     this.repositionAnimations = [];
+    this.players = []; // [新增] 存储玩家信息，用于传递给 HUD
 
     // [修改] 固定帧率更新相关变量
     this.accumulator = 0;
@@ -68,7 +69,8 @@ export default class GameScene extends BaseScene {
     this.currentLevel = params.level || 1; // 获取关卡参数
     
     if (this.gameMode === 'pvp_online') {
-        const me = params.players.find(p => p.id === AccountMgr.userInfo.id);
+        this.players = params.players || []; // 存储玩家列表
+        const me = this.players.find(p => p.id === AccountMgr.userInfo.id);
         if (me) this.myTeamId = me.teamId;
         this.networkCtrl = new OnlineMatchController(this);
     } else {
@@ -109,7 +111,12 @@ export default class GameScene extends BaseScene {
   }
 
   _createUI() {
-    // [修改] 创建 HUD 时传入 myTeamId 和 点击回调
+    // [修改] 创建 HUD 时传递额外数据 (关卡信息, 玩家列表)
+    const extraData = {
+        currentLevel: this.currentLevel,
+        players: this.gameMode === 'pvp_online' ? this.players : []
+    };
+
     this.hud = new GameHUD(
         this.gameMode, 
         this.myTeamId, 
@@ -117,7 +124,8 @@ export default class GameScene extends BaseScene {
             // 本地双人模式下，根据点击的阵营切换操作
             // 或者简单地只调用 toggleSkill，SkillManager 会检查回合
             this.skillMgr.toggleSkill(skillType);
-        }
+        },
+        extraData // [新增] 第四个参数
     );
     this.layout.layers.ui.addChild(this.hud);
 
