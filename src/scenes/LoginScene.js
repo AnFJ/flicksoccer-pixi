@@ -5,6 +5,7 @@ import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Platform from '../managers/Platform.js'; 
 import ResourceManager from '../managers/ResourceManager.js';
+import AudioManager from '../managers/AudioManager.js'; // [新增]
 import MenuScene from './MenuScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
@@ -20,8 +21,10 @@ export default class LoginScene extends BaseScene {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
+    // 0. [新增] 初始化音频管理器 (注册音效)
+    AudioManager.init();
+
     // 1. 第一步：先加载登录页背景 (极速加载)
-    // 为了防止黑屏太久，这里应该尽快完成
     await ResourceManager.loadLoginResources();
 
     // 2. 渲染基础UI (背景、标题)
@@ -56,8 +59,6 @@ export default class LoginScene extends BaseScene {
           bg.endFill();
           this.container.addChild(bg);
       }
-
-      
   }
 
   _createProgressBar(w, h) {
@@ -117,9 +118,7 @@ export default class LoginScene extends BaseScene {
           // --- 并行任务 ---
           
           // 任务1: 资源加载 (占进度的 80% 权重)
-          // 我们让进度条反映资源加载进度
           const assetLoadPromise = ResourceManager.loadGameResources((progress) => {
-              // progress 是 0-100
               this._updateProgress(progress / 100); 
           });
 
