@@ -37,7 +37,7 @@ export default class Ball {
     
     // --- 渲染顺序：阴影 -> 拖尾 -> 技能特效(底) -> 足球本体 -> 技能特效(顶) ---
 
-    // A. 阴影 (使用 Canvas 渐变纹理)
+    // A. 阴影
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset - 5, GameConfig.visuals.shadowOffset - 5);
     this.view.addChild(shadow);
@@ -59,11 +59,10 @@ export default class Ball {
     this.fireContainer = new PIXI.Container();
     this.view.addChild(this.fireContainer);
 
-    // E. 足球本体 (Ball)
+    // E. 足球本体
     const rawBallTex = ResourceManager.get('ball_texture'); 
-    const rawOverlayTex = ResourceManager.get('ball_overlay');
     const texture = rawBallTex || this.generateProceduralPattern();
-    const overlayTexture = rawOverlayTex || this.generateProceduralOverlay();
+    const overlayTexture = this.generateProceduralOverlay();
 
     const ballContainer = new PIXI.Container();
     this.view.addChild(ballContainer);
@@ -102,69 +101,42 @@ export default class Ball {
     };
   }
 
-  /**
-   * 激活/关闭 闪电特效 (大力水手)
-   */
   setLightningMode(active) {
       this.skillStates.lightning = active;
-      this.trail.visible = !active; // 互斥：闪电开启时隐藏普通拖尾
       if (!active) this.lightningTrail.clear();
   }
 
-  /**
-   * 激活 无敌战车 (3秒不减速 + 火焰)
-   * @param {number} duration 持续时间 ms
-   */
   activateUnstoppable(duration) {
       this.skillStates.fire = true;
       this.skillStates.fireMaxDuration = duration;
       this.skillStates.fireTimer = duration;
       
-      // 移除物理阻尼
       this.body.frictionAir = 0;
       this.body.friction = 0;
   }
 
-  /**
-   * [核心优化] 使用 Canvas 生成径向渐变阴影
-   * 球体的阴影特点是接触点最黑，向四周快速衰减
-   */
   createShadowSprite() {
     const r = this.radius;
-    // 阴影范围比球体大，模拟漫反射
     const size = r * 2.8; 
-    
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const canvas = document.createElement('canvas');
             canvas.width = size;
             canvas.height = size;
             const ctx = canvas.getContext('2d');
-            
             const cx = size / 2;
             const cy = size / 2;
-
-            // 径向渐变：内黑 -> 外透
-            // r * 0.2 是深色核心区
-            // r * 1.3 是完全消散区
             const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.5);
-            grd.addColorStop(0, 'rgba(0, 0, 0, 0.6)');   // 接触点：深黑
-            grd.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)'); // 中间：半透
-            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');     // 边缘：完全透明
-
+            grd.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
+            grd.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)');
+            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = grd;
             ctx.fillRect(0, 0, size, size);
-
             const sprite = new PIXI.Sprite(PIXI.Texture.from(canvas));
             sprite.anchor.set(0.5);
             return sprite;
-
-        } catch(e) {
-            console.warn('Canvas shadow gen failed', e);
-        }
+        } catch(e) {}
     }
-    
-    // 兜底
     const g = new PIXI.Graphics();
     g.beginFill(0x000000, 0.4);
     g.drawCircle(0, 0, r);
@@ -173,15 +145,11 @@ export default class Ball {
   }
 
   generateTrailTexture() {
-    // ... (保持原有逻辑) ...
     if (typeof document !== 'undefined' && document.createElement) {
         try {
-            const w = 256;
-            const h = 64;
+            const w = 256, h = 64;
             const canvas = document.createElement('canvas');
-            if (!canvas.getContext) return PIXI.Texture.WHITE;
-            canvas.width = w;
-            canvas.height = h;
+            canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 const grad = ctx.createLinearGradient(0, 0, w, 0);
@@ -202,87 +170,70 @@ export default class Ball {
     return PIXI.Texture.WHITE;
   }
 
-  generateProceduralPattern() { /* ... 保持不变 ... */ return PIXI.Texture.WHITE; }
-  drawHex(ctx, x, y, r) { /* ... 保持不变 ... */ }
-  generateProceduralOverlay() { /* ... 保持不变 ... */ return PIXI.Texture.EMPTY; }
+  generateProceduralPattern() { return PIXI.Texture.WHITE; }
+  generateProceduralOverlay() { return PIXI.Texture.EMPTY; }
 
-  /**
-   * 每帧更新
-   * @param {number} deltaMS 时间增量 (ms)
-   */
   update(deltaMS = 16.66) {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
-      
       this.ballTexture.rotation = this.body.angle;
 
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
-
-      // 计算相对于 60fps (16.66ms) 的时间比率
       const dtRatio = deltaMS / 16.66;
 
-      // --- 1. 无敌战车物理逻辑 ---
+      // --- 1. 无敌战车状态逻辑 ---
       if (this.skillStates.fire) {
           this.skillStates.fireTimer -= deltaMS;
-          
-          // 保持无摩擦
           this.body.frictionAir = 0;
           this.body.friction = 0;
 
           if (this.skillStates.fireTimer <= 0) {
-              // 时间到，恢复物理
               this.skillStates.fire = false;
               this.body.frictionAir = this.baseFrictionAir;
               this.body.friction = this.baseFriction;
           }
       }
 
-      // --- 2. 闪电拖尾更新 ---
-      if (this.skillStates.lightning && speed > 0.5) {
-          this.updateLightningTrail(velocity, speed);
-      } else {
+      // --- 2. 拖尾显隐控制 (优先级: 火焰 > 闪电 > 普通) ---
+      if (this.skillStates.fire && speed > 0.5) {
+          // 激活火焰拖尾
+          this.updateFireEffect(velocity, speed);
+          this.trail.visible = false;
           this.lightningTrail.clear();
-      }
-
-      // --- 3. 火焰特效更新 ---
-      if (this.skillStates.fire) {
-          this.updateFireEffect(speed);
       } else {
           this.fireContainer.removeChildren();
-      }
-
-      // --- 4. 普通拖尾更新 (仅当没开启闪电时) ---
-      if (!this.skillStates.lightning) {
-          if (speed > 0.2) { 
-              const moveAngle = Math.atan2(velocity.y, velocity.x);
-              this.trail.rotation = moveAngle;
-              const maxLen = this.radius * 8; 
-              const lenFactor = 12.0; 
-              const targetWidth = Math.min(speed * lenFactor, maxLen);
-              this.trail.width = targetWidth;
-              this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
-              this.trail.visible = true;
-          } else {
+          
+          if (this.skillStates.lightning && speed > 0.5) {
+              this.updateLightningTrail(velocity, speed);
               this.trail.visible = false;
+          } else {
+              this.lightningTrail.clear();
+              // 普通拖尾
+              if (speed > 0.2) { 
+                  const moveAngle = Math.atan2(velocity.y, velocity.x);
+                  this.trail.rotation = moveAngle;
+                  const maxLen = this.radius * 8; 
+                  const lenFactor = 12.0; 
+                  const targetWidth = Math.min(speed * lenFactor, maxLen);
+                  this.trail.width = targetWidth;
+                  this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
+                  this.trail.visible = true;
+              } else {
+                  this.trail.visible = false;
+              }
           }
       }
 
-      // --- 5. 纹理滚动 (核心修复：降低系数并考虑 dt) ---
+      // 纹理滚动
       if (speed > 0.01) {
           const angle = -this.body.angle; 
-          const cos = Math.cos(angle);
-          const sin = Math.sin(angle);
+          const cos = Math.cos(angle), sin = Math.sin(angle);
           const localVx = velocity.x * cos - velocity.y * sin;
           const localVy = velocity.x * sin + velocity.y * cos;
-          
-          // [修复] 降低滚动系数，使滚动速度看起来更自然 (0.5 -> 0.1)
-          // 同时乘上 dtRatio 确保不同帧率下滚动速度一致
-          const moveFactor = 0.5; 
-          
-          this.ballTexture.tilePosition.x += localVx * dtRatio * moveFactor;
-          this.ballTexture.tilePosition.y += localVy * dtRatio * moveFactor;
+          this.ballTexture.tilePosition.x += localVx * dtRatio * 0.5;
+          this.ballTexture.tilePosition.y += localVy * dtRatio * 0.5;
       }
     }
   }
@@ -290,69 +241,64 @@ export default class Ball {
   updateLightningTrail(vel, speed) {
     const g = this.lightningTrail;
     g.clear();
-    
-    // 闪电颜色：青白
     g.lineStyle(4, 0x00FFFF, 0.8);
-    
-    // 反向计算拖尾路径
-    const segments = 5;
-    const len = Math.min(speed * 15, 150);
-    const angle = Math.atan2(vel.y, vel.x) + Math.PI; // 反向
-    
-    g.moveTo(0, 0); // 从球心开始
-
-    let currentX = 0;
-    let currentY = 0;
-
+    const segments = 5, len = Math.min(speed * 15, 150), angle = Math.atan2(vel.y, vel.x) + Math.PI;
+    let currX = 0, currY = 0;
+    g.moveTo(0, 0);
     for (let i = 1; i <= segments; i++) {
         const dist = (len / segments) * i;
-        // 添加随机抖动
         const jitter = (Math.random() - 0.5) * 20; 
-        
         const tx = Math.cos(angle) * dist + Math.cos(angle + Math.PI/2) * jitter;
         const ty = Math.sin(angle) * dist + Math.sin(angle + Math.PI/2) * jitter;
-        
         g.lineTo(tx, ty);
     }
   }
 
-  updateFireEffect(speed) {
-      // 燃烧强度跟剩余时间和速度有关
-      const intensity = Math.min(speed, 10) / 10 * (this.skillStates.fireTimer / this.skillStates.fireMaxDuration);
-      
-      if (Math.random() > 0.3) { // 限制生成频率
+  updateFireEffect(vel, speed) {
+      // 燃烧强度
+      const intensity = Math.min(speed, 12) / 12;
+      const angle = Math.atan2(vel.y, vel.x) + Math.PI; // 反方向
+
+      // 每帧生成更多的粒子以形成连续拖尾
+      const spawnCount = Math.floor(speed * 0.8) + 1;
+
+      for (let i = 0; i < spawnCount; i++) {
           const p = new PIXI.Graphics();
-          const color = Math.random() > 0.5 ? 0xFF4500 : 0xFFD700; // 红橙或金黄
-          const size = (5 + Math.random() * 10) * intensity;
+          const isGold = Math.random() > 0.4;
+          const color = isGold ? 0xFFD700 : 0xFF4500; 
+          const size = (6 + Math.random() * 8) * intensity;
           
-          p.beginFill(color, 0.6 * intensity);
+          p.beginFill(color, (0.4 + Math.random() * 0.4) * intensity);
           p.drawCircle(0, 0, size);
           p.endFill();
           
-          // 随机位置（在球体表面）
+          // 在球体范围内随机起始，但在拖尾方向上加权
           const offsetAngle = Math.random() * Math.PI * 2;
-          const offsetR = Math.random() * this.radius;
+          const offsetR = Math.random() * this.radius * 0.8;
           p.x = Math.cos(offsetAngle) * offsetR;
           p.y = Math.sin(offsetAngle) * offsetR;
           
-          this.fireContainer.addChild(p);
-
-          // 简单的粒子动画逻辑挂载
-          p.vx = (Math.random() - 0.5) * 2;
-          p.vy = (Math.random() - 0.5) * 2 - 2; // 向上飘
+          // 初始速度：反方向喷射感
+          const spread = 0.5; // 扩散度
+          const pAngle = angle + (Math.random() - 0.5) * spread;
+          const pSpeed = speed * (0.2 + Math.random() * 0.3);
           
-          // 这种动态挂载 update 方法在 Pixi 里不会自动执行，需要我们手动遍历更新
+          p.vx = Math.cos(pAngle) * pSpeed;
+          p.vy = Math.sin(pAngle) * pSpeed;
+          p.alphaDecay = 0.03 + Math.random() * 0.04;
+          
+          this.fireContainer.addChild(p);
       }
 
-      // 更新所有粒子
+      // 更新粒子
       for (let i = this.fireContainer.children.length - 1; i >= 0; i--) {
           const p = this.fireContainer.children[i];
           p.x += p.vx;
           p.y += p.vy;
-          p.alpha -= 0.05;
-          p.scale.x *= 0.9;
-          p.scale.y *= 0.9;
-          if (p.alpha <= 0) {
+          p.alpha -= p.alphaDecay;
+          p.scale.x *= 0.94;
+          p.scale.y *= 0.94;
+          if (p.alpha <= 0 || p.scale.x < 0.1) {
               this.fireContainer.removeChild(p);
           }
       }
