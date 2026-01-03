@@ -90,17 +90,6 @@ export default class GameLayout {
 
             sprite.position.set(centerX, centerY);
             this.layers.bg.addChild(sprite);
-        } else {
-            // 兜底：如果新图没加载到，使用旧逻辑显示一个纯色或旧纹理
-            const bgTex = ResourceManager.get('field_bg');
-            if (bgTex) {
-                const sprite = new PIXI.Sprite(bgTex);
-                sprite.anchor.set(0.5);
-                sprite.width = w;
-                sprite.height = h;
-                sprite.position.set(centerX, centerY);
-                this.layers.bg.addChild(sprite);
-            }
         }
 
         // 球场边框线 (放在上面)

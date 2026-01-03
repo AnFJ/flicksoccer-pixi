@@ -27,17 +27,17 @@ export default class GameHUD extends PIXI.Container {
     const { designWidth } = GameConfig;
     const centerX = designWidth / 2;
 
-    // 1. 顶部状态栏背景 (修改：宽度减少300px并水平居中)
+    // 1. 顶部状态栏背景
     const hudBgTex = ResourceManager.get('hud_bg');
     if (hudBgTex) {
         const bgSprite = new PIXI.Sprite(hudBgTex);
-        bgSprite.width = designWidth - 300; // 宽度减少300px
+        bgSprite.width = designWidth - 300;
         bgSprite.height = 150;
-        bgSprite.x = 150; // (designWidth - (designWidth - 300)) / 2 = 150，实现整体居中
+        bgSprite.x = 150; 
         this.addChild(bgSprite);
     }
 
-    // 2. 核心比分板容器 (根据截图定制)
+    // 2. 核心比分板容器
     const boardW = 460;
     const boardH = 85; 
     const boardY = 10;  
@@ -47,7 +47,6 @@ export default class GameHUD extends PIXI.Container {
     this.addChild(scoreBoard);
 
     // 3. 内部元素：比分与VS
-    // 金黄色 VS
     const vsText = new PIXI.Text('vs', { 
         fontFamily: 'Arial Black', 
         fontSize: 42, 
@@ -59,7 +58,6 @@ export default class GameHUD extends PIXI.Container {
     vsText.position.set(0, boardH / 2);
     scoreBoard.addChild(vsText);
 
-    // 左比分 (白色加粗)
     this.leftScoreText = new PIXI.Text('0', { 
         fontFamily: 'Arial Black', 
         fontSize: 64, 
@@ -72,7 +70,6 @@ export default class GameHUD extends PIXI.Container {
     this.leftScoreText.position.set(-110, boardH / 2);
     scoreBoard.addChild(this.leftScoreText);
 
-    // 右比分 (白色加粗)
     this.rightScoreText = new PIXI.Text('0', { 
         fontFamily: 'Arial Black', 
         fontSize: 64, 
@@ -85,7 +82,7 @@ export default class GameHUD extends PIXI.Container {
     this.rightScoreText.position.set(110, boardH / 2);
     scoreBoard.addChild(this.rightScoreText);
 
-    // 4. 回合提示文本 (位于比分板正下方)
+    // 4. 回合提示文本
     this.turnText = new PIXI.Text('等待开球...', {
         fontFamily: 'Arial', 
         fontSize: 32, 
@@ -118,7 +115,6 @@ export default class GameHUD extends PIXI.Container {
     const size = 100; 
     const teamColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
 
-    // --- A. 头像框体 ---
     const frame = new PIXI.Graphics();
     frame.beginFill(0xB8860B); 
     frame.drawRoundedRect(-size/2 - 4, -size/2 - 4, size + 8, size + 8, 12);
@@ -261,14 +257,15 @@ export default class GameHUD extends PIXI.Container {
   }
 
   createSkillBar(teamId, parent, isInteractive) {
+      // [修改] 为技能配置对应的素材图片 Key
       const skills = [
-          { type: SkillType.SUPER_AIM,   label: '瞄', color: 0x9b59b6 },
-          { type: SkillType.SUPER_FORCE, label: '力', color: 0x3498db },
-          { type: SkillType.UNSTOPPABLE, label: '无', color: 0xe74c3c },
+          { type: SkillType.SUPER_AIM, tex: 'skill_aim_bg' },
+          { type: SkillType.SUPER_FORCE, tex: 'skill_force_bg' },
+          { type: SkillType.UNSTOPPABLE, tex: 'skill_unstoppable_bg' },
       ];
 
-      const btnSize = 90; 
-      const gap = 20;
+      const btnSize = 100; 
+      const gap = 25;
       const isLeft = teamId === TeamId.LEFT;
       const dir = isLeft ? -1 : 1;
       const startOffset = 120;
@@ -278,9 +275,17 @@ export default class GameHUD extends PIXI.Container {
           const xCenter = dir * dist;
           const yCenter = 0; 
 
+          const skillTex = ResourceManager.get(skill.tex);
+
           if (isInteractive) {
+              // [修改] 传入 texture 参数，使用素材图作为按钮背景
               const btn = new Button({
-                  text: skill.label, width: btnSize, height: btnSize, color: skill.color, fontSize: 36,
+                  text: skill.label, 
+                  width: btnSize, 
+                  height: btnSize, 
+                  color: skill.color, 
+                  texture: skillTex, 
+                  fontSize: 36,
                   onClick: () => {
                       if (this.onSkillClick) this.onSkillClick(skill.type, teamId);
                   }
@@ -314,11 +319,20 @@ export default class GameHUD extends PIXI.Container {
               const icon = new PIXI.Container();
               icon.position.set(xCenter, yCenter);
 
-              const bg = new PIXI.Graphics();
-              bg.beginFill(skill.color); 
-              bg.drawCircle(0, 0, btnSize/2);
-              bg.endFill();
-              bg.alpha = 0.3;
+              let iconBg;
+              if (skillTex) {
+                  // [修改] 如果有素材图，远程玩家也显示素材图
+                  iconBg = new PIXI.Sprite(skillTex);
+                  iconBg.anchor.set(0.5);
+                  iconBg.width = btnSize;
+                  iconBg.height = btnSize;
+              } else {
+                  iconBg = new PIXI.Graphics();
+                  iconBg.beginFill(skill.color); 
+                  iconBg.drawCircle(0, 0, btnSize/2);
+                  iconBg.endFill();
+              }
+              iconBg.alpha = 0.3;
               
               const txt = new PIXI.Text(skill.label, {
                   fontFamily: 'Arial', fontSize: 36, fill: 0xffffff, fontWeight: 'bold'
@@ -328,15 +342,19 @@ export default class GameHUD extends PIXI.Container {
 
               const ring = new PIXI.Graphics();
               ring.lineStyle(5, 0xFFFF00);
-              ring.drawCircle(0, 0, btnSize/2 + 2);
+              if (skillTex) {
+                  ring.drawRoundedRect(-btnSize/2, -btnSize/2, btnSize, btnSize, 20);
+              } else {
+                  ring.drawCircle(0, 0, btnSize/2 + 2);
+              }
               ring.visible = false;
 
-              icon.addChild(bg, txt, ring);
+              icon.addChild(iconBg, txt, ring);
               parent.addChild(icon);
 
               this.skillMap[teamId][skill.type] = {
                   isIcon: true,
-                  bg: bg,
+                  bg: iconBg,
                   txt: txt,
                   highlight: ring,
                   container: icon

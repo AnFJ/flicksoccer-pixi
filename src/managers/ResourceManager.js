@@ -7,30 +7,30 @@ class ResourceManager {
     
     // 1. 登录页优先加载的资源
     this.loginManifest = {
-        login_bg: 'assets/images/main_bg.png', // 暂时复用球场图作为登录背景，你可以换成专门的图
+        login_bg: 'assets/images/main_bg.png', 
     };
 
     // 2. 游戏主体资源
     this.gameManifest = {
-      // [修改] 使用新的合并长图 (27:9 比例)
       field_combined: 'assets/images/field_combined.png', 
-      
       field_border: 'assets/images/field_border.png',
       bg_grass: 'assets/images/grass_texture.png',
       
       // --- 足球相关 ---
       ball_texture: 'assets/images/ball_texture.png', 
-      
       ball: 'assets/images/ball.png', 
       striker_red: 'assets/images/striker_red.png',
       striker_blue: 'assets/images/striker_blue.png',
 
       // UI
       main_bg: 'assets/images/main_bg.png',
-      btn_menu: 'assets/images/btn_menu.png', // 假设你有这个按钮图，或者你需要添加它
-      
-      // [新增] HUD 顶部背景图
-      hud_bg: 'assets/images/hud_bg.png'
+      btn_menu: 'assets/images/btn_menu.png',
+      hud_bg: 'assets/images/hud_bg.png',
+
+      // [新增] 技能按键背景素材
+      skill_aim_bg: 'assets/images/skill_aim_bg.png',
+      skill_force_bg: 'assets/images/skill_force_bg.png',
+      skill_unstoppable_bg: 'assets/images/skill_unstoppable_bg.png'
     };
   }
 
@@ -57,13 +57,11 @@ class ResourceManager {
       const loader = PIXI.Loader.shared;
       
       let count = 0;
-      // 筛选出尚未加载的资源
       for (const [key, url] of Object.entries(manifest)) {
         if (!loader.resources[key]) {
             loader.add(key, url);
             count++;
         } else {
-            // 如果已经加载过，确保引用存在
             if (loader.resources[key].texture) {
                 this.resources[key] = loader.resources[key].texture;
             }
@@ -76,15 +74,13 @@ class ResourceManager {
           return;
       }
 
-      // 绑定进度回调
       if (onProgress) {
           loader.onProgress.add((loader) => {
-              onProgress(loader.progress); // Pixi loader progress is 0-100
+              onProgress(loader.progress);
           });
       }
 
       loader.load((loader, resources) => {
-        // 将加载好的资源映射到 this.resources
         for (const [key, resource] of Object.entries(resources)) {
           if (resource.texture) {
             this.resources[key] = resource.texture;
@@ -93,10 +89,7 @@ class ResourceManager {
             this.resources[key] = null;
           }
         }
-        
-        // 清理监听器，防止多次调用叠加
         loader.onProgress.detachAll();
-        
         resolve();
       });
 
