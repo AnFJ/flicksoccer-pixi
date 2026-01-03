@@ -53,6 +53,8 @@ export default class Ball {
 
     // C. 闪电拖尾 (Skill: Super Force)
     this.lightningTrail = new PIXI.Graphics();
+    // [新增] 使用叠加混合模式，让闪电看起来发光
+    this.lightningTrail.blendMode = PIXI.BLEND_MODES.ADD; 
     this.view.addChild(this.lightningTrail);
 
     // D. 火焰特效容器 (Skill: Unstoppable)
@@ -99,6 +101,9 @@ export default class Ball {
         fireTimer: 0,
         fireMaxDuration: 0
     };
+
+    // [新增] 记录平滑后的运动角度，用于所有拖尾特效
+    this.moveAngle = 0;
   }
 
   setLightningMode(active) {
@@ -183,6 +188,19 @@ export default class Ball {
       const speed = Matter.Vector.magnitude(velocity);
       const dtRatio = deltaMS / 16.66;
 
+      // --- [新增] 统一的角度平滑逻辑 ---
+      if (speed > 0.1) {
+          const targetAngle = Math.atan2(velocity.y, velocity.x);
+          let diff = targetAngle - this.moveAngle;
+          
+          // 角度归一化 (-PI 到 PI)，确保走最短路径
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          
+          const turnSpeed = 0.15 * dtRatio;
+          this.moveAngle += diff * turnSpeed;
+      }
+
       // --- 1. 无敌战车状态逻辑 ---
       if (this.skillStates.fire) {
           this.skillStates.fireTimer -= deltaMS;
@@ -208,25 +226,31 @@ export default class Ball {
 
           // 只要还在移动，就持续生成火焰 (阈值降低到 0.1)
           if (speed > 0.1) {
-              this.spawnFireParticles(velocity, speed);
+              // 使用平滑后的角度
+              this.spawnFireParticles(speed, this.moveAngle);
           }
       } else {
           // B. 非火焰状态：清除残留火焰，并处理其他拖尾
           this.fireContainer.removeChildren();
           
           if (this.skillStates.lightning && speed > 0.5) {
-              this.updateLightningTrail(velocity, speed);
+              // 使用平滑后的角度
+              this.updateLightningTrail(speed, this.moveAngle);
               this.trail.visible = false;
           } else {
               this.lightningTrail.clear();
               // 普通拖尾
               if (speed > 0.2) { 
-                  const moveAngle = Math.atan2(velocity.y, velocity.x);
-                  this.trail.rotation = moveAngle;
+                  // 直接应用平滑后的角度
+                  this.trail.rotation = this.moveAngle;
+
                   const maxLen = this.radius * 8; 
                   const lenFactor = 12.0; 
                   const targetWidth = Math.min(speed * lenFactor, maxLen);
-                  this.trail.width = targetWidth;
+                  
+                  // 长度也可以平滑一下，避免闪烁
+                  this.trail.width += (targetWidth - this.trail.width) * 0.2 * dtRatio;
+                  
                   this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
                   this.trail.visible = true;
               } else {
@@ -247,26 +271,91 @@ export default class Ball {
     }
   }
 
-  updateLightningTrail(vel, speed) {
+  /**
+   * 绘制自然闪电特效
+   * @param {number} speed 速度
+   * @param {number} moveAngle 移动方向角度
+   */
+  updateLightningTrail(speed, moveAngle) {
     const g = this.lightningTrail;
     g.clear();
-    g.lineStyle(4, 0x00FFFF, 0.8);
-    const segments = 5, len = Math.min(speed * 15, 150), angle = Math.atan2(vel.y, vel.x) + Math.PI;
-    let currX = 0, currY = 0;
+
+    const len = Math.min(speed * 18, 180); // 长度随速度变化
+    const angle = moveAngle + Math.PI; // 拖尾方向（反向）
+    
+    // 节点密度：每12像素一个节点，保证曲折度
+    const segments = Math.max(Math.floor(len / 12), 2); 
+    
+    // 内部函数：生成闪电路径点
+    const getLightningPoints = (amp) => {
+        const points = [{x: 0, y: 0}]; // 起点在球心
+        for (let i = 1; i <= segments; i++) {
+            const ratio = i / segments;
+            const dist = len * ratio;
+            
+            // 随机侧向位移 (Jitter)
+            // 越靠近末端，抖动可能越剧烈，或者保持均匀
+            const jitter = (Math.random() - 0.5) * amp;
+            
+            const px = Math.cos(angle) * dist + Math.cos(angle + Math.PI/2) * jitter;
+            const py = Math.sin(angle) * dist + Math.sin(angle + Math.PI/2) * jitter;
+            points.push({x: px, y: py});
+        }
+        return points;
+    };
+
+    // 1. 绘制外发光 (Glow) - 深蓝/紫色，粗线条，低透明度
+    // 模拟空气电离的光晕
+    const glowPoints = getLightningPoints(25); // 抖动幅度大
+    g.lineStyle(12, 0x0055FF, 0.3); // 蓝色光晕
     g.moveTo(0, 0);
-    for (let i = 1; i <= segments; i++) {
-        const dist = (len / segments) * i;
-        const jitter = (Math.random() - 0.5) * 20; 
-        const tx = Math.cos(angle) * dist + Math.cos(angle + Math.PI/2) * jitter;
-        const ty = Math.sin(angle) * dist + Math.sin(angle + Math.PI/2) * jitter;
-        g.lineTo(tx, ty);
+    for (let i = 1; i < glowPoints.length; i++) {
+        g.lineTo(glowPoints[i].x, glowPoints[i].y);
+    }
+
+    // 2. 绘制核心 (Core) - 白色/青色，细线条，高亮度
+    // 重新生成一组点，让核心和光晕稍微错开，增加丰富度
+    const corePoints = getLightningPoints(20); 
+    g.lineStyle(3, 0xFFFFFF, 0.9); // 白亮核心
+    g.moveTo(0, 0);
+    for (let i = 1; i < corePoints.length; i++) {
+        g.lineTo(corePoints[i].x, corePoints[i].y);
+    }
+    
+    // 3. 随机分支 (Branching) - 偶尔画一条分叉
+    if (Math.random() > 0.6) {
+        const branchStartIdx = Math.floor(Math.random() * (segments / 2));
+        if (corePoints[branchStartIdx]) {
+            const startP = corePoints[branchStartIdx];
+            g.lineStyle(2, 0x00FFFF, 0.6); // 青色分支
+            g.moveTo(startP.x, startP.y);
+            
+            const branchLen = 40 + Math.random() * 30;
+            const branchAngle = angle + (Math.random() - 0.5) * 1.5; // 分叉角度
+            
+            // 分叉终点
+            const bx = startP.x + Math.cos(branchAngle) * branchLen;
+            const by = startP.y + Math.sin(branchAngle) * branchLen;
+            
+            // 简单折线到终点
+            const midX = (startP.x + bx) / 2 + (Math.random()-0.5) * 15;
+            const midY = (startP.y + by) / 2 + (Math.random()-0.5) * 15;
+            
+            g.lineTo(midX, midY);
+            g.lineTo(bx, by);
+        }
     }
   }
 
-  spawnFireParticles(vel, speed) {
+  /**
+   * 生成火焰粒子
+   * @param {number} speed 速度
+   * @param {number} moveAngle 移动方向角度
+   */
+  spawnFireParticles(speed, moveAngle) {
       // 燃烧强度
       const intensity = Math.min(speed, 12) / 12;
-      const angle = Math.atan2(vel.y, vel.x) + Math.PI; // 反方向
+      const angle = moveAngle + Math.PI; // 反方向
 
       // 每帧生成更多的粒子以形成连续拖尾
       const spawnCount = Math.floor(speed * 0.8) + 1;
@@ -315,9 +404,9 @@ export default class Ball {
       }
   }
 
-  // 兼容旧调用（如果有）
-  updateFireEffect(vel, speed) {
-      this.spawnFireParticles(vel, speed);
+  // 兼容旧调用
+  updateFireEffect(speed, moveAngle) {
+      this.spawnFireParticles(speed, moveAngle);
       this.updateFireParticlesState();
   }
 }
