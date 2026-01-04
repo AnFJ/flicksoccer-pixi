@@ -110,12 +110,14 @@ export default {
             avatar_url: '',
             level: 1,
             coins: 200,
-            items: JSON.stringify(INITIAL_ITEMS)
+            items: JSON.stringify(INITIAL_ITEMS),
+            checkin_history: '[]' // [新增] 初始化签到记录
           };
 
+          // [新增] 插入 checkin_history
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history).run();
           
           // 重新查询
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
@@ -179,12 +181,14 @@ export default {
             avatar_url: newAvatar,
             level: 1,
             coins: 200,
-            items: JSON.stringify(INITIAL_ITEMS)
+            items: JSON.stringify(INITIAL_ITEMS),
+            checkin_history: '[]' // [新增] 初始化签到记录
           };
           
+          // [新增] 插入 checkin_history
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history).run();
           
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
@@ -229,10 +233,21 @@ export default {
 
       // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-          const { userId, coins, level, items } = await request.json();
-          await env.DB.prepare(
-              'UPDATE users SET coins = ?, level = ?, items = ? WHERE user_id = ?'
-          ).bind(coins, level, JSON.stringify(items || []), userId).run();
+          // [修改] 接收 checkinHistory 并更新 checkin_history 字段
+          const { userId, coins, level, items, checkinHistory } = await request.json();
+          
+          let sql = 'UPDATE users SET coins = ?, level = ?, items = ?';
+          let args = [coins, level, JSON.stringify(items || [])];
+
+          if (checkinHistory) {
+              sql += ', checkin_history = ?';
+              args.push(JSON.stringify(checkinHistory));
+          }
+
+          sql += ' WHERE user_id = ?';
+          args.push(userId);
+
+          await env.DB.prepare(sql).bind(...args).run();
           return response({ success: true });
       }
 

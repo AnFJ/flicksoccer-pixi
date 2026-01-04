@@ -12,7 +12,8 @@ class AccountMgr {
       avatarUrl: '', 
       level: 1, // 这里复用 level 作为 PVE 闯关进度 (第几关)
       coins: 0,
-      items: [] 
+      items: [],
+      checkinHistory: [] // [新增] 签到历史记录 (时间戳数组)
     };
     this.isLoggedIn = false;
     this.isNewUser = false; 
@@ -97,6 +98,7 @@ class AccountMgr {
           { id: 'super_force', count: 99 },
           { id: 'unstoppable', count: 99 }
       ];
+      this.userInfo.checkinHistory = []; // 离线模式初始化为空
       this.isLoggedIn = true;
       this.isNewUser = false; 
   }
@@ -114,6 +116,16 @@ class AccountMgr {
       } catch (e) {
           this.userInfo.items = [];
       }
+
+      // [新增] 解析签到历史
+      try {
+          this.userInfo.checkinHistory = JSON.parse(data.checkin_history || '[]');
+          if (!Array.isArray(this.userInfo.checkinHistory)) {
+              this.userInfo.checkinHistory = [];
+          }
+      } catch (e) {
+          this.userInfo.checkinHistory = [];
+      }
   }
 
   async sync() {
@@ -121,11 +133,13 @@ class AccountMgr {
       
       // 添加时间戳防止请求被缓存
       console.log('[Account] Syncing data:', this.userInfo);
+      // [修改] 同步时带上 checkinHistory
       await NetworkMgr.post('/api/user/update', {
           userId: this.userInfo.id,
           coins: this.userInfo.coins,
           level: this.userInfo.level,
-          items: this.userInfo.items
+          items: this.userInfo.items,
+          checkinHistory: this.userInfo.checkinHistory
       });
   }
 
@@ -197,11 +211,16 @@ class AccountMgr {
 
   /**
    * 检查今日是否已签到
+   * [修改] 通过 checkinHistory 数组判断
    * @returns {boolean}
    */
   isCheckedInToday() {
-      // 我们使用一个特殊的 item ID 'sys_last_checkin' 来存储时间戳 (放在 count 字段)
-      const lastTime = this.getItemCount('sys_last_checkin');
+      if (!this.userInfo.checkinHistory || this.userInfo.checkinHistory.length === 0) {
+          return false;
+      }
+
+      // 获取最近一次签到的时间戳
+      const lastTime = this.userInfo.checkinHistory[this.userInfo.checkinHistory.length - 1];
       if (!lastTime) return false;
 
       const lastDate = new Date(lastTime);
@@ -214,20 +233,28 @@ class AccountMgr {
 
   /**
    * 执行签到
+   * [修改] 存入 checkinHistory 并限制长度为 15
    * @param {number} rewardCoins 奖励金币数
    */
   performCheckIn(rewardCoins) {
-      // 1. 更新时间戳
-      const now = Date.now();
-      let item = this.userInfo.items.find(i => i.id === 'sys_last_checkin');
-      if (item) {
-          item.count = now;
-      } else {
-          this.userInfo.items.push({ id: 'sys_last_checkin', count: now });
+      // 1. 确保数组存在
+      if (!this.userInfo.checkinHistory) {
+          this.userInfo.checkinHistory = [];
       }
 
-      // 2. 加金币
+      // 2. 存入当前时间戳
+      const now = Date.now();
+      this.userInfo.checkinHistory.push(now);
+
+      // 3. 维护队列长度 (只保留最近15次)
+      if (this.userInfo.checkinHistory.length > 15) {
+          this.userInfo.checkinHistory.shift(); // 移除最旧的
+      }
+
+      // 4. 加金币并同步
       this.addCoins(rewardCoins, true); // true = 立即同步
+      
+      console.log(`[Account] Checked in. History length: ${this.userInfo.checkinHistory.length}`);
   }
 
   /**

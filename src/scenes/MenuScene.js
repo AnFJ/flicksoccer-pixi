@@ -161,21 +161,22 @@ export default class MenuScene extends BaseScene {
     // 需求：按钮大小调整为头像尺寸的 80%
     const btnRadius = avatarRadius * 0.8; // 60 * 0.8 = 48 (直径96)
     const btnDiameter = btnRadius * 2;
-    const btnGap = 20; // 按钮垂直间距
+    // [修改] 增加垂直间距，以容纳下方的文字
+    const btnGap = 50; 
     
     // 起始 Y 坐标 (头像底部 + 间距 + 半径)
     let currentY = avatarRadius * 2 + 20 + btnRadius; 
     const btnX = avatarRadius; // 水平居中于头像
 
-    // 1. 游戏圈 (社交)
-    const socialBtn = this.createCircleBtn(btnRadius, btnX, currentY, 0x00AABB, '圈', () => {
+    // 1. 游戏圈 (社交) - 更新为图标按钮
+    const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
 
-    // 2. 背包
-    const bagBtn = this.createCircleBtn(btnRadius, btnX, currentY, 0x8E44AD, '包', () => {
+    // 2. 背包 - 更新为图标按钮
+    const bagBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_bag', '我的背包', 0x8E44AD, () => {
         // 传入 onClose 回调，刷新金币显示
         const bagView = new InventoryView(() => {
             if (this.coinsText) {
@@ -188,9 +189,9 @@ export default class MenuScene extends BaseScene {
     container.addChild(bagBtn);
     currentY += btnDiameter + btnGap;
 
-    // 3. 每日签到 (如果未签到)
+    // 3. 每日签到 (如果未签到) - 更新为图标按钮
     if (!AccountMgr.isCheckedInToday()) {
-        const checkInBtn = this.createCircleBtn(btnRadius, btnX, currentY, 0xFF5722, '签', () => {
+        const checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '签到有奖', 0xFF5722, () => {
             this.handleDailyCheckIn(checkInBtn);
         });
         container.addChild(checkInBtn);
@@ -233,29 +234,60 @@ export default class MenuScene extends BaseScene {
   }
 
   /**
-   * 创建圆形功能按钮 (支持自定义半径)
+   * [新增] 创建图标功能按钮 (支持图标+文字，回退到纯色圆底+文字)
+   * @param {number} radius 半径
+   * @param {number} x 中心X
+   * @param {number} y 中心Y
+   * @param {string} textureKey 图标资源Key
+   * @param {string} label 按钮功能说明文字
+   * @param {number} fallbackColor 缺省背景色
+   * @param {Function} onClick 点击回调
    */
-  createCircleBtn(radius, x, y, color, char, onClick) {
+  createIconBtn(radius, x, y, textureKey, label, fallbackColor, onClick) {
     const btn = new PIXI.Container();
-    
-    const bg = new PIXI.Graphics();
-    bg.beginFill(0xFFFFFF);
-    bg.drawCircle(0, 0, radius);
-    bg.endFill();
-    bg.beginFill(color);
-    bg.drawCircle(0, 0, radius - 3); // 稍微加粗一点描边效果
-    bg.endFill();
-    btn.addChild(bg);
-
-    // 文字大小随半径缩放
-    const fontSize = radius * 0.9; 
-    const text = new PIXI.Text(char, {
-        fontFamily: 'Arial', fontSize: fontSize, fill: 0xFFFFFF, fontWeight: 'bold'
-    });
-    text.anchor.set(0.5);
-    btn.addChild(text);
-
     btn.position.set(x, y);
+
+    // 尝试获取纹理
+    const tex = ResourceManager.get(textureKey);
+
+    if (tex) {
+        // 1. 如果有图片，显示图片
+        const sprite = new PIXI.Sprite(tex);
+        sprite.anchor.set(0.5);
+        sprite.width = radius * 2;
+        sprite.height = radius * 2;
+        btn.addChild(sprite);
+    } else {
+        // 2. 如果没有图片，回退到圆形色块 + 首字
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0xFFFFFF);
+        bg.drawCircle(0, 0, radius);
+        bg.endFill();
+        bg.beginFill(fallbackColor);
+        bg.drawCircle(0, 0, radius - 3);
+        bg.endFill();
+        btn.addChild(bg);
+
+        // 中间显示首字 (如 '圈')
+        const char = label.charAt(0);
+        const centerText = new PIXI.Text(char, {
+            fontFamily: 'Arial', fontSize: radius * 0.9, fill: 0xFFFFFF, fontWeight: 'bold'
+        });
+        centerText.anchor.set(0.5);
+        btn.addChild(centerText);
+    }
+
+    // 3. 底部功能名称文字
+    const labelText = new PIXI.Text(label, {
+        fontFamily: 'Arial', fontSize: 24, fill: 0xFFFFFF, fontWeight: 'bold',
+        dropShadow: true, dropShadowBlur: 2, dropShadowColor: 0x000000
+    });
+    labelText.anchor.set(0.5);
+    // 放在圆圈下方，稍微留点间距
+    labelText.position.set(0, radius + 25);
+    btn.addChild(labelText);
+
+    // 交互逻辑
     btn.interactive = true;
     btn.buttonMode = true;
     

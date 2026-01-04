@@ -27,6 +27,11 @@ class ResourceManager {
       btn_menu: 'assets/images/btn_menu.png',
       hud_bg: 'assets/images/hud_bg.png',
 
+      // [新增] 菜单功能图标
+      icon_social: 'assets/images/icon_social.png',
+      icon_bag: 'assets/images/icon_bag.png',
+      icon_checkin: 'assets/images/icon_checkin.png',
+
       // [新增] 技能按键背景素材
       skill_aim_bg: 'assets/images/skill_aim_bg.png',
       skill_force_bg: 'assets/images/skill_force_bg.png',
