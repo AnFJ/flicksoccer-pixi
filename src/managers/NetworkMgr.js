@@ -87,7 +87,7 @@ class NetworkMgr {
    * 连接到房间
    * @param {string} roomId 房间号
    * @param {string} userId 用户ID
-   * @param {Object} userInfo 用户信息(昵称头像)
+   * @param {Object} userInfo 用户信息(昵称头像、主题)
    */
   connectRoom(roomId, userId, userInfo) {
     this.close(); // 先断开旧连接
@@ -97,9 +97,11 @@ class NetworkMgr {
     const protocol = this.baseUrl.startsWith('https') ? 'wss' : 'ws';
     const host = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''); // 去掉协议头和尾部斜杠
     
-    // [修改] 增加 level 参数传递
+    // [修改] 增加 level 和 theme 参数传递
     const level = userInfo.level || 1;
-    const wsUrl = `${protocol}://${host}/api/room/${roomId}/websocket?userId=${userId}&nickname=${encodeURIComponent(userInfo.nickname)}&avatar=${encodeURIComponent(userInfo.avatarUrl)}&level=${level}`;
+    const themeStr = encodeURIComponent(JSON.stringify(userInfo.theme || {}));
+    
+    const wsUrl = `${protocol}://${host}/api/room/${roomId}/websocket?userId=${userId}&nickname=${encodeURIComponent(userInfo.nickname)}&avatar=${encodeURIComponent(userInfo.avatarUrl)}&level=${level}&theme=${themeStr}`;
 
     console.log(`[Network] Connecting WS: ${wsUrl}`);
 

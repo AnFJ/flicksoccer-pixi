@@ -13,7 +13,13 @@ class AccountMgr {
       level: 1, // 这里复用 level 作为 PVE 闯关进度 (第几关)
       coins: 0,
       items: [],
-      checkinHistory: [] // [新增] 签到历史记录 (时间戳数组)
+      checkinHistory: [],
+      // [新增] 主题配置
+      theme: {
+          striker: 1, // 1-7
+          field: 1,   // 1-4
+          ball: 1     // 1-3
+      }
     };
     this.isLoggedIn = false;
     this.isNewUser = false; 
@@ -98,7 +104,8 @@ class AccountMgr {
           { id: 'super_force', count: 99 },
           { id: 'unstoppable', count: 99 }
       ];
-      this.userInfo.checkinHistory = []; // 离线模式初始化为空
+      this.userInfo.checkinHistory = [];
+      this.userInfo.theme = { striker: 1, field: 1, ball: 1 };
       this.isLoggedIn = true;
       this.isNewUser = false; 
   }
@@ -107,7 +114,6 @@ class AccountMgr {
       this.userInfo.id = data.user_id;
       this.userInfo.nickname = data.nickname;
       this.userInfo.avatarUrl = data.avatar_url;
-      // 强制转为整数，防止数据库或API返回字符串导致比较失败
       this.userInfo.level = parseInt(data.level) || 1; 
       this.userInfo.coins = parseInt(data.coins) || 0;
       
@@ -117,36 +123,54 @@ class AccountMgr {
           this.userInfo.items = [];
       }
 
-      // [新增] 解析签到历史
       try {
-          this.userInfo.checkinHistory = JSON.parse(data.checkin_history || '[]');
-          if (!Array.isArray(this.userInfo.checkinHistory)) {
-              this.userInfo.checkinHistory = [];
-          }
+          const history = JSON.parse(data.checkin_history || '[]');
+          this.userInfo.checkinHistory = Array.isArray(history) ? history : [];
       } catch (e) {
           this.userInfo.checkinHistory = [];
+      }
+
+      // [新增] 解析 theme 字段
+      try {
+          const theme = JSON.parse(data.theme || '{}');
+          // 确保有默认值
+          this.userInfo.theme = {
+              striker: theme.striker || 1,
+              field: theme.field || 1,
+              ball: theme.ball || 1
+          };
+      } catch (e) {
+          this.userInfo.theme = { striker: 1, field: 1, ball: 1 };
       }
   }
 
   async sync() {
       if (!this.isLoggedIn || this.userInfo.id.startsWith('offline_')) return;
       
-      // 添加时间戳防止请求被缓存
-      console.log('[Account] Syncing data:', this.userInfo);
-      // [修改] 同步时带上 checkinHistory
+      console.log('[Account] Syncing data. Theme:', this.userInfo.theme);
+      
+      // [修改] 同步时带上 theme
       await NetworkMgr.post('/api/user/update', {
           userId: this.userInfo.id,
           coins: this.userInfo.coins,
           level: this.userInfo.level,
           items: this.userInfo.items,
-          checkinHistory: this.userInfo.checkinHistory
+          checkinHistory: this.userInfo.checkinHistory,
+          theme: this.userInfo.theme // 新增
       });
   }
 
   /**
+   * [新增] 更新主题
+   */
+  updateTheme(newTheme) {
+      this.userInfo.theme = { ...this.userInfo.theme, ...newTheme };
+      this.sync();
+      console.log('[Account] Theme updated:', this.userInfo.theme);
+  }
+
+  /**
    * 增加金币
-   * @param {number} amount 数量
-   * @param {boolean} autoSync 是否立即同步服务器 (默认true，批量操作建议设为false)
    */
   addCoins(amount, autoSync = true) {
     this.userInfo.coins += amount;
@@ -180,16 +204,12 @@ class AccountMgr {
               item.count -= amount;
               this.sync();
               EventBus.emit(Events.ITEM_UPDATE, { itemId, count: item.count });
-              console.log(`[Account] Consumed item ${itemId}, remaining: ${item.count}`);
               return true;
           }
       }
       return false;
   }
 
-  /**
-   * [新增] 增加道具数量 (看广告奖励用)
-   */
   addItem(itemId, amount = 1) {
       if (!this.userInfo.items) this.userInfo.items = [];
 
@@ -203,23 +223,14 @@ class AccountMgr {
       
       this.sync();
       EventBus.emit(Events.ITEM_UPDATE, { itemId, count: item.count });
-      console.log(`[Account] Added item ${itemId}, total: ${item.count}`);
       return true;
   }
 
   // --- 签到相关逻辑 ---
-
-  /**
-   * 检查今日是否已签到
-   * [修改] 通过 checkinHistory 数组判断
-   * @returns {boolean}
-   */
   isCheckedInToday() {
-      if (!this.userInfo.checkinHistory || this.userInfo.checkinHistory.length === 0) {
+      if (!Array.isArray(this.userInfo.checkinHistory) || this.userInfo.checkinHistory.length === 0) {
           return false;
       }
-
-      // 获取最近一次签到的时间戳
       const lastTime = this.userInfo.checkinHistory[this.userInfo.checkinHistory.length - 1];
       if (!lastTime) return false;
 
@@ -231,43 +242,22 @@ class AccountMgr {
              lastDate.getDate() === today.getDate();
   }
 
-  /**
-   * 执行签到
-   * [修改] 存入 checkinHistory 并限制长度为 15
-   * @param {number} rewardCoins 奖励金币数
-   */
   performCheckIn(rewardCoins) {
-      // 1. 确保数组存在
-      if (!this.userInfo.checkinHistory) {
+      if (!Array.isArray(this.userInfo.checkinHistory)) {
           this.userInfo.checkinHistory = [];
       }
-
-      // 2. 存入当前时间戳
       const now = Date.now();
       this.userInfo.checkinHistory.push(now);
 
-      // 3. 维护队列长度 (只保留最近15次)
       if (this.userInfo.checkinHistory.length > 15) {
-          this.userInfo.checkinHistory.shift(); // 移除最旧的
+          this.userInfo.checkinHistory.shift(); 
       }
-
-      // 4. 加金币并同步
-      this.addCoins(rewardCoins, true); // true = 立即同步
-      
-      console.log(`[Account] Checked in. History length: ${this.userInfo.checkinHistory.length}`);
+      this.addCoins(rewardCoins, true); 
   }
 
-  /**
-   * 完成关卡
-   * @param {number} levelId 刚刚完成的关卡ID
-   * @param {boolean} autoSync 是否立即同步 (默认true)
-   * @returns {boolean} 是否升级了
-   */
   completeLevel(levelId, autoSync = true) {
-      // 确保类型一致
       if (Number(levelId) === Number(this.userInfo.level)) {
           this.userInfo.level++;
-          console.log(`[Account] Level Up! Now at level ${this.userInfo.level}`);
           if (autoSync) {
               this.sync();
           }

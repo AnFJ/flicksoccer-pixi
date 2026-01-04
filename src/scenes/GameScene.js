@@ -22,7 +22,7 @@ import GoalBanner from '../ui/GoalBanner.js';
 import SparkSystem from '../vfx/SparkSystem.js';
 import MenuScene from './MenuScene.js';
 import LobbyScene from './LobbyScene.js';
-import LevelSelectScene from './LevelSelectScene.js'; // 引入
+import LevelSelectScene from './LevelSelectScene.js'; 
 import Button from '../ui/Button.js'; 
 
 import GameLayout from '../core/GameLayout.js';
@@ -43,7 +43,7 @@ export default class GameScene extends BaseScene {
     this.networkCtrl = null; 
     
     this.gameMode = 'pve'; 
-    this.currentLevel = 1; // 当前关卡
+    this.currentLevel = 1; 
     this.strikers = [];
     this.ball = null;
     this.isMoving = false; 
@@ -56,20 +56,22 @@ export default class GameScene extends BaseScene {
     this.goalBanner = null;
     this.sparkSystem = null;
     this.repositionAnimations = [];
-    this.players = []; // [新增] 存储玩家信息，用于传递给 HUD
+    this.players = []; 
 
-    // [修改] 固定帧率更新相关变量
     this.accumulator = 0;
-    this.fixedTimeStep = 1000 / 60; // 强制 16.666 ms
+    this.fixedTimeStep = 1000 / 60; 
+
+    // [新增] 当前场景使用的主题配置
+    this.activeTheme = { striker: 1, field: 1, ball: 1 };
   }
 
   async onEnter(params = {}) {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
-    this.currentLevel = params.level || 1; // 获取关卡参数
+    this.currentLevel = params.level || 1; 
     
     if (this.gameMode === 'pvp_online') {
-        this.players = params.players || []; // 存储玩家列表
+        this.players = params.players || []; 
         const me = this.players.find(p => p.id === AccountMgr.userInfo.id);
         if (me) this.myTeamId = me.teamId;
         this.networkCtrl = new OnlineMatchController(this);
@@ -82,11 +84,28 @@ export default class GameScene extends BaseScene {
   }
 
   initGame(params) {
+    // 1. 确定主题
+    if (this.gameMode === 'pvp_online') {
+        // 网络对战：使用房主 (Team LEFT) 的主题
+        const hostPlayer = this.players.find(p => p.teamId === TeamId.LEFT);
+        if (hostPlayer && hostPlayer.theme) {
+            this.activeTheme = hostPlayer.theme;
+        } else {
+            // 兜底：如果没有房主信息或房主没主题，用默认
+            this.activeTheme = { striker: 1, field: 1, ball: 1 };
+        }
+    } else {
+        // 本地模式：使用玩家自己的主题
+        this.activeTheme = AccountMgr.userInfo.theme || { striker: 1, field: 1, ball: 1 };
+    }
+
     this.physics.init();
-    this.layout.init();
+    
+    // [修改] 传入主题配置
+    this.layout.init(this.activeTheme.field);
+    
     this.input.init();
     
-    // 初始化回合管理器，传入关卡参数 (用于PVE AI配置)
     this.turnMgr.init(this.gameMode, params.startTurn, this.currentLevel);
     
     this.rules = new GameRules(this.physics);
@@ -97,21 +116,17 @@ export default class GameScene extends BaseScene {
     this.isGameOver = false;
     this.isGamePaused = false;
     
-    // 重置累加器
     this.accumulator = 0;
 
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
     }
 
-    // PVE 提示
     if (this.gameMode === 'pve') {
         Platform.showToast(`第 ${this.currentLevel} 关 开始!`);
     }
 
-    // [新增] 在场景初始化完成后，根据 AdBoard 的位置加载 Banner 广告
     if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-        // 延时一帧确保布局计算完毕
         setTimeout(() => {
             if (!this.isGameOver) {
                 Platform.showGameAds(this.layout.adBoards);
@@ -121,7 +136,6 @@ export default class GameScene extends BaseScene {
   }
 
   _createUI() {
-    // [修改] 创建 HUD 时传递额外数据 (关卡信息, 玩家列表)
     const extraData = {
         currentLevel: this.currentLevel,
         players: this.gameMode === 'pvp_online' ? this.players : []
@@ -131,11 +145,9 @@ export default class GameScene extends BaseScene {
         this.gameMode, 
         this.myTeamId, 
         (skillType, teamId) => {
-            // 本地双人模式下，根据点击的阵营切换操作
-            // 或者简单地只调用 toggleSkill，SkillManager 会检查回合
             this.skillMgr.toggleSkill(skillType);
         },
-        extraData // [新增] 第四个参数
+        extraData 
     );
     this.layout.layers.ui.addChild(this.hud);
 
@@ -147,8 +159,6 @@ export default class GameScene extends BaseScene {
     });
     this.layout.layers.ui.addChild(menuBtn);
 
-    // [修改] 移除 _createSkillButtons 调用，因为已经集成在 HUD 中
-
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
     
@@ -159,7 +169,7 @@ export default class GameScene extends BaseScene {
     EventBus.on(Events.GOAL_SCORED, this.onGoal, this);
     EventBus.on(Events.GAME_OVER, this.onGameOver, this);
     EventBus.on(Events.COLLISION_HIT, (data) => this.sparkSystem?.emit(data.x, data.y, data.intensity), this);
-    EventBus.on(Events.PLAY_SOUND, this.onPlaySound, this); // [新增] 监听音效请求
+    EventBus.on(Events.PLAY_SOUND, this.onPlaySound, this); 
     EventBus.on(Events.SKILL_ACTIVATED, this.onSkillStateChange, this);
     EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); 
   }
@@ -169,7 +179,8 @@ export default class GameScene extends BaseScene {
     const { x, y, w, h } = this.layout.fieldRect;
     const cx = x + w/2, cy = y + h/2;
 
-    this.ball = new Ball(cx, cy);
+    // [修改] 传入 ball theme id
+    this.ball = new Ball(cx, cy, this.activeTheme.ball);
     this._addEntity(this.ball);
 
     const r = GameConfig.dimensions.strikerDiameter / 2;
@@ -179,11 +190,12 @@ export default class GameScene extends BaseScene {
     ];
 
     formation.forEach((pos, i) => {
-        const sL = new Striker(cx + pos.x, cy + pos.y, r, TeamId.LEFT);
+        // [修改] 传入 striker theme id
+        const sL = new Striker(cx + pos.x, cy + pos.y, r, TeamId.LEFT, this.activeTheme.striker);
         sL.id = `left_${i}`;
         this.strikers.push(sL); this._addEntity(sL);
 
-        const sR = new Striker(cx - pos.x, cy + pos.y, r, TeamId.RIGHT);
+        const sR = new Striker(cx - pos.x, cy + pos.y, r, TeamId.RIGHT, this.activeTheme.striker);
         sR.id = `right_${i}`;
         this.strikers.push(sR); this._addEntity(sR);
     });
@@ -217,12 +229,10 @@ export default class GameScene extends BaseScene {
   onSkillStateChange(data) {
       const { type, active, teamId } = data;
       
-      // [修改] 统一调用 HUD 更新状态，HUD 内部会判断是高亮按钮还是点亮图标
       if (this.hud) {
           this.hud.updateSkillState(teamId, type, active);
       }
 
-      // 如果是对手，弹出 Toast 提示
       if (teamId !== this.myTeamId && active && this.gameMode !== 'pvp_local') {
           let skillName = "";
           if (type === SkillType.SUPER_FORCE) skillName = "大力水手";
@@ -235,7 +245,6 @@ export default class GameScene extends BaseScene {
 
   onItemUpdate(data) {
       const { itemId, count } = data;
-      // [修改] 通知 HUD 更新数量，HUD 会自动找到对应 teamId (通常是自己)
       if (this.hud) {
           this.hud.updateItemCount(this.myTeamId, itemId, count);
           if (this.gameMode === 'pvp_local') {
@@ -249,7 +258,6 @@ export default class GameScene extends BaseScene {
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
       }
-      // PVE 返回关卡选择
       if (this.gameMode === 'pve') {
           SceneManager.changeScene(LevelSelectScene);
       } else {
@@ -293,17 +301,13 @@ export default class GameScene extends BaseScene {
         const isWinner = (this.myTeamId === data.winner);
         const economyConfig = GameConfig.gameplay.economy;
 
-        // PVE 胜利逻辑
         if (this.gameMode === 'pve') {
              if (isWinner) {
-                 // 1. 加金币 (不立即同步，等待和等级一起同步)
                  const reward = 50; 
                  AccountMgr.addCoins(reward, false);
                  
-                 // 2. 检查升级 (不立即同步，最后统一同步)
                  const isLevelUp = AccountMgr.completeLevel(this.currentLevel, false);
                  
-                 // 3. 统一执行一次同步，确保 coins 和 level 同时提交，避免竞态条件
                  AccountMgr.sync();
 
                  if (isLevelUp) {
@@ -318,7 +322,7 @@ export default class GameScene extends BaseScene {
         else if (this.gameMode === 'pvp_online') {
             if (isWinner) {
                 const reward = economyConfig.winReward;
-                AccountMgr.addCoins(reward); // 这里保持默认 true 即可
+                AccountMgr.addCoins(reward); 
                 Platform.showToast(`胜利！获得 ${reward} 金币`);
             } else {
                 const fee = economyConfig.entryFee;
@@ -340,7 +344,6 @@ export default class GameScene extends BaseScene {
     setTimeout(() => {
         if (this.gameMode === 'pvp_online') NetworkMgr.close();
         
-        // PVE 回到关卡选择
         if (this.gameMode === 'pve') {
             SceneManager.changeScene(LevelSelectScene);
         } else {

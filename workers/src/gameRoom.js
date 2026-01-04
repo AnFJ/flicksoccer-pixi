@@ -12,7 +12,7 @@ export class GameRoom {
     this.sessions = [];
     // 房间内存数据
     this.roomData = {
-      players: [], // { id, nickname, avatar, level, ready, teamId, socket }
+      players: [], // { id, nickname, avatar, level, theme, ready, teamId, socket }
       status: 'WAITING', // WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
@@ -58,19 +58,26 @@ export class GameRoom {
     const userId = url.searchParams.get('userId');
     const nickname = url.searchParams.get('nickname') || 'Unknown';
     const avatar = url.searchParams.get('avatar') || '';
-    const level = parseInt(url.searchParams.get('level') || '1'); // [新增] 获取等级
+    const level = parseInt(url.searchParams.get('level') || '1');
+    
+    // [新增] 解析 theme 参数
+    let theme = { striker: 1, field: 1, ball: 1 };
+    try {
+        const themeStr = url.searchParams.get('theme');
+        if (themeStr) theme = JSON.parse(themeStr);
+    } catch(e) {}
 
     if (!userId) {
       return new Response("Missing userId", { status: 400 });
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
-    await this.handleSession(server, userId, nickname, avatar, level);
+    await this.handleSession(server, userId, nickname, avatar, level, theme);
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handleSession(webSocket, userId, nickname, avatar, level) {
+  async handleSession(webSocket, userId, nickname, avatar, level, theme) {
     webSocket.accept();
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
@@ -86,7 +93,8 @@ export class GameRoom {
       id: userId,
       nickname,
       avatar,
-      level, // [新增] 存储等级
+      level, 
+      theme, // [新增]
       ready: false,
       teamId: -1
     };
@@ -98,7 +106,7 @@ export class GameRoom {
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
       
-      // 更新引用 (更新 info 以防昵称/等级/头像变化)
+      // 更新引用 (更新 info 以防昵称/等级/头像/主题变化)
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
       // --- 新加入逻辑 ---
@@ -125,7 +133,7 @@ export class GameRoom {
                 // 发送最近一次同步的位置，如果没有则让客户端自行重置
                 positions: this.roomData.positions, 
                 players: this.roomData.players.map(p => ({
-                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level
+                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level, theme: p.theme
                 }))
             }
         }));
@@ -182,7 +190,6 @@ export class GameRoom {
         }
         break;
       
-      // [新增] 瞄准相关消息转发 (直接广播，不做额外逻辑)
       case 'AIM_START':
       case 'AIM_UPDATE':
       case 'AIM_END':
@@ -192,7 +199,6 @@ export class GameRoom {
           });
           break;
       
-      // [新增] 技能状态同步 (转发给其他人)
       case 'SKILL':
           this.broadcast({
               type: 'SKILL',
@@ -200,8 +206,6 @@ export class GameRoom {
           });
           break;
 
-      // [新增] 轨迹数据同步 (转发给其他人)
-      // 修正消息名为 TRAJECTORY_BATCH 以匹配客户端
       case 'TRAJECTORY_BATCH':
           this.broadcast({
               type: 'TRAJECTORY_BATCH',
@@ -209,7 +213,6 @@ export class GameRoom {
           });
           break;
 
-      // [新增] 公平竞赛移出动画转发
       case 'FAIR_PLAY_MOVE':
           this.broadcast({
               type: 'FAIR_PLAY_MOVE',
@@ -218,7 +221,6 @@ export class GameRoom {
           break;
         
       case 'TURN_SYNC':
-        // 更新服务端缓存的位置数据，用于后续可能的重连恢复
         if (msg.payload) {
             this.roomData.positions = msg.payload; 
         }
@@ -230,9 +232,7 @@ export class GameRoom {
         break;
 
       case 'SNAPSHOT':
-        // 高频同步消息
         if (this.roomData.status === 'PLAYING' && player.teamId !== this.roomData.currentTurn) {
-             // 校验略
         }
         this.broadcast({
             type: 'SNAPSHOT',
@@ -241,11 +241,9 @@ export class GameRoom {
         break;
         
       case 'GOAL':
-          // 客户端通知进球
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
               
-              // 广播进球消息给所有人 (包括发送者，客户端需自行去重)
               this.broadcast({
                   type: 'GOAL',
                   payload: { newScore: this.roomData.scores }
@@ -256,7 +254,6 @@ export class GameRoom {
           break;
 
       case 'LEAVE':
-          // 客户端明确发送离开请求
           this.broadcast({
               type: 'PLAYER_LEFT_GAME',
               payload: { teamId: player.teamId, userId: player.id }
@@ -285,7 +282,8 @@ export class GameRoom {
       id: p.id,
       nickname: p.nickname,
       avatar: p.avatar,
-      level: p.level, // [新增] 广播等级
+      level: p.level,
+      theme: p.theme, // [新增] 广播 theme
       ready: p.ready,
       teamId: p.teamId
     }));
@@ -303,8 +301,6 @@ export class GameRoom {
     const str = JSON.stringify(msgObj);
     this.sessions = this.sessions.filter(s => {
       try {
-        // 检查 socket 状态
-        // 1 = OPEN
         if (s.ws.readyState === 1) {
             s.ws.send(str);
             return true;
@@ -317,33 +313,25 @@ export class GameRoom {
   }
 
   async cleanupSession(session) {
-    // 从活跃会话列表中移除
     const index = this.sessions.indexOf(session);
-    if (index === -1) return; // 已经被移除了
+    if (index === -1) return; 
     
     this.sessions.splice(index, 1);
     
-    // 通知其他人：某人掉线了
-    // 找到该 session 对应的 player
     const player = this.roomData.players.find(p => p.id === session.userId);
     if (player) {
-        // 只有当游戏还在进行中，或者房间人还没空时，广播掉线
         this.broadcast({
             type: 'PLAYER_OFFLINE',
             payload: { teamId: player.teamId, userId: player.id }
         });
     }
 
-    // 如果所有连接都断开，设置 3 分钟销毁闹钟
     if (this.sessions.length === 0) {
       console.log(`[GameRoom] Room is empty, scheduling destruction in 3 mins...`);
       await this.state.storage.setAlarm(Date.now() + 180000);
     }
   }
 
-  /**
-   * 闹钟触发器
-   */
   async alarm() {
     if (this.sessions.length === 0) {
       console.log(`[GameRoom] Executing auto-destruction due to inactivity.`);
@@ -354,10 +342,9 @@ export class GameRoom {
   }
 
   async saveState() {
-    // 存储除 socket 以外的数据
     const toStore = { 
         ...this.roomData,
-        players: this.roomData.players.map(p => ({...p, socket: undefined})) // 移除 socket 对象
+        players: this.roomData.players.map(p => ({...p, socket: undefined})) 
     };
     await this.state.storage.put("roomData", toStore);
   }

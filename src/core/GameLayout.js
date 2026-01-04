@@ -24,13 +24,14 @@ export default class GameLayout {
 
         this.fieldRect = null;
         this.goals = [];
-        this.adBoards = []; // [新增] 存储广告牌实例
+        this.adBoards = []; 
     }
 
     /**
      * 初始化布局
+     * @param {number} themeId [新增] 球场主题ID (1~4)
      */
-    init() {
+    init(themeId = 1) {
         const { designWidth, designHeight, dimensions } = GameConfig;
 
         // 将层级添加到场景主容器
@@ -53,7 +54,7 @@ export default class GameLayout {
         };
 
         this._createGlobalBackground(designWidth, designHeight);
-        this._createFieldVisuals();
+        this._createFieldVisuals(themeId);
         this._createPhysicsWalls();
         this._createGoals();
         this._createAdBoards();
@@ -65,19 +66,21 @@ export default class GameLayout {
         if (grassTex) {
             const bg = new PIXI.TilingSprite(grassTex, w, h);
             bg.tileScale.set(0.5);
-            bg.tint = 0x444444; // 压得更暗一些，因为主要视觉由新的大图提供
+            bg.tint = 0x444444; 
             this.layers.bg.addChild(bg);
         }
     }
 
     /** 创建球场视觉元素 */
-    _createFieldVisuals() {
+    _createFieldVisuals(themeId) {
         const { x, y, w, h } = this.fieldRect;
         const centerX = x + w / 2;
         const centerY = y + h / 2;
 
-        // [核心修改] 使用合并后的长图 (27:9)
-        const combinedTex = ResourceManager.get('field_combined');
+        // [核心修改] 根据 themeId 获取对应的长图
+        const texKey = `field_${themeId}`;
+        const combinedTex = ResourceManager.get(texKey) || ResourceManager.get('field_1'); // 默认回退到 field_1
+
         if (combinedTex) {
             const sprite = new PIXI.Sprite(combinedTex);
             sprite.anchor.set(0.5);
@@ -86,7 +89,6 @@ export default class GameLayout {
             sprite.height = h;
             
             // 需求：图片宽度保持自由比例 (不强制压缩/拉伸为 3:1)
-            // 设置高度后，scale.y 已经改变。将 scale.x 设为相同值即可保持原始比例。
             sprite.scale.x = sprite.scale.y;
 
             sprite.position.set(centerX, centerY);
@@ -121,15 +123,12 @@ export default class GameLayout {
             collisionFilter: { category: CollisionCategory.WALL }
         };
 
-        // [修改] 垂直方向的内缩修正值 (px)
-        // 增加这个值会让上下墙壁向中心靠拢，解决球“陷进”底边的问题
         const vCorrection = 10; 
 
         const walls = [
-            // Top Wall: 增加 vCorrection 使其下移
+            // Top Wall
             Matter.Bodies.rectangle(centerX, y - t / 2 + vCorrection, w + t * 2, t, { ...wallOptions, label: 'WallTop' }),
-            
-            // Bottom Wall: 减去 vCorrection 使其上移 (修复底部位置过低)
+            // Bottom Wall
             Matter.Bodies.rectangle(centerX, y + h + t / 2 - vCorrection, w + t * 2, t, { ...wallOptions, label: 'WallBottom' }),
             
             Matter.Bodies.rectangle(x - t / 2, y + sideWallLen / 2, t, sideWallLen, { ...wallOptions, label: 'WallLeftTop' }),
@@ -160,13 +159,10 @@ export default class GameLayout {
     /** 创建广告牌 */
     _createAdBoards() {
         const { x, y, w, h } = this.fieldRect;
-        
-        // [优化] 调整为竖向尺寸 (宽120, 高360)，比例 1:3 适合微信竖向模板广告
         const adW = 200;
         const adH = 500; 
-        const dist = 200; // 离球场稍微远一点点，防止太挤
+        const dist = 200; 
         
-        // 重置数组
         this.adBoards = [];
 
         const leftAd = new AdBoard(adW, adH, 0);

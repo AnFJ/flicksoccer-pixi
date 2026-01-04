@@ -6,12 +6,16 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class Ball {
-  constructor(x, y) {
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} themeId [新增] 主题ID 1-3
+   */
+  constructor(x, y, themeId = 1) {
     this.radius = GameConfig.dimensions.ballDiameter / 2;
     
-    // 基础物理参数备份，用于技能结束后恢复
     this.baseFrictionAir = GameConfig.physics.ballFrictionAir;
-    this.baseFriction = 0.05; // Matter 默认值 approx
+    this.baseFriction = 0.05; 
 
     const bodyOptions = {
       frictionAir: this.baseFrictionAir,
@@ -35,8 +39,6 @@ export default class Ball {
     // 2. 视图容器
     this.view = new PIXI.Container();
     
-    // --- 渲染顺序：阴影 -> 拖尾 -> 技能特效(底) -> 足球本体 -> 技能特效(顶) ---
-
     // A. 阴影
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset - 5, GameConfig.visuals.shadowOffset - 5);
@@ -51,18 +53,23 @@ export default class Ball {
     this.trail.height = this.radius * 1.6; 
     this.view.addChild(this.trail);
 
-    // C. 闪电拖尾 (Skill: Super Force)
+    // C. 闪电拖尾
     this.lightningTrail = new PIXI.Graphics();
-    // [新增] 使用叠加混合模式，让闪电看起来发光
     this.lightningTrail.blendMode = PIXI.BLEND_MODES.ADD; 
     this.view.addChild(this.lightningTrail);
 
-    // D. 火焰特效容器 (Skill: Unstoppable)
+    // D. 火焰特效容器
     this.fireContainer = new PIXI.Container();
     this.view.addChild(this.fireContainer);
 
     // E. 足球本体
-    const rawBallTex = ResourceManager.get('ball_texture'); 
+    // [修改] 根据 themeId 获取纹理
+    let texKey = 'ball_texture'; // 默认
+    if (themeId && themeId > 1) {
+        texKey = `ball_texture_${themeId}`;
+    }
+    const rawBallTex = ResourceManager.get(texKey) || ResourceManager.get('ball_texture'); 
+    
     const texture = rawBallTex || this.generateProceduralPattern();
     const overlayTexture = this.generateProceduralOverlay();
 
@@ -77,7 +84,7 @@ export default class Ball {
     ballContainer.addChild(mask);
     ballContainer.mask = mask;
 
-    this.textureScale = 0.18; 
+    this.textureScale = 0.18; // 纹理缩放，根据实际素材调整
     this.ballTexture = new PIXI.TilingSprite(
         texture,
         this.radius * 4,
@@ -102,7 +109,6 @@ export default class Ball {
         fireMaxDuration: 0
     };
 
-    // [新增] 记录平滑后的运动角度，用于所有拖尾特效
     this.moveAngle = 0;
   }
 
@@ -188,12 +194,10 @@ export default class Ball {
       const speed = Matter.Vector.magnitude(velocity);
       const dtRatio = deltaMS / 16.66;
 
-      // --- [新增] 统一的角度平滑逻辑 ---
       if (speed > 0.1) {
           const targetAngle = Math.atan2(velocity.y, velocity.x);
           let diff = targetAngle - this.moveAngle;
           
-          // 角度归一化 (-PI 到 PI)，确保走最短路径
           while (diff < -Math.PI) diff += Math.PI * 2;
           while (diff > Math.PI) diff -= Math.PI * 2;
           
@@ -215,40 +219,29 @@ export default class Ball {
       }
 
       // --- 2. 拖尾显隐控制 ---
-      
-      // 始终更新现有的火焰粒子 (让它们自然消失)
       this.updateFireParticlesState();
 
       if (this.skillStates.fire) {
-          // A. 火焰状态：强制隐藏其他拖尾
           this.trail.visible = false;
           this.lightningTrail.clear();
-
-          // 只要还在移动，就持续生成火焰 (阈值降低到 0.1)
           if (speed > 0.1) {
-              // 使用平滑后的角度
               this.spawnFireParticles(speed, this.moveAngle);
           }
       } else {
-          // B. 非火焰状态：清除残留火焰，并处理其他拖尾
           this.fireContainer.removeChildren();
           
           if (this.skillStates.lightning && speed > 0.5) {
-              // 使用平滑后的角度
               this.updateLightningTrail(speed, this.moveAngle);
               this.trail.visible = false;
           } else {
               this.lightningTrail.clear();
-              // 普通拖尾
               if (speed > 0.2) { 
-                  // 直接应用平滑后的角度
                   this.trail.rotation = this.moveAngle;
 
                   const maxLen = this.radius * 8; 
                   const lenFactor = 12.0; 
                   const targetWidth = Math.min(speed * lenFactor, maxLen);
                   
-                  // 长度也可以平滑一下，避免闪烁
                   this.trail.width += (targetWidth - this.trail.width) * 0.2 * dtRatio;
                   
                   this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
@@ -271,30 +264,21 @@ export default class Ball {
     }
   }
 
-  /**
-   * 绘制自然闪电特效
-   * @param {number} speed 速度
-   * @param {number} moveAngle 移动方向角度
-   */
   updateLightningTrail(speed, moveAngle) {
     const g = this.lightningTrail;
     g.clear();
 
-    const len = Math.min(speed * 18, 180); // 长度随速度变化
-    const angle = moveAngle + Math.PI; // 拖尾方向（反向）
+    const len = Math.min(speed * 18, 180); 
+    const angle = moveAngle + Math.PI; 
     
-    // 节点密度：每12像素一个节点，保证曲折度
     const segments = Math.max(Math.floor(len / 12), 2); 
     
-    // 内部函数：生成闪电路径点
     const getLightningPoints = (amp) => {
-        const points = [{x: 0, y: 0}]; // 起点在球心
+        const points = [{x: 0, y: 0}]; 
         for (let i = 1; i <= segments; i++) {
             const ratio = i / segments;
             const dist = len * ratio;
             
-            // 随机侧向位移 (Jitter)
-            // 越靠近末端，抖动可能越剧烈，或者保持均匀
             const jitter = (Math.random() - 0.5) * amp;
             
             const px = Math.cos(angle) * dist + Math.cos(angle + Math.PI/2) * jitter;
@@ -304,40 +288,33 @@ export default class Ball {
         return points;
     };
 
-    // 1. 绘制外发光 (Glow) - 深蓝/紫色，粗线条，低透明度
-    // 模拟空气电离的光晕
-    const glowPoints = getLightningPoints(25); // 抖动幅度大
-    g.lineStyle(12, 0x0055FF, 0.3); // 蓝色光晕
+    const glowPoints = getLightningPoints(25); 
+    g.lineStyle(12, 0x0055FF, 0.3); 
     g.moveTo(0, 0);
     for (let i = 1; i < glowPoints.length; i++) {
         g.lineTo(glowPoints[i].x, glowPoints[i].y);
     }
 
-    // 2. 绘制核心 (Core) - 白色/青色，细线条，高亮度
-    // 重新生成一组点，让核心和光晕稍微错开，增加丰富度
     const corePoints = getLightningPoints(20); 
-    g.lineStyle(3, 0xFFFFFF, 0.9); // 白亮核心
+    g.lineStyle(3, 0xFFFFFF, 0.9); 
     g.moveTo(0, 0);
     for (let i = 1; i < corePoints.length; i++) {
         g.lineTo(corePoints[i].x, corePoints[i].y);
     }
     
-    // 3. 随机分支 (Branching) - 偶尔画一条分叉
     if (Math.random() > 0.6) {
         const branchStartIdx = Math.floor(Math.random() * (segments / 2));
         if (corePoints[branchStartIdx]) {
             const startP = corePoints[branchStartIdx];
-            g.lineStyle(2, 0x00FFFF, 0.6); // 青色分支
+            g.lineStyle(2, 0x00FFFF, 0.6); 
             g.moveTo(startP.x, startP.y);
             
             const branchLen = 40 + Math.random() * 30;
-            const branchAngle = angle + (Math.random() - 0.5) * 1.5; // 分叉角度
+            const branchAngle = angle + (Math.random() - 0.5) * 1.5; 
             
-            // 分叉终点
             const bx = startP.x + Math.cos(branchAngle) * branchLen;
             const by = startP.y + Math.sin(branchAngle) * branchLen;
             
-            // 简单折线到终点
             const midX = (startP.x + bx) / 2 + (Math.random()-0.5) * 15;
             const midY = (startP.y + by) / 2 + (Math.random()-0.5) * 15;
             
@@ -347,17 +324,10 @@ export default class Ball {
     }
   }
 
-  /**
-   * 生成火焰粒子
-   * @param {number} speed 速度
-   * @param {number} moveAngle 移动方向角度
-   */
   spawnFireParticles(speed, moveAngle) {
-      // 燃烧强度
       const intensity = Math.min(speed, 12) / 12;
-      const angle = moveAngle + Math.PI; // 反方向
+      const angle = moveAngle + Math.PI; 
 
-      // 每帧生成更多的粒子以形成连续拖尾
       const spawnCount = Math.floor(speed * 0.8) + 1;
 
       for (let i = 0; i < spawnCount; i++) {
@@ -370,14 +340,12 @@ export default class Ball {
           p.drawCircle(0, 0, size);
           p.endFill();
           
-          // 在球体范围内随机起始，但在拖尾方向上加权
           const offsetAngle = Math.random() * Math.PI * 2;
           const offsetR = Math.random() * this.radius * 0.8;
           p.x = Math.cos(offsetAngle) * offsetR;
           p.y = Math.sin(offsetAngle) * offsetR;
           
-          // 初始速度：反方向喷射感
-          const spread = 0.5; // 扩散度
+          const spread = 0.5; 
           const pAngle = angle + (Math.random() - 0.5) * spread;
           const pSpeed = speed * (0.2 + Math.random() * 0.3);
           
@@ -390,7 +358,6 @@ export default class Ball {
   }
 
   updateFireParticlesState() {
-      // 更新粒子
       for (let i = this.fireContainer.children.length - 1; i >= 0; i--) {
           const p = this.fireContainer.children[i];
           p.x += p.vx;
@@ -404,7 +371,6 @@ export default class Ball {
       }
   }
 
-  // 兼容旧调用
   updateFireEffect(speed, moveAngle) {
       this.spawnFireParticles(speed, moveAngle);
       this.updateFireParticlesState();

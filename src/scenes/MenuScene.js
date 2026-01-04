@@ -5,13 +5,14 @@ import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import GameScene from './GameScene.js';
 import LobbyScene from './LobbyScene.js';
-import LevelSelectScene from './LevelSelectScene.js'; // 引入新场景
+import LevelSelectScene from './LevelSelectScene.js'; 
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 import Platform from '../managers/Platform.js'; 
-import InventoryView from '../ui/InventoryView.js'; // 新增
-import MessageDialog from '../ui/MessageDialog.js'; // 新增
+import InventoryView from '../ui/InventoryView.js'; 
+import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; // [新增]
+import MessageDialog from '../ui/MessageDialog.js'; 
 
 export default class MenuScene extends BaseScene {
   onEnter() {
@@ -61,8 +62,6 @@ export default class MenuScene extends BaseScene {
         ...btnConfig,
         text: `单人闯关`, 
         onClick: () => {
-            // 进入关卡选择不需要扣费，进入具体关卡再扣或不扣(通常PVE按体力或免费)
-            // 这里假设PVE免费或在GameScene处理
             SceneManager.changeScene(LevelSelectScene);
         } 
     });
@@ -158,38 +157,43 @@ export default class MenuScene extends BaseScene {
     container.addChild(avatarContainer);
 
     // --- 左侧按钮布局 ---
-    // 需求：按钮大小调整为头像尺寸的 80%
-    const btnRadius = avatarRadius * 0.8; // 60 * 0.8 = 48 (直径96)
+    const btnRadius = avatarRadius * 0.8; 
     const btnDiameter = btnRadius * 2;
-    // [修改] 增加垂直间距，以容纳下方的文字
     const btnGap = 50; 
     
-    // 起始 Y 坐标 (头像底部 + 间距 + 半径)
     let currentY = avatarRadius * 2 + 20 + btnRadius; 
-    const btnX = avatarRadius; // 水平居中于头像
+    const btnX = avatarRadius; 
 
-    // 1. 游戏圈 (社交) - 更新为图标按钮
+    // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
 
-    // 2. 背包 - 更新为图标按钮
+    // 2. 背包
     const bagBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_bag', '我的背包', 0x8E44AD, () => {
-        // 传入 onClose 回调，刷新金币显示
         const bagView = new InventoryView(() => {
             if (this.coinsText) {
                 this.coinsText.text = `💰 ${AccountMgr.userInfo.coins}`;
             }
         });
-        // 使用 this.container.addChild 添加到顶层
         this.container.addChild(bagView);
     });
     container.addChild(bagBtn);
     currentY += btnDiameter + btnGap;
 
-    // 3. 每日签到 (如果未签到) - 更新为图标按钮
+    // 3. [新增] 主题
+    const themeBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_theme', '主题装扮', 0xF39C12, () => {
+        const themeDialog = new ThemeSelectionDialog(() => {
+            // 回调：主题更新后可能需要刷新某些显示（目前菜单页没有受主题影响的元素，如有可在此刷新）
+        });
+        this.container.addChild(themeDialog);
+    });
+    container.addChild(themeBtn);
+    currentY += btnDiameter + btnGap;
+
+    // 4. 每日签到
     if (!AccountMgr.isCheckedInToday()) {
         const checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '签到有奖', 0xFF5722, () => {
             this.handleDailyCheckIn(checkInBtn);
@@ -226,39 +230,25 @@ export default class MenuScene extends BaseScene {
         fontFamily: 'Arial', fontSize: 32, fill: 0xffffff
     });
     coinsText.position.set(textX + 120, textStartY + 62);
-    // 保存引用方便刷新
     this.coinsText = coinsText; 
     container.addChild(coinsText);
 
     this.container.addChild(container);
   }
 
-  /**
-   * [新增] 创建图标功能按钮 (支持图标+文字，回退到纯色圆底+文字)
-   * @param {number} radius 半径
-   * @param {number} x 中心X
-   * @param {number} y 中心Y
-   * @param {string} textureKey 图标资源Key
-   * @param {string} label 按钮功能说明文字
-   * @param {number} fallbackColor 缺省背景色
-   * @param {Function} onClick 点击回调
-   */
   createIconBtn(radius, x, y, textureKey, label, fallbackColor, onClick) {
     const btn = new PIXI.Container();
     btn.position.set(x, y);
 
-    // 尝试获取纹理
     const tex = ResourceManager.get(textureKey);
 
     if (tex) {
-        // 1. 如果有图片，显示图片
         const sprite = new PIXI.Sprite(tex);
         sprite.anchor.set(0.5);
         sprite.width = radius * 2;
         sprite.height = radius * 2;
         btn.addChild(sprite);
     } else {
-        // 2. 如果没有图片，回退到圆形色块 + 首字
         const bg = new PIXI.Graphics();
         bg.beginFill(0xFFFFFF);
         bg.drawCircle(0, 0, radius);
@@ -268,7 +258,6 @@ export default class MenuScene extends BaseScene {
         bg.endFill();
         btn.addChild(bg);
 
-        // 中间显示首字 (如 '圈')
         const char = label.charAt(0);
         const centerText = new PIXI.Text(char, {
             fontFamily: 'Arial', fontSize: radius * 0.9, fill: 0xFFFFFF, fontWeight: 'bold'
@@ -277,17 +266,14 @@ export default class MenuScene extends BaseScene {
         btn.addChild(centerText);
     }
 
-    // 3. 底部功能名称文字
     const labelText = new PIXI.Text(label, {
         fontFamily: 'Arial', fontSize: 24, fill: 0xFFFFFF, fontWeight: 'bold',
         dropShadow: true, dropShadowBlur: 2, dropShadowColor: 0x000000
     });
     labelText.anchor.set(0.5);
-    // 放在圆圈下方，稍微留点间距
     labelText.position.set(0, radius + 25);
     btn.addChild(labelText);
 
-    // 交互逻辑
     btn.interactive = true;
     btn.buttonMode = true;
     
@@ -301,51 +287,28 @@ export default class MenuScene extends BaseScene {
     return btn;
   }
 
-  /**
-   * 处理签到逻辑
-   */
   async handleDailyCheckIn(btn) {
-      // 禁用按钮防止重复点击
       btn.interactive = false;
-
       let success = false;
       try {
-          // 1. 尝试展示插屏广告
           success = await Platform.showInterstitialAd();
       } catch (err) {
-          console.error("Show ad failed:", err);
           success = false;
       }
       
-      let reward = 0;
-      let title = "";
-      let msg = "";
+      let reward = success ? 100 : 50;
+      let title = "签到成功";
+      let msg = success ? "恭喜你！\n获得每日签到奖励 100 金币" : "广告加载失败，发送保底奖励 50 金币";
 
-      if (success) {
-          reward = 100;
-          title = "签到成功";
-          msg = "恭喜你！\n获得每日签到奖励 100 金币";
-      } else {
-          // 广告展示失败 (无填充或报错)，发保底
-          reward = 50;
-          title = "签到成功";
-          msg = "广告加载失败，发送保底奖励 50 金币";
-      }
-
-      // 2. 执行加币和记录
       AccountMgr.performCheckIn(reward);
 
-      // 3. 弹窗提示
       const dialog = new MessageDialog(title, msg, () => {
-          // 4. 更新界面金币显示
           if (this.coinsText) {
               this.coinsText.text = `💰 ${AccountMgr.userInfo.coins}`;
           }
       });
-      // 使用 this.container.addChild
       this.container.addChild(dialog);
 
-      // 5. 隐藏按钮 (今日不再显示)
       if (btn && btn.parent) {
           btn.parent.removeChild(btn);
       }

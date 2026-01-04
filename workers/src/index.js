@@ -25,9 +25,6 @@ const response = (data, status = 200) => {
   });
 };
 
-/**
- * 辅助函数：生成随机昵称
- */
 const generateNickname = () => `Player_${Math.floor(Math.random() * 10000)}`;
 
 // 默认道具配置
@@ -36,12 +33,12 @@ const INITIAL_ITEMS = [
     { id: 'super_force', count: 5 },
     { id: 'unstoppable', count: 5 }
 ];
+// 默认主题配置
+const INITIAL_THEME = { striker: 1, field: 1, ball: 1 };
 
 export default {
   async fetch(request, env, ctx) {
-    // 处理预检请求 (CORS)
     if (request.method === 'OPTIONS') {
-      // 预检请求直接返回 204 No Content，且不带 body
       return new Response(null, {
         status: 204,
         headers: corsHeaders
@@ -53,39 +50,28 @@ export default {
 
     try {
       // --- 1. 多人房间相关 ---
-      
-      // A. 房间状态检查 (新增)
       if (path === '/api/room/check' && request.method === 'POST') {
           const { roomId } = await request.json();
           if (!roomId) return response({ error: 'Missing roomId' }, 400);
 
-          // 获取 Durable Object
           const id = env.GAME_ROOM.idFromName(roomId);
           const stub = env.GAME_ROOM.get(id);
 
-          // 构造一个内部请求传给 DO
-          // 注意：DO 的 fetch 方法只能接收 Request 对象
           const checkReq = new Request("https://internal/check", { method: 'GET' });
-          
-          // [修复] 获取响应并重新包装，以确保包含 Worker 入口定义的 CORS 头
-          // 原来的 return stub.fetch(checkReq) 会直接返回 DO 的响应，缺少 CORS 头
           const doRes = await stub.fetch(checkReq);
           const data = await doRes.json();
           return response(data, doRes.status);
       }
 
-      // B. WebSocket 连接
       if (path.startsWith("/api/room/")) {
-          // 提取 room ID: /api/room/1234/websocket
           const parts = path.split('/');
-          const roomId = parts[3]; // 1234
-          const action = parts[4]; // websocket
+          const roomId = parts[3]; 
+          const action = parts[4]; 
 
           if (!roomId || action !== 'websocket') {
               return new Response("Invalid path", { status: 404 });
           }
 
-          // 获取 Durable Object ID
           const id = env.GAME_ROOM.idFromName(roomId);
           const stub = env.GAME_ROOM.get(id);
 
@@ -97,7 +83,6 @@ export default {
         const { deviceId } = await request.json();
         if (!deviceId) return response({ error: 'Missing deviceId' }, 400);
 
-        // 查询用户
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         let isNewUser = false;
 
@@ -111,30 +96,42 @@ export default {
             level: 1,
             coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
-            checkin_history: '[]' // [新增] 初始化签到记录
+            checkin_history: '[]',
+            theme: JSON.stringify(INITIAL_THEME) // [新增]
           };
 
-          // [新增] 插入 checkin_history
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
           
-          // 重新查询
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
-          // [老用户] 检查并补充 items
-          let itemsStr = user.items;
-          let itemsChanged = false;
-          if (!itemsStr || itemsStr === '[]') {
-              itemsStr = JSON.stringify(INITIAL_ITEMS);
-              user.items = itemsStr; // 更新返回对象
-              itemsChanged = true;
+          // [老用户] 检查补充字段
+          let updateFields = [];
+          let updateArgs = [];
+          
+          if (!user.items || user.items === '[]') {
+              user.items = JSON.stringify(INITIAL_ITEMS);
+              updateFields.push("items = ?");
+              updateArgs.push(user.items);
+          }
+          if (!user.checkin_history) {
+              user.checkin_history = '[]';
+              updateFields.push("checkin_history = ?");
+              updateArgs.push(user.checkin_history);
+          }
+          // [新增] 检查 theme
+          if (!user.theme) {
+              user.theme = JSON.stringify(INITIAL_THEME);
+              updateFields.push("theme = ?");
+              updateArgs.push(user.theme);
           }
 
-          // 更新登录时间 (和物品)
-          if (itemsChanged) {
-               await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours'), items = ? WHERE user_id = ?")
-                   .bind(itemsStr, deviceId).run();
+          if (updateFields.length > 0) {
+               updateFields.push("last_login = datetime('now', '+8 hours')");
+               updateArgs.push(deviceId); // WHERE user_id = ?
+               await env.DB.prepare(`UPDATE users SET ${updateFields.join(', ')} WHERE user_id = ?`)
+                   .bind(...updateArgs).run();
           } else {
                await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours') WHERE user_id = ?")
                    .bind(deviceId).run();
@@ -150,30 +147,21 @@ export default {
         if (!code || !platform) return response({ error: 'Missing code or platform' }, 400);
 
         let openId = null;
-
-        // 换取 OpenID
         if (platform === 'wechat') {
            openId = await fetchWechatSession(code, env);
         } else if (platform === 'douyin') {
            openId = await fetchDouyinSession(code, env);
         }
 
-        if (!openId) {
-            // 开发环境 Fallback
-            openId = `dev_${platform}_${code}`; 
-        }
+        if (!openId) openId = `dev_${platform}_${code}`; 
 
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
         let isNewUser = false;
-
-        // 确定要存入的昵称和头像 (优先用前端传的，其次用数据库旧的，最后用默认)
         const newNick = userInfo?.nickName || user?.nickname || generateNickname();
         const newAvatar = userInfo?.avatarUrl || user?.avatar_url || '';
 
         if (!user) {
           isNewUser = true;
-
-          // 注册
           user = {
             user_id: openId,
             platform: platform,
@@ -182,49 +170,60 @@ export default {
             level: 1,
             coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
-            checkin_history: '[]' // [新增] 初始化签到记录
+            checkin_history: '[]',
+            theme: JSON.stringify(INITIAL_THEME) // [新增]
           };
           
-          // [新增] 插入 checkin_history
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
           
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
         } else {
-          // [老用户] 检查并补充 items
-          let itemsStr = user.items;
-          let itemsChanged = false;
-          if (!itemsStr || itemsStr === '[]') {
-              itemsStr = JSON.stringify(INITIAL_ITEMS);
-              user.items = itemsStr; // 更新返回对象
-              itemsChanged = true;
-          }
+          // [老用户] 检查补充字段
+          let needsUpdate = false;
+          let updateSqlParts = ["last_login = datetime('now', '+8 hours')"];
+          let updateArgs = [];
 
-          // 更新逻辑
-          let sql = "UPDATE users SET last_login = datetime('now', '+8 hours')";
-          const args = [];
+          if (!user.items || user.items === '[]') {
+              user.items = JSON.stringify(INITIAL_ITEMS);
+              updateSqlParts.push("items = ?");
+              updateArgs.push(user.items);
+              needsUpdate = true;
+          }
+          if (!user.checkin_history) {
+              user.checkin_history = '[]';
+              updateSqlParts.push("checkin_history = ?");
+              updateArgs.push(user.checkin_history);
+              needsUpdate = true;
+          }
+          // [新增]
+          if (!user.theme) {
+              user.theme = JSON.stringify(INITIAL_THEME);
+              updateSqlParts.push("theme = ?");
+              updateArgs.push(user.theme);
+              needsUpdate = true;
+          }
           
           if (userInfo && userInfo.nickName) {
-              sql += ", nickname = ?, avatar_url = ?";
-              args.push(userInfo.nickName, userInfo.avatarUrl);
+              updateSqlParts.push("nickname = ?", "avatar_url = ?");
+              updateArgs.push(userInfo.nickName, userInfo.avatarUrl);
+              needsUpdate = true;
           }
 
-          if (itemsChanged) {
-              sql += ", items = ?";
-              args.push(itemsStr);
-          }
-          
-          sql += " WHERE user_id = ?";
-          args.push(openId);
-          
-          await env.DB.prepare(sql).bind(...args).run();
-          
-          // 如果更新了资料，返回对象也要更新
-          if (userInfo && userInfo.nickName) {
-            user.nickname = userInfo.nickName;
-            user.avatar_url = userInfo.avatarUrl;
+          if (needsUpdate) {
+               updateArgs.push(openId);
+               await env.DB.prepare(`UPDATE users SET ${updateSqlParts.join(', ')} WHERE user_id = ?`)
+                   .bind(...updateArgs).run();
+               
+               if (userInfo && userInfo.nickName) {
+                   user.nickname = userInfo.nickName;
+                   user.avatar_url = userInfo.avatarUrl;
+               }
+          } else {
+               await env.DB.prepare("UPDATE users SET last_login = datetime('now', '+8 hours') WHERE user_id = ?")
+                   .bind(openId).run();
           }
         }
 
@@ -233,15 +232,21 @@ export default {
 
       // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-          // [修改] 接收 checkinHistory 并更新 checkin_history 字段
-          const { userId, coins, level, items, checkinHistory } = await request.json();
+          // [修改] 接收 theme
+          const { userId, coins, level, items, checkinHistory, theme } = await request.json();
           
           let sql = 'UPDATE users SET coins = ?, level = ?, items = ?';
           let args = [coins, level, JSON.stringify(items || [])];
 
-          if (checkinHistory) {
+          if (checkinHistory !== undefined) {
               sql += ', checkin_history = ?';
               args.push(JSON.stringify(checkinHistory));
+          }
+
+          // [新增] 更新 theme
+          if (theme !== undefined) {
+              sql += ', theme = ?';
+              args.push(JSON.stringify(theme));
           }
 
           sql += ' WHERE user_id = ?';
@@ -258,8 +263,6 @@ export default {
     }
   }
 };
-
-// --- Utils ---
 
 async function fetchWechatSession(code, env) {
     if (!env.WX_APP_ID || !env.WX_APP_SECRET) return null;
