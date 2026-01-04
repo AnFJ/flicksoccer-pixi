@@ -117,12 +117,25 @@ export const GameConfig = {
   },
 
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
+  // rewardedVideo: 激励视频广告ID (Coins, Aim, Unstoppable, Force)
   adConfig: {
       wechat: {
-          banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'] 
+          banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
+          rewardedVideo: {
+              coins: 'adunit-26a38148682bce5a',
+              super_aim: 'adunit-0d8e4a176de1bc31',
+              unstoppable: 'adunit-bc43ef817678099c',
+              super_force: 'adunit-8aa62d2e44801ab1'
+          }
       },
       douyin: {
-          banners: ['adunit-left-placeholder', 'adunit-right-placeholder']
+          banners: ['adunit-left-placeholder', 'adunit-right-placeholder'],
+          rewardedVideo: {
+              coins: 'adunit-dy-coins',
+              super_aim: 'adunit-dy-aim',
+              unstoppable: 'adunit-dy-car',
+              super_force: 'adunit-dy-force'
+          }
       }
   },
 

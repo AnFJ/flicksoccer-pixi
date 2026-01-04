@@ -23,45 +23,51 @@ export default class Button extends PIXI.Container {
       height: 80,
       color: 0x1E88E5,
       texture: null,     // 默认无图片
-      fontFamily: 'Arial', // [新增] 默认字体
-      fontSize: 32,      // 默认字号
-      textColor: 0xFFFFFF, // 默认文字颜色
+      fontFamily: 'Arial', 
+      fontSize: 32,      
+      textColor: 0xFFFFFF,
       onClick: () => {}
     }, options);
+
+    this.inner = new PIXI.Container();
+    this.addChild(this.inner);
+
+    this.bg = null;
+    this.label = null;
 
     this.init();
   }
 
   init() {
-    const { width, height, color, texture, text, fontFamily, fontSize, textColor, onClick } = this.options;
+    const { width, height, color, texture, text, fontFamily, fontSize, textColor } = this.options;
+
+    // 设置内部容器位置为中心，方便缩放
+    this.inner.position.set(width / 2, height / 2);
 
     // 1. 背景层
     if (texture) {
         // 使用图片背景
         this.bg = new PIXI.Sprite(texture);
+        this.bg.anchor.set(0.5); // 图片中心对齐
         this.bg.width = width;
         this.bg.height = height;
-        // Sprite 默认 anchor 是 (0,0)，与 Graphics 绘制逻辑 (从0,0开始画) 一致
     } else {
         // 使用纯色绘图背景
         this.bg = new PIXI.Graphics();
         this.drawBg(color);
     }
     
-    this.addChild(this.bg);
+    this.inner.addChild(this.bg);
 
     // 2. 文字层
-    // 为了适配图片按钮，通常增加描边和阴影效果更好看
     this.label = new PIXI.Text(text, { 
-      fontFamily: fontFamily, // [修改] 使用配置字体
+      fontFamily: fontFamily,
       fontSize: fontSize,
       fill: textColor,
       align: 'center',
       fontWeight: 'bold',
-      // 添加描边以确保在任何图片背景上都清晰
       stroke: 0x000000,
       strokeThickness: 4,
-      // 添加投影增加立体感
       dropShadow: true,
       dropShadowColor: 0x000000,
       dropShadowBlur: 2,
@@ -70,56 +76,58 @@ export default class Button extends PIXI.Container {
     });
     
     this.label.anchor.set(0.5);
-    // 居中放置
-    this.label.position.set(width / 2, height / 2);
-    this.addChild(this.label);
+    this.label.position.set(0, 0); // 也是居中
+    this.inner.addChild(this.label);
 
-    // 3. 交互设置
+    // 3. 交互设置 (绑定在最外层容器)
     this.interactive = true; 
-    this.buttonMode = true;  // 鼠标悬停显示手型
+    this.buttonMode = true;
+    
+    // 显式设置点击区域，确保点击判定稳定
+    this.hitArea = new PIXI.Rectangle(0, 0, width, height);
 
-    this.on('pointerdown', () => this.onPress());
-    this.on('pointerup', () => this.onRelease());
+    this.on('pointerdown', this.onPress, this);
+    this.on('pointerup', this.onRelease, this);
     this.on('pointerupoutside', () => this.onRelease(false));
+    
+    // 兼容 touch 事件 (部分环境可能需要)
+    this.on('touchstart', this.onPress, this);
+    this.on('touchend', this.onRelease, this);
+    this.on('touchendoutside', () => this.onRelease(false));
   }
 
   drawBg(color) {
     if (this.bg instanceof PIXI.Graphics) {
+        const { width, height } = this.options;
         this.bg.clear();
         this.bg.beginFill(color);
-        this.bg.drawRoundedRect(0, 0, this.options.width, this.options.height, 20);
+        // 绘制相对于中心的矩形
+        this.bg.drawRoundedRect(-width / 2, -height / 2, width, height, 20);
         this.bg.endFill();
     }
   }
 
-  onPress() {
-    this.alpha = 0.8;
-    // 缩放中心点调整逻辑：
-    // 因为 bg 是左上角对齐(0,0)，直接缩放会向右下角偏移。
-    // 为了简化，这里我们只改变透明度和位置偏移，或者临时设置 pivot
+  onPress(e) {
+    // [修改] 移除 e.stopPropagation()
+    // 允许事件冒泡到父容器 (如 ScrollContainer)，以便父容器能接收到 pointerdown 并重置滚动状态 (isDragging = false)
     
-    // 简单的按压效果：整体缩小一点点，通过调整 Scale
-    // 先设置 Pivot 为中心点，这样缩放才是居中的
-    this.pivot.set(this.options.width / 2, this.options.height / 2);
-    this.position.x += this.options.width / 2;
-    this.position.y += this.options.height / 2;
-    
-    this.scale.set(0.95);
+    this.inner.alpha = 0.8;
+    this.inner.scale.set(0.95);
   }
 
-  onRelease(trigger = true) {
-    this.alpha = 1;
-    this.scale.set(1);
-    
-    // 恢复位置 (因为 onPress 修改了 pivot 和 position)
-    // 实际上更简单的做法是这里重置 scale 即可，
-    // 因为 pointerup 时我们会重置状态，但如果我们要保持 transform 干净：
-    this.pivot.set(0, 0);
-    this.position.x -= this.options.width / 2;
-    this.position.y -= this.options.height / 2;
+  onRelease(e) {
+    // 如果 e 是 boolean (来自箭头函数调用)，说明是 internal call
+    const isEvent = e && e.data;
+    const trigger = e !== false; // 如果传入 false 则不触发 click
+
+    this.inner.alpha = 1;
+    this.inner.scale.set(1);
 
     if (trigger) {
-      this.options.onClick();
+        if (this.options.onClick) {
+            console.log('[Button] Click triggered:', this.options.text);
+            this.options.onClick();
+        }
     }
   }
 }

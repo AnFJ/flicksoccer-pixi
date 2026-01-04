@@ -174,6 +174,63 @@ class AccountMgr {
   }
 
   /**
+   * [新增] 增加道具数量 (看广告奖励用)
+   */
+  addItem(itemId, amount = 1) {
+      if (!this.userInfo.items) this.userInfo.items = [];
+
+      let item = this.userInfo.items.find(i => i.id === itemId);
+      if (item) {
+          item.count += amount;
+      } else {
+          this.userInfo.items.push({ id: itemId, count: amount });
+          item = this.userInfo.items.find(i => i.id === itemId);
+      }
+      
+      this.sync();
+      EventBus.emit(Events.ITEM_UPDATE, { itemId, count: item.count });
+      console.log(`[Account] Added item ${itemId}, total: ${item.count}`);
+      return true;
+  }
+
+  // --- 签到相关逻辑 ---
+
+  /**
+   * 检查今日是否已签到
+   * @returns {boolean}
+   */
+  isCheckedInToday() {
+      // 我们使用一个特殊的 item ID 'sys_last_checkin' 来存储时间戳 (放在 count 字段)
+      const lastTime = this.getItemCount('sys_last_checkin');
+      if (!lastTime) return false;
+
+      const lastDate = new Date(lastTime);
+      const today = new Date();
+
+      return lastDate.getFullYear() === today.getFullYear() &&
+             lastDate.getMonth() === today.getMonth() &&
+             lastDate.getDate() === today.getDate();
+  }
+
+  /**
+   * 执行签到
+   * @param {number} rewardCoins 奖励金币数
+   */
+  performCheckIn(rewardCoins) {
+      // 1. 更新时间戳
+      const now = Date.now();
+      let item = this.userInfo.items.find(i => i.id === 'sys_last_checkin');
+      if (item) {
+          item.count = now;
+      } else {
+          this.userInfo.items.push({ id: 'sys_last_checkin', count: now });
+      }
+
+      // 2. 加金币
+      this.addCoins(rewardCoins, true); // true = 立即同步
+  }
+
+  /**
    * 完成关卡
    * @param {number} levelId 刚刚完成的关卡ID
    * @param {boolean} autoSync 是否立即同步 (默认true)

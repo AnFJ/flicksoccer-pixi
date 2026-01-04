@@ -7,7 +7,7 @@ export default class AdBoard extends PIXI.Container {
   /**
    * @param {number} width 宽
    * @param {number} height 高
-   * @param {number} index 索引(用于决定颜色和倾斜方向)
+   * @param {number} index 索引(用于决定颜色)
    */
   constructor(width, height, index) {
     super();
@@ -39,12 +39,14 @@ export default class AdBoard extends PIXI.Container {
     const colors = GameConfig.visuals.ui.adBoardColors;
     const color = colors[this.index % colors.length];
 
-    // 1. 背景层 (包含阴影和底色)
+    // 1. 背景层 (严格填充 w * h)
     this.bgGraphics = new PIXI.Graphics();
-    // 阴影
-    this.bgGraphics.beginFill(0x000000, 0.4);
-    this.bgGraphics.drawRect(-w/2 + 10, -h/2 + 10, w, h);
+    
+    // 简单的阴影 (向右下偏移一点点)
+    this.bgGraphics.beginFill(0x000000, 0.3);
+    this.bgGraphics.drawRect(-w/2 + 5, -h/2 + 5, w, h);
     this.bgGraphics.endFill();
+
     // 板子主体底色
     this.bgGraphics.beginFill(color);
     this.bgGraphics.drawRect(-w/2, -h/2, w, h);
@@ -53,24 +55,24 @@ export default class AdBoard extends PIXI.Container {
     this.addChild(this.bgGraphics);
 
     // 2. 占位文字 (默认显示，图片加载成功后隐藏)
-    const textStr = this.index === 0 ? "PLAY\nNOW" : "SOCCER\nGAME";
+    // 竖排文字处理
+    const textStr = this.index === 0 ? "广\n告\n位" : "精\n选";
     this.placeholderText = new PIXI.Text(textStr, {
-        fontFamily: 'Arial Black', fontSize: 30, fill: 0xffffff, align: 'center',
-        dropShadow: true, dropShadowBlur: 2
+        fontFamily: 'Arial Black', fontSize: 32, fill: 0xffffff, align: 'center',
+        dropShadow: true, dropShadowBlur: 2, lineHeight: 40
     });
     this.placeholderText.anchor.set(0.5);
     this.addChild(this.placeholderText);
 
-    // 3. 边框层 (始终在最上层)
+    // 3. 边框层 (始终在最上层，严格贴合边缘)
     this.borderGraphics = new PIXI.Graphics();
-    this.borderGraphics.lineStyle(4, 0xffffff, 0.8);
-    // 绘制在内部，留出一点边距
-    this.borderGraphics.drawRect(-w/2 + 10, -h/2 + 10, w - 20, h - 20);
+    // 边框画在内部，避免增加实际尺寸
+    this.borderGraphics.lineStyle(4, 0xffffff, 0.8, 0); 
+    this.borderGraphics.drawRect(-w/2, -h/2, w, h);
     this.addChild(this.borderGraphics);
 
-    // 4. 设置倾斜角度
-    // 假设 index 0 是左边，1 是右边
-    this.rotation = this.index === 0 ? 0.05 : -0.05;
+    // [优化] 移除旋转，保持竖直状态以适配 Banner/Custom 广告
+    this.rotation = 0;
   }
 
   initInteraction() {
@@ -111,9 +113,9 @@ export default class AdBoard extends PIXI.Container {
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
 
-        // 设置尺寸填满内框 (保留20px边框空间)
-        sprite.width = this.boardWidth - 20;
-        sprite.height = this.boardHeight - 20;
+        // [优化] 设置尺寸填满整个广告牌，不留边距
+        sprite.width = this.boardWidth;
+        sprite.height = this.boardHeight;
 
         // 插入层级：背景之上，边框之下
         // 现在的 children 顺序是: [0:Bg, 1:Text, 2:Border]

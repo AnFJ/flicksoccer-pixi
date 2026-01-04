@@ -160,7 +160,11 @@ export default class GameLayout {
     /** 创建广告牌 */
     _createAdBoards() {
         const { x, y, w, h } = this.fieldRect;
-        const adW = 200, adH = 350, dist = 160;
+        
+        // [优化] 调整为竖向尺寸 (宽120, 高360)，比例 1:3 适合微信竖向模板广告
+        const adW = 200;
+        const adH = 500; 
+        const dist = 200; // 离球场稍微远一点点，防止太挤
         
         // 重置数组
         this.adBoards = [];
