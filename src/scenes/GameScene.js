@@ -108,6 +108,16 @@ export default class GameScene extends BaseScene {
     if (this.gameMode === 'pve') {
         Platform.showToast(`第 ${this.currentLevel} 关 开始!`);
     }
+
+    // [新增] 在场景初始化完成后，根据 AdBoard 的位置加载 Banner 广告
+    if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
+        // 延时一帧确保布局计算完毕
+        setTimeout(() => {
+            if (!this.isGameOver) {
+                Platform.showGameAds(this.layout.adBoards);
+            }
+        }, 100);
+    }
   }
 
   _createUI() {
@@ -553,18 +563,21 @@ export default class GameScene extends BaseScene {
   }
 
   onExit() {
-    super.onExit();
-    EventBus.off(Events.GOAL_SCORED, this);
-    EventBus.off(Events.GAME_OVER, this);
-    EventBus.off(Events.COLLISION_HIT, this);
-    EventBus.off(Events.PLAY_SOUND, this); 
-    EventBus.off(Events.SKILL_ACTIVATED, this); 
-    EventBus.off(Events.ITEM_UPDATE, this); 
-    if (this.networkCtrl) {
-        this.networkCtrl.destroy();
-        this.networkCtrl = null;
-    }
-    this.turnMgr.clear();
-    this.physics.clear();
+      super.onExit();
+      // [新增] 离开游戏场景时清理广告
+      Platform.hideGameAds();
+
+      EventBus.off(Events.GOAL_SCORED, this);
+      EventBus.off(Events.GAME_OVER, this);
+      EventBus.off(Events.COLLISION_HIT, this);
+      EventBus.off(Events.PLAY_SOUND, this); 
+      EventBus.off(Events.SKILL_ACTIVATED, this); 
+      EventBus.off(Events.ITEM_UPDATE, this); 
+      if (this.networkCtrl) {
+          this.networkCtrl.destroy();
+          this.networkCtrl = null;
+      }
+      this.turnMgr.clear();
+      this.physics.clear();
   }
 }

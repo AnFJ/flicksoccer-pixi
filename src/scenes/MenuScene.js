@@ -17,8 +17,6 @@ export default class MenuScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
-    Platform.showBannerAd();
-
     // 1. 背景
     const bgTex = ResourceManager.get('main_bg');
     if (bgTex) {
@@ -102,7 +100,6 @@ export default class MenuScene extends BaseScene {
   
   onExit() {
       super.onExit();
-      Platform.hideBannerAd();
   }
 
   alignUserInfo() {

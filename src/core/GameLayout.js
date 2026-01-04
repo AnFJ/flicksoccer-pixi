@@ -24,6 +24,7 @@ export default class GameLayout {
 
         this.fieldRect = null;
         this.goals = [];
+        this.adBoards = []; // [新增] 存储广告牌实例
     }
 
     /**
@@ -160,13 +161,18 @@ export default class GameLayout {
     _createAdBoards() {
         const { x, y, w, h } = this.fieldRect;
         const adW = 200, adH = 350, dist = 160;
+        
+        // 重置数组
+        this.adBoards = [];
 
         const leftAd = new AdBoard(adW, adH, 0);
         leftAd.position.set(x - dist - adW / 2, y + h / 2);
         this.layers.over.addChild(leftAd);
+        this.adBoards.push(leftAd);
 
         const rightAd = new AdBoard(adW, adH, 1);
         rightAd.position.set(x + w + dist + adW / 2, y + h / 2);
         this.layers.over.addChild(rightAd);
+        this.adBoards.push(rightAd);
     }
 }

@@ -6,7 +6,7 @@ class Platform {
     this.env = this.detectEnv();
     console.log(`[Platform] Current Environment: ${this.env}`);
     
-    this._bannerAd = null; // 缓存 Banner 广告实例
+    this._gameAds = []; // [新增] 存储游戏场景内的多个广告实例
   }
 
   detectEnv() {
@@ -184,80 +184,110 @@ class Platform {
     return null;
   }
 
+  // --- 广告相关 ---
+
   /**
-   * [新增] 展示 Banner 广告 (底部居中)
+   * [修改] 展示游戏场景内的广告 (微信原生模板 / 抖音 Banner)
+   * @param {Array<PIXI.DisplayObject>} adNodes 游戏中的广告牌 Pixi 节点数组
    */
-  showBannerAd() {
-      if (this.env === 'web') return;
+  showGameAds(adNodes) {
+      if (this.env === 'web') return; // Web 端不处理，直接显示游戏内的图片
+      if (!adNodes || adNodes.length === 0) return;
+
       const provider = this.getProvider();
-      if (!provider || !provider.createBannerAd) return;
+      
+      // 获取配置列表
+      let bannerIds = [];
+      if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
+      if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
 
-      // 获取当前平台的 AdUnitId
-      let adUnitId = '';
-      if (this.env === 'wechat') adUnitId = GameConfig.adConfig.wechat.bannerId;
-      if (this.env === 'douyin') adUnitId = GameConfig.adConfig.douyin.bannerId;
+      // 清理旧广告
+      this.hideGameAds();
 
-      if (!adUnitId || adUnitId.startsWith('adunit-xx')) {
-          console.warn('[Platform] Banner AdUnitId not configured.');
-          return;
-      }
+      adNodes.forEach((node, index) => {
+          if (index >= bannerIds.length) return;
+          const adUnitId = bannerIds[index];
+          if (!adUnitId || adUnitId.startsWith('adunit-xx')) return;
 
-      // 如果广告已经存在且是同一个ID，直接展示
-      if (this._bannerAd) {
-          this._bannerAd.show().catch(err => console.error(err));
-          return;
-      }
+          // 1. 计算 Pixi 节点在屏幕上的绝对位置和尺寸
+          // 注意：Pixi 的 global 坐标系原点是左上角，与小程序的屏幕坐标系一致 (因为我们是全屏 Canvas)
+          // 确保此时 SceneManager 已经完成了 resize，node.getBounds() 返回的是真实的屏幕坐标
+          const bounds = node.getBounds();
+          
+          if (!bounds) return;
 
-      try {
-          // 获取屏幕信息用于定位
-          const sysInfo = provider.getSystemInfoSync();
-          const screenWidth = sysInfo.windowWidth;
-          const screenHeight = sysInfo.windowHeight;
-          const targetW = 300; // 建议宽度
+          // 2. 创建广告
+          try {
+              let adInstance = null;
 
-          // 创建广告实例
-          this._bannerAd = provider.createBannerAd({
-              adUnitId: adUnitId,
-              adIntervals: 30, // 抖音支持自动刷新
-              style: {
-                  left: (screenWidth - targetW) / 2,
-                  top: screenHeight - 100, // 初始位置，加载后修正
-                  width: targetW
+              // --- 微信小程序：原生模板广告 (CustomAd) ---
+              if (this.env === 'wechat' && provider.createCustomAd) {
+                  // 原生模板广告支持 style.left, top, width
+                  // fixed: true 建议开启，防止滚动影响（虽然游戏是 Canvas 一般不滚）
+                  adInstance = provider.createCustomAd({
+                      adUnitId: adUnitId,
+                      style: {
+                          left: bounds.x,
+                          top: bounds.y,
+                          width: bounds.width, 
+                          // height 通常由模板自适应，无法强制设置，可能会超出 bounds.height
+                          // 可以尝试寻找固定比例的模板
+                          fixed: true 
+                      }
+                  });
               }
-          });
 
-          // 尺寸调整回调 (微信/抖音加载成功后会重置 style.height)
-          this._bannerAd.onResize(size => {
-              // 重新居中并贴底
-              this._bannerAd.style.left = (screenWidth - size.width) / 2;
-              this._bannerAd.style.top = screenHeight - size.height; // 贴底
-          });
+              // --- 抖音小程序：Banner 广告 ---
+              else if (this.env === 'douyin' && provider.createBannerAd) {
+                  // 抖音 Banner 宽高比一般是固定的 (约 3:1)，我们设置 width，height 会自适应
+                  adInstance = provider.createBannerAd({
+                      adUnitId: adUnitId,
+                      style: {
+                          left: bounds.x,
+                          top: bounds.y,
+                          width: bounds.width
+                      }
+                  });
+                  
+                  // 尝试调整位置使其垂直居中于广告牌 (因为高度不可控)
+                  adInstance.onResize(size => {
+                      const offsetY = (bounds.height - size.height) / 2;
+                      adInstance.style.top = bounds.y + offsetY;
+                  });
+              }
 
-          this._bannerAd.onError(err => {
-              console.error('[Platform] Banner Ad Error:', err);
-          });
+              if (adInstance) {
+                  adInstance.onError(err => {
+                      console.warn(`[Platform] Game Ad ${index} Error:`, err);
+                  });
+                  adInstance.show().catch(err => console.warn('Ad Show Fail', err));
+                  this._gameAds.push(adInstance);
+              }
 
-          this._bannerAd.show();
-          console.log('[Platform] Banner Ad Created and Shown');
-
-      } catch (e) {
-          console.error('[Platform] Create Banner Ad failed', e);
-      }
+          } catch (e) {
+              console.error(`[Platform] Create Game Ad ${index} failed`, e);
+          }
+      });
   }
 
   /**
-   * [新增] 隐藏/销毁 Banner 广告
-   * @param {boolean} destroy 是否彻底销毁 (默认 false，仅隐藏)
+   * [修改] 隐藏/销毁游戏场景广告
    */
-  hideBannerAd(destroy = false) {
-      if (this._bannerAd) {
-          this._bannerAd.hide();
-          if (destroy) {
-              this._bannerAd.destroy();
-              this._bannerAd = null;
-          }
+  hideGameAds() {
+      if (this._gameAds.length > 0) {
+          this._gameAds.forEach(ad => {
+              try {
+                  ad.hide();
+                  ad.destroy();
+              } catch(e) {}
+          });
+          this._gameAds = [];
       }
   }
+
+  // 旧接口保留为空实现或移除，防止 MenuScene 旧代码调用报错 (虽然 MenuScene 已经清理了)
+  showBannerAd() {}
+  hideBannerAd() {}
 
   /**
    * [新增] 跳转其他小程序 (用于 AdBoard 互推)
@@ -298,22 +328,14 @@ class Platform {
     if (this.env === 'wechat') {
         const wx = this.getProvider();
         // 微信小游戏：打开游戏圈
-        if (wx.createPageManager) {
-            const pageManager = wx.createPageManager();
-            pageManager.load({
-              openlink: '-SSEykJvFV3pORt5kTNpSxd30-TvafFgaZqHSUv3S6kVRb84TEE5RwHDiSF5f7nrJ6jVNpIsfaLHpurmt0qQJ2oX03HgDnc57u_Jz-MxLhkW8BahDJx2uHr0THo_701Wfg8QgkLfZchjnilapXRsz5r7YJsb36Aq6fN0F-H_QzDNoqaZBCiHIGX36PZuElKlWwSxqwIX4ruc0zAVFyp1EE3MCH2VXe4icADWEwO7P0LDqZHaESNstcVG-EskNEyncO_k-AE6oq542gY2m0IUAwEGxclH4yCHpNHKRnkeVFqYUbWxMY7Gj1h5o-c7agzhkD_ia8qOF6x8NtcEnxbuXw', // 由不同渠道获得的OPENLINK值
-            }).then((res) => {
-              // 加载成功，res 可能携带不同活动、功能返回的特殊回包信息（具体请参阅渠道说明）
-              console.log(res);
-
-              // 加载成功后按需显示
-              pageManager.show();
-
-            }).catch((err) => {
-              // 加载失败，请查阅 err 给出的错误信息
-              console.error(err);
-              this.showToast('无法打开游戏圈');
-            })
+        if (wx.openGameClub) {
+            wx.openGameClub({
+                success: () => console.log('Opened Game Club'),
+                fail: (err) => {
+                    console.error('Open Game Club failed:', err);
+                    this.showToast('无法打开游戏圈');
+                }
+            });
         } else if (wx.createGameClubButton) {
              // 兜底：如果只有创建按钮接口，通常比较麻烦，这里提示用户
              this.showToast('请使用右上角菜单进入游戏圈');

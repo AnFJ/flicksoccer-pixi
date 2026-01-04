@@ -40,7 +40,7 @@ export const GameConfig = {
       menuBtnColor: 0x27ae60,  // 菜单按钮绿色
       menuBtnShadow: 0x1e8449, // 菜单按钮阴影色
       adBoardColors: [0xf1c40f, 0x3498db, 0xe74c3c], // 广告牌随机色
-      // 场景内广告牌配置 (互推/自家广告)
+      // 场景内广告牌配置 (互推/自家广告) - H5 或加载失败时显示
       adBoardConfig: [
           {
               imageUrl: "https://youke2.picui.cn/s1/2025/12/26/694e3dc16f5a9.png",
@@ -116,13 +116,13 @@ export const GameConfig = {
       replayBufferTime: 500,       // 接收端：开始播放前需要缓冲的时间 (ms)
   },
 
-  // [新增] 平台广告ID配置 (请替换为你的真实ID)
+  // [修改] 平台广告ID配置 (数组对应左右两个广告位)
   adConfig: {
       wechat: {
-          bannerId: 'adunit-66e3cd5a02de9eab' 
+          banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'] 
       },
       douyin: {
-          bannerId: 'adunit-yyyyyyyy'
+          banners: ['adunit-left-placeholder', 'adunit-right-placeholder']
       }
   },
 

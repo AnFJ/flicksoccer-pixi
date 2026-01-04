@@ -130,56 +130,49 @@ export default class LevelSelectScene extends BaseScene {
     }
 
     createLevelButton(level, x, y, size, isLocked, config) {
-        const btn = new PIXI.Container();
-        btn.position.set(x, y);
+        // x, y 是网格单元的中心点
+        // Button 默认左上角对齐 (其实是 drawBg 从 0,0 开始)，所以需要偏移
+        const btnX = x - size / 2;
+        const btnY = y - size / 2;
 
-        // 背景
-        const bg = new PIXI.Graphics();
         const color = isLocked ? 0x7f8c8d : (level % 10 === 0 ? 0xe74c3c : 0x3498db); // BOSS关红色
+        const textStr = isLocked ? '🔒' : level.toString();
         
-        bg.beginFill(color);
-        bg.drawRoundedRect(-size/2, -size/2, size, size, 20);
-        bg.endFill();
-        
-        // 阴影
-        bg.beginFill(0x000000, 0.2);
-        bg.drawRoundedRect(-size/2, -size/2 + 10, size, size, 20);
-        bg.endFill();
-
-        btn.addChild(bg);
-
-        if (isLocked) {
-            const lockText = new PIXI.Text('🔒', { fontSize: 60 });
-            lockText.anchor.set(0.5);
-            btn.addChild(lockText);
-        } else {
-            // 关卡数字
-            const numText = new PIXI.Text(level.toString(), {
-                fontFamily: 'Arial Black', fontSize: 60, fill: 0xffffff
-            });
-            numText.anchor.set(0.5);
-            numText.position.set(0, -20);
-            btn.addChild(numText);
-
-            // 描述 (例如 "教学")
-            if (config.description && (level <= 10 || level % 10 === 0)) {
-                const descText = new PIXI.Text(config.description, {
-                    fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold'
-                });
-                descText.anchor.set(0.5);
-                descText.position.set(0, 40);
-                btn.addChild(descText);
-            }
-
-            // 交互
-            btn.interactive = true;
-            btn.buttonMode = true;
-            btn.on('pointertap', () => {
-                // 只有在没有触发拖动逻辑时才进入关卡
-                if (!this.isDragging) {
+        // [修改] 使用统一的 Button 组件
+        const btn = new Button({
+            text: textStr,
+            width: size,
+            height: size,
+            color: color,
+            fontSize: isLocked ? 60 : 60,
+            fontFamily: 'Arial Black', // 需要 Button 支持这个属性
+            textColor: 0xffffff,
+            onClick: () => {
+                console.log('关卡选择', isLocked, this.isDragging)
+                // 如果没有触发滚动（拖拽），则视为点击
+                if (!this.isDragging && !isLocked) {
                     SceneManager.changeScene(GameScene, { mode: 'pve', level: level });
                 }
+            }
+        });
+        
+        btn.position.set(btnX, btnY);
+
+        // 描述 (例如 "教学")
+        if (!isLocked && config.description && (level <= 10 || level % 10 === 0)) {
+            // 稍微上移主数字，给描述腾位置
+            if (btn.label) {
+                btn.label.y -= 20;
+            }
+
+            const descText = new PIXI.Text(config.description, {
+                fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold',
+                dropShadow: true, dropShadowBlur: 2
             });
+            descText.anchor.set(0.5);
+            // 相对于按钮左上角定位。中心是 size/2
+            descText.position.set(size / 2, size / 2 + 35);
+            btn.addChild(descText);
         }
 
         this.scrollContainer.addChild(btn);
@@ -219,8 +212,11 @@ export default class LevelSelectScene extends BaseScene {
         }
 
         if (this.isDragging) {
+            // 获取当前缩放比例，将屏幕位移转换为本地坐标位移
+            const scale = this.container.scale.y || 1;
+            
             // 移动容器
-            let effectiveDelta = delta;
+            let effectiveDelta = delta / scale;
             
             // 边界阻尼效果：超出边界时移动变慢
             if (this.scrollContainer.y > this.maxY || this.scrollContainer.y < this.minY) {
@@ -235,15 +231,10 @@ export default class LevelSelectScene extends BaseScene {
         this.isTouching = false;
         
         // 只有拖拽结束时才触发回弹
-        // 如果只是点击（isDragging=false），不需要回弹逻辑，也不需要修正位置（因为没动）
         if (this.isDragging) {
             this.animateBounce();
         }
-        
-        // 注意：这里不要立即把 isDragging 设为 false，
-        // 因为 Button 的 pointertap 事件可能在 pointerup 之后触发，
-        // 需要保留状态让按钮判断是否是拖拽释放。
-        // 下一次 pointerdown 会重置它。
+        // 注意：Button 组件自己处理点击事件，不需要在这里触发
     }
 
     animateBounce() {

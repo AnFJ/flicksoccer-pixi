@@ -9,6 +9,7 @@ export default class Button extends PIXI.Container {
    * @param {number} options.height 高
    * @param {number} options.color 背景色 (Hex) - 仅在没有 texture 时生效
    * @param {PIXI.Texture} options.texture 背景图片纹理 (可选)
+   * @param {string} options.fontFamily 字体 (可选，默认 Arial)
    * @param {number} options.fontSize 文字大小 (可选)
    * @param {number} options.textColor 文字颜色 (可选)
    * @param {Function} options.onClick 点击回调
@@ -22,6 +23,7 @@ export default class Button extends PIXI.Container {
       height: 80,
       color: 0x1E88E5,
       texture: null,     // 默认无图片
+      fontFamily: 'Arial', // [新增] 默认字体
       fontSize: 32,      // 默认字号
       textColor: 0xFFFFFF, // 默认文字颜色
       onClick: () => {}
@@ -31,7 +33,7 @@ export default class Button extends PIXI.Container {
   }
 
   init() {
-    const { width, height, color, texture, text, fontSize, textColor, onClick } = this.options;
+    const { width, height, color, texture, text, fontFamily, fontSize, textColor, onClick } = this.options;
 
     // 1. 背景层
     if (texture) {
@@ -51,7 +53,7 @@ export default class Button extends PIXI.Container {
     // 2. 文字层
     // 为了适配图片按钮，通常增加描边和阴影效果更好看
     this.label = new PIXI.Text(text, { 
-      fontFamily: 'Arial',
+      fontFamily: fontFamily, // [修改] 使用配置字体
       fontSize: fontSize,
       fill: textColor,
       align: 'center',
