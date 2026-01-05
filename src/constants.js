@@ -40,7 +40,8 @@ export const Events = {
   PLAY_SOUND: 'play_sound', // [新增] 播放音效事件
   NET_MESSAGE: 'net_message', // 网络消息
   SKILL_ACTIVATED: 'skill_activated', // 技能激活
-  ITEM_UPDATE: 'item_update' // [新增] 物品/技能数量更新
+  ITEM_UPDATE: 'item_update', // [新增] 物品/技能数量更新
+  USER_DATA_REFRESHED: 'user_data_refreshed' // [新增] 用户数据后台刷新完成
 };
 
 // 网络消息类型

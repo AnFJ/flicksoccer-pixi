@@ -5,7 +5,7 @@ import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Platform from '../managers/Platform.js'; 
 import ResourceManager from '../managers/ResourceManager.js';
-import AudioManager from '../managers/AudioManager.js'; // [新增]
+import AudioManager from '../managers/AudioManager.js'; 
 import MenuScene from './MenuScene.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
@@ -21,35 +21,23 @@ export default class LoginScene extends BaseScene {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
-    // 0. [新增] 初始化音频管理器 (注册音效)
     AudioManager.init();
 
-    // 1. 第一步：先加载登录页背景 (极速加载)
     await ResourceManager.loadLoginResources();
 
-    // 2. 渲染基础UI (背景、标题)
     this._initBasicUI(designWidth, designHeight);
-
-    // 3. 创建进度条
     this._createProgressBar(designWidth, designHeight);
-
-    // 4. 并行执行：静默登录 + 加载剩余游戏资源
     this._startLoadingProcess(designWidth, designHeight);
   }
 
   _initBasicUI(w, h) {
-      // 背景，里面有包含标题
       const bgTex = ResourceManager.get('login_bg');
       if (bgTex) {
           const bg = new PIXI.Sprite(bgTex);
           bg.anchor.set(0.5);
           bg.position.set(w / 2, h / 2);
-          
-          // 简单的 Cover 适配
           const scale = Math.max(w / bg.width, h / bg.height);
           bg.scale.set(scale);
-          
-          // 压暗背景，突出文字
           bg.tint = 0x888888;
           this.container.addChild(bg);
       } else {
@@ -66,7 +54,6 @@ export default class LoginScene extends BaseScene {
       const barW = 600;
       const barH = 30;
       
-      // 进度条背景 (底槽)
       const bg = new PIXI.Graphics();
       bg.beginFill(0x000000, 0.5);
       bg.drawRoundedRect(-barW/2, -barH/2, barW, barH, 15);
@@ -74,15 +61,13 @@ export default class LoginScene extends BaseScene {
       bg.lineStyle(2, 0xffffff, 0.3);
       bg.drawRoundedRect(-barW/2, -barH/2, barW, barH, 15);
       
-      // 进度条填充 (Fill)
       this.progressFill = new PIXI.Graphics();
-      this.progressFill.beginFill(0x2ecc71); // 绿色
-      this.progressFill.drawRoundedRect(0, -barH/2, barW, barH, 15); // 从左开始画
+      this.progressFill.beginFill(0x2ecc71); 
+      this.progressFill.drawRoundedRect(0, -barH/2, barW, barH, 15); 
       this.progressFill.endFill();
-      this.progressFill.x = -barW/2; // 起点在左侧
-      this.progressFill.scale.x = 0; // 初始 0%
+      this.progressFill.x = -barW/2; 
+      this.progressFill.scale.x = 0; 
 
-      // 进度文字
       this.loadingLabel = new PIXI.Text('正在获取资源... 0%', {
           fontFamily: 'Arial', fontSize: 28, fill: 0xffffff
       });
@@ -98,44 +83,46 @@ export default class LoginScene extends BaseScene {
 
   _updateProgress(percent) {
       if (!this.progressBar) return;
-      // 限制在 0~1 之间
       const p = Math.max(0, Math.min(percent, 1));
-      
-      // 更新条长度
       this.progressFill.scale.x = p;
-      
-      // 更新文字
       this.loadingLabel.text = `资源加载中... ${Math.floor(p * 100)}%`;
   }
 
   async _startLoadingProcess(w, h) {
       try {
-          // H5 端尝试全屏
           if (Platform.isMobileWeb()) {
               Platform.enterFullscreen();
           }
 
-          // --- 并行任务 ---
+          // 1. 尝试读取本地缓存
+          const hasCache = AccountMgr.loadFromCache();
           
-          // 任务1: 资源加载 (占进度的 80% 权重)
+          // 2. 启动资源加载 (Promise)
           const assetLoadPromise = ResourceManager.loadGameResources((progress) => {
               this._updateProgress(progress / 100); 
           });
 
-          // 任务2: 静默登录
+          // 3. 启动登录 (Promise)
+          // 无论是否有缓存，都要发请求去同步最新数据/检查Token
           const loginPromise = AccountMgr.silentLogin();
 
-          // 等待两者都完成
-          await Promise.all([assetLoadPromise, loginPromise]);
-
-          // 加载完成
-          this._updateProgress(1.0);
-          this.loadingLabel.text = "加载完成";
-
-          // 短暂延迟，让用户看到 100%
-          setTimeout(() => {
-              this._onLoadingComplete(w, h);
-          }, 500);
+          if (hasCache) {
+              // --- 分支 A: 命中缓存 (秒开模式) ---
+              // 只等待资源加载完毕，不等待登录接口
+              // 假设有缓存的一定不是需要授权的新用户
+              await assetLoadPromise;
+              
+              // 确保登录请求在后台继续跑，不 await 它
+              // 但要处理可能的未捕获异常
+              loginPromise.catch(e => console.warn('Background login warning:', e));
+              
+              this._onLoadingComplete(w, h, false); // false = 不需要检查 isNewUser
+          } else {
+              // --- 分支 B: 无缓存 (普通模式) ---
+              // 必须等待所有完成，因为要判断是否 isNewUser
+              await Promise.all([assetLoadPromise, loginPromise]);
+              this._onLoadingComplete(w, h, true); // true = 需要检查 isNewUser
+          }
 
       } catch (err) {
           console.error("Login/Load Error:", err);
@@ -147,26 +134,26 @@ export default class LoginScene extends BaseScene {
       }
   }
 
-  _onLoadingComplete(w, h) {
-      const isNewUser = AccountMgr.isNewUser;
-      const isH5 = Platform.env === 'web';
+  _onLoadingComplete(w, h, checkNewUser) {
+      this._updateProgress(1.0);
+      
+      // 稍微延迟一点点提升体验
+      setTimeout(() => {
+          if (this.progressBar) {
+              this.container.removeChild(this.progressBar);
+              this.progressBar = null;
+          }
 
-      // 隐藏进度条
-      this.container.removeChild(this.progressBar);
-      this.progressBar = null;
-
-      // H5 或 老用户 -> 直接进入大厅
-      if (isH5 || !isNewUser) {
-          SceneManager.changeScene(MenuScene);
-      } else {
-          // 新用户 (小程序) -> 显示授权按钮
-          this._createAuthButton(w, h);
-      }
+          if (checkNewUser && AccountMgr.isNewUser && Platform.env !== 'web') {
+              // 是新用户，且不是Web环境 (Web默认Guest自动进)
+              this._createAuthButton(w, h);
+          } else {
+              // 老用户 或 Web用户 或 缓存命中 -> 进大厅
+              SceneManager.changeScene(MenuScene);
+          }
+      }, 200);
   }
 
-  /**
-   * 创建授权按钮 (仅针对新用户)
-   */
   _createAuthButton(w, h) {
       const statusText = new PIXI.Text('欢迎新玩家！', {
           fontFamily: 'Arial', fontSize: 40, fill: 0xffffff

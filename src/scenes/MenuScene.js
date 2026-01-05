@@ -11,8 +11,10 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 import Platform from '../managers/Platform.js'; 
 import InventoryView from '../ui/InventoryView.js'; 
-import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; // [新增]
+import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; 
 import MessageDialog from '../ui/MessageDialog.js'; 
+import EventBus from '../managers/EventBus.js';
+import { Events } from '../constants.js'; // [新增] 引入 Events
 
 export default class MenuScene extends BaseScene {
   onEnter() {
@@ -57,7 +59,7 @@ export default class MenuScene extends BaseScene {
     };
     const entryFee = GameConfig.gameplay.economy.entryFee;
     
-    // 1. PVE 按钮 -> 跳转到关卡选择
+    // 1. PVE
     const pveBtn = new Button({ 
         ...btnConfig,
         text: `单人闯关`, 
@@ -92,6 +94,32 @@ export default class MenuScene extends BaseScene {
     this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
 
     this.alignUserInfo();
+
+    // [新增] 监听数据刷新事件
+    EventBus.on(Events.USER_DATA_REFRESHED, this.refreshUI, this);
+  }
+
+  // [新增] 刷新 UI 数据
+  refreshUI() {
+      if (this.destroyed) return;
+      const user = AccountMgr.userInfo;
+      
+      // 刷新金币
+      if (this.coinsText) {
+          this.coinsText.text = `💰 ${user.coins}`;
+      }
+      
+      // 刷新等级
+      if (this.levelText) {
+          this.levelText.text = `Lv.${user.level}`;
+      }
+
+      // 刷新昵称 (如果后台变了)
+      if (this.nameText) {
+          this.nameText.text = user.nickname;
+      }
+
+      // 如果需要刷新头像，这里也可以处理，但头像加载较重通常不频繁变动
   }
 
   // 响应屏幕尺寸变化
@@ -101,6 +129,8 @@ export default class MenuScene extends BaseScene {
   
   onExit() {
       super.onExit();
+      // [新增] 移除监听
+      EventBus.off(Events.USER_DATA_REFRESHED, this.refreshUI, this);
   }
 
   alignUserInfo() {
@@ -183,10 +213,9 @@ export default class MenuScene extends BaseScene {
     container.addChild(bagBtn);
     currentY += btnDiameter + btnGap;
 
-    // 3. [新增] 主题
+    // 3. 主题
     const themeBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_theme', '主题装扮', 0xF39C12, () => {
         const themeDialog = new ThemeSelectionDialog(() => {
-            // 回调：主题更新后可能需要刷新某些显示（目前菜单页没有受主题影响的元素，如有可在此刷新）
         });
         this.container.addChild(themeDialog);
     });
@@ -210,6 +239,7 @@ export default class MenuScene extends BaseScene {
         dropShadow: true, dropShadowBlur: 2
     });
     nameText.position.set(textX, textStartY);
+    this.nameText = nameText; // 保存引用
     container.addChild(nameText);
 
     const levelBg = new PIXI.Graphics();
@@ -224,13 +254,14 @@ export default class MenuScene extends BaseScene {
     });
     levelText.anchor.set(0.5);
     levelText.position.set(textX + 50, textStartY + 80); 
+    this.levelText = levelText; // 保存引用
     container.addChild(levelText);
 
     const coinsText = new PIXI.Text(`💰 ${user.coins}`, {
         fontFamily: 'Arial', fontSize: 32, fill: 0xffffff
     });
     coinsText.position.set(textX + 120, textStartY + 62);
-    this.coinsText = coinsText; 
+    this.coinsText = coinsText; // 保存引用
     container.addChild(coinsText);
 
     this.container.addChild(container);
