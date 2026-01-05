@@ -37,7 +37,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     this.addChild(overlay);
 
     // 2. 主面板
-    const panelW = 900;
+    const panelW = 1250; // [修改] 增加宽度以容纳4列
     const panelH = 750;
     const panel = new PIXI.Graphics();
     panel.beginFill(0x2c3e50);
@@ -70,6 +70,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     // 6. 底部按钮 (确认 & 取消)
     const btnY = panelH/2 - 70;
     const btnW = 200;
+    const btnSpacing = 200; // [修改] 增加按钮间距，确保在宽面板上居中且不拥挤
 
     const confirmBtn = new Button({
         text: '保存', width: btnW, height: 70, color: 0x2ecc71,
@@ -81,7 +82,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    confirmBtn.position.set(-120, btnY);
+    confirmBtn.position.set(-btnSpacing, btnY);
     panel.addChild(confirmBtn);
 
     const cancelBtn = new Button({
@@ -91,7 +92,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    cancelBtn.position.set(120, btnY);
+    cancelBtn.position.set(btnSpacing, btnY);
     panel.addChild(cancelBtn);
   }
 
@@ -140,7 +141,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       }
 
       // 布局参数
-      const cols = 3;
+      const cols = 4; // [修改] 改为4列
       const itemW = 240;
       const itemH = 200;
       const gapX = 30;

@@ -39,10 +39,10 @@ class ResourceManager {
         this.gameManifest[`field_${i}`] = `assets/images/fieldtheme/field_combined${i}.png`;
     }
 
-    // 2. 足球纹理 (3套) ball_texture1 ~ 3
+    // 2. 足球纹理 (4套) ball_texture1 ~ 3
     // 注意：代码里默认使用了 ball_texture 作为 key，这里我们把 ball_texture1 设为默认的 ball_texture 以兼容旧逻辑
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 4; i++) {
         this.gameManifest[`ball_texture_${i}`] = `assets/images/footballtheme/ball_texture${i}.png`;
     }
 
