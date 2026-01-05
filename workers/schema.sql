@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     nickname TEXT,              -- 昵称
     avatar_url TEXT,            -- 头像链接
     theme TEXT DEFAULT '{"striker":1,"field":1,"ball":1,"formationId":0}', -- 主题 (JSON 字符串)
+    unlocked_themes TEXT DEFAULT '[]',  -- 解锁的主题列表 (JSON 字符串)
     level INTEGER DEFAULT 1,    -- 等级
     coins INTEGER DEFAULT 200,  -- 金币
     items TEXT DEFAULT '[]',    -- 道具列表 (JSON 字符串)

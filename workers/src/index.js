@@ -102,7 +102,8 @@ export default {
             theme: JSON.stringify(INITIAL_THEME),
             unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
           };
-          // 注意：需要确保 DB 表结构包含 unlocked_themes 字段
+          
+          // [修复] 移除 formation_id, 确保 unlocked_themes 写入
           await env.DB.prepare(
             'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
@@ -180,12 +181,14 @@ export default {
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
             theme: JSON.stringify(INITIAL_THEME),
-            formation_id: 0
+            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
+            // formation_id 移除，使用 theme.formationId
           };
 
+          // [修复] 移除 formation_id, 确保 unlocked_themes 写入
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, formation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.formation_id).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
 
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
@@ -241,8 +244,7 @@ export default {
 
       // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-        // [修改] 接收 theme 和 formationId
-        const { userId, coins, level, items, checkinHistory, theme, formationId } = await request.json();
+        const { userId, coins, level, items, checkinHistory, theme, unlockedThemes } = await request.json();
 
         let sql = 'UPDATE users SET coins = ?, level = ?, items = ?';
         let args = [coins, level, JSON.stringify(items || [])];
@@ -252,10 +254,17 @@ export default {
           args.push(JSON.stringify(checkinHistory));
         }
 
-        // [新增] 更新 theme
+        // [修改] 更新 theme (其中包含 formationId)
         if (theme !== undefined) {
           sql += ', theme = ?';
           args.push(JSON.stringify(theme));
+          // [移除] 不再单独更新 formation_id 列，因为表结构中没有该列
+        }
+
+        // [新增] 更新 unlocked_themes (确保数据库有此列)
+        if (unlockedThemes !== undefined) {
+            sql += ', unlocked_themes = ?';
+            args.push(JSON.stringify(unlockedThemes));
         }
 
         sql += ' WHERE user_id = ?';
