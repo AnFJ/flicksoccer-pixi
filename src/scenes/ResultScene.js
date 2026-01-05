@@ -8,6 +8,7 @@ import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import { TeamId } from '../constants.js';
+import ResourceManager from '../managers/ResourceManager.js';
 
 export default class ResultScene extends BaseScene {
     constructor() {
@@ -278,10 +279,10 @@ export default class ResultScene extends BaseScene {
         const nameStyle = { fontSize: 32, fontWeight: 'bold' };
         
         // 名字放更开一点
-        const t1 = new PIXI.Text(p1Name, { ...nameStyle, fill: 0x3498db });
+        const t1 = new PIXI.Text(p1Name, { ...nameStyle, fill: 0xe74c3c });
         t1.anchor.set(0.5); t1.x = -150;
         
-        const t2 = new PIXI.Text(p2Name, { ...nameStyle, fill: 0xe74c3c });
+        const t2 = new PIXI.Text(p2Name, { ...nameStyle, fill: 0x3498db });
         t2.anchor.set(0.5); t2.x = 150;
 
         // 大比分
@@ -310,10 +311,12 @@ export default class ResultScene extends BaseScene {
         const myStats = stats[myId];
         const oppStats = stats[oppId];
 
+        // 定义数据行
         const items = [
-            { label: '射门次数', v1: myStats.shots, v2: oppStats.shots },
-            { label: '进球效率', v1: this.fmtPct(score[myId], myStats.shots), v2: this.fmtPct(score[oppId], oppStats.shots) },
-            { label: '技能消耗', v1: this.countSkills(myStats.skills), v2: this.countSkills(oppStats.skills) }
+            { label: '射门次数', v1: myStats.shots, v2: oppStats.shots, type: 'number' },
+            { label: '进球效率', v1: this.fmtPct(score[myId], myStats.shots), v2: this.fmtPct(score[oppId], oppStats.shots), type: 'number' },
+            // 技能消耗改为特殊类型 'skill'
+            { label: '技能消耗', v1: myStats.skills, v2: oppStats.skills, type: 'skill' }
         ];
 
         const rowH = 60; // 增加行高
@@ -321,33 +324,126 @@ export default class ResultScene extends BaseScene {
         items.forEach((item, i) => {
             const rowY = i * rowH;
             
+            // 中间标签
             const label = new PIXI.Text(item.label, { fontSize: 32, fill: 0x999999 });
             label.anchor.set(0.5); label.y = rowY;
             container.addChild(label);
 
-            const val1 = new PIXI.Text(item.v1, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
-            val1.anchor.set(1, 0.5); val1.position.set(-150, rowY); // 离中心远一点
-            
-            const val2 = new PIXI.Text(item.v2, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
-            val2.anchor.set(0, 0.5); val2.position.set(150, rowY);
+            if (item.type === 'skill') {
+                // 如果是技能，调用专用渲染方法
+                this.createSkillRow(container, rowY, item.v1, item.v2);
+            } else {
+                // 原有的数字/百分比 + 进度条渲染
+                const val1 = new PIXI.Text(item.v1, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
+                val1.anchor.set(1, 0.5); val1.position.set(-150, rowY);
+                
+                const val2 = new PIXI.Text(item.v2, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
+                val2.anchor.set(0, 0.5); val2.position.set(150, rowY);
 
-            container.addChild(val1, val2);
+                container.addChild(val1, val2);
 
-            // 进度条
-            this.createStatBar(container, -260, rowY, item.v1, item.v2, true);
-            this.createStatBar(container, 260, rowY, item.v2, item.v1, false);
+                // 进度条
+                this.createStatBar(container, -260, rowY, item.v1, item.v2, true);
+                this.createStatBar(container, 260, rowY, item.v2, item.v1, false);
+            }
         });
 
-        // 耗时 (下移，避免和最后一行太近)
+        // 耗时 + 回合数
         const duration = (stats.endTime - stats.startTime) / 1000;
         const min = Math.floor(duration / 60);
         const sec = Math.floor(duration % 60);
-        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒`, { fontSize: 30, fill: 0x666666 });
+        
+        // 计算总回合 (双方射门总数)
+        const totalTurns = myStats.shots + oppStats.shots;
+        
+        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒  (共 ${totalTurns} 回合)`, { fontSize: 26, fill: 0x666666 });
         timeText.anchor.set(0.5);
-        timeText.y = items.length * rowH + 10;
+        timeText.y = items.length * rowH + 15;
         container.addChild(timeText);
 
         this.mainPanel.addChild(container);
+    }
+
+    createSkillRow(parent, y, mySkills, oppSkills) {
+        // 左侧玩家 (Align Right: 靠近中线)
+        this.renderSkillGroup(parent, -150, y, mySkills, true);
+        
+        // 右侧玩家 (Align Left: 靠近中线)
+        this.renderSkillGroup(parent, 150, y, oppSkills, false);
+    }
+
+    renderSkillGroup(parent, startX, y, skills, isAlignRight) {
+        // 过滤出使用次数 > 0 的技能
+        const list = [];
+        if (skills) {
+            for (let k in skills) {
+                if (skills[k] > 0) list.push({ type: k, count: skills[k] });
+            }
+        }
+
+        // 如果没有使用技能，显示 "-"
+        if (list.length === 0) {
+            const t = new PIXI.Text('-', { fontSize: 36, fill: 0x555555, fontWeight: 'bold' });
+            // 如果是左边玩家(向右对齐)，锚点 x=1；右边玩家(向左对齐)，锚点 x=0
+            t.anchor.set(isAlignRight ? 1 : 0, 0.5);
+            t.position.set(startX, y);
+            parent.addChild(t);
+            return;
+        }
+
+        const iconSize = 36;
+        const gap = 15;
+        let currentX = startX;
+
+        list.forEach(item => {
+            const grp = new PIXI.Container();
+            
+            // 图标背景
+            const texName = this.getSkillTextureName(item.type);
+            const tex = ResourceManager.get(texName);
+            
+            const icon = new PIXI.Sprite(tex || PIXI.Texture.WHITE);
+            icon.width = iconSize; 
+            icon.height = iconSize;
+            icon.anchor.set(0, 0.5); // 图标左对齐
+            
+            if (!tex) icon.tint = 0x888888; // 没图显示灰色方块
+
+            // 数量文字
+            const txt = new PIXI.Text(`x${item.count}`, { 
+                fontSize: 24, fill: 0xffffff, fontWeight: 'bold' 
+            });
+            txt.anchor.set(0, 0.5);
+            txt.x = iconSize + 4; // 文字紧跟图标
+
+            grp.addChild(icon, txt);
+            
+            // 计算这个组合的总宽度
+            const groupW = iconSize + 4 + txt.width;
+
+            // 根据对齐方向排列
+            if (isAlignRight) {
+                // 向左生长：当前位置减去宽度
+                currentX -= groupW;
+                grp.position.set(currentX, y);
+                currentX -= gap; // 留出间隙
+            } else {
+                // 向右生长
+                grp.position.set(currentX, y);
+                currentX += groupW + gap;
+            }
+            
+            parent.addChild(grp);
+        });
+    }
+
+    getSkillTextureName(type) {
+        const map = {
+            'super_aim': 'skill_aim_bg',
+            'super_force': 'skill_force_bg',
+            'unstoppable': 'skill_unstoppable_bg'
+        };
+        return map[type];
     }
 
     createStatBar(parent, x, y, val, otherVal, isLeft) {
