@@ -37,7 +37,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     this.addChild(overlay);
 
     // 2. 主面板
-    const panelW = 1250; // [修改] 增加宽度以容纳4列
+    const panelW = 1360; // [修改] 进一步加宽以容纳4列并留有余地
     const panelH = 750;
     const panel = new PIXI.Graphics();
     panel.beginFill(0x2c3e50);
@@ -70,10 +70,12 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     // 6. 底部按钮 (确认 & 取消)
     const btnY = panelH/2 - 70;
     const btnW = 200;
-    const btnSpacing = 200; // [修改] 增加按钮间距，确保在宽面板上居中且不拥挤
+    const btnH = 70;
+    const btnSpacing = 250; // [修改] 按钮中心距离
 
+    // [修复] Button 的坐标是左上角，要实现居中需要减去宽高的一半
     const confirmBtn = new Button({
-        text: '保存', width: btnW, height: 70, color: 0x2ecc71,
+        text: '保存', width: btnW, height: btnH, color: 0x2ecc71,
         onClick: () => {
             // 保存数据并同步
             AccountMgr.updateTheme(this.tempTheme);
@@ -82,26 +84,31 @@ export default class ThemeSelectionDialog extends PIXI.Container {
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    confirmBtn.position.set(-btnSpacing, btnY);
+    // 左侧按钮位置: -Spacing (中心点) - W/2 (偏移)
+    confirmBtn.position.set(-btnSpacing - btnW/2, btnY - btnH/2);
     panel.addChild(confirmBtn);
 
     const cancelBtn = new Button({
-        text: '取消', width: btnW, height: 70, color: 0x95a5a6,
+        text: '取消', width: btnW, height: btnH, color: 0x95a5a6,
         onClick: () => {
             if (this.onClose) this.onClose();
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    cancelBtn.position.set(btnSpacing, btnY);
+    // 右侧按钮位置: +Spacing (中心点) - W/2 (偏移)
+    cancelBtn.position.set(btnSpacing - btnW/2, btnY - btnH/2);
     panel.addChild(cancelBtn);
   }
 
   renderTabs() {
       this.tabContainer.removeChildren();
-      const tabW = 250;
+      const tabW = 280; // [修改] 稍微加宽Tab
       const tabH = 70;
       const gap = 20;
-      const startX = -((this.tabs.length * tabW) + (this.tabs.length - 1) * gap) / 2 + tabW/2;
+      
+      // 计算整体宽度，使其居中
+      const totalW = this.tabs.length * tabW + (this.tabs.length - 1) * gap;
+      const startX = -totalW / 2; // 起始X (左边缘)
 
       this.tabs.forEach((label, idx) => {
           const isSelected = this.currentTab === idx;
@@ -118,7 +125,9 @@ export default class ThemeSelectionDialog extends PIXI.Container {
                   }
               }
           });
-          btn.position.set(startX + idx * (tabW + gap), 0);
+          // [修复] Button 锚点在左上角，直接使用计算出的左边缘位置
+          // 垂直居中需要减去 tabH/2
+          btn.position.set(startX + idx * (tabW + gap), -tabH/2);
           this.tabContainer.addChild(btn);
       });
   }
@@ -141,16 +150,22 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       }
 
       // 布局参数
-      const cols = 4; // [修改] 改为4列
+      const cols = 4; 
       const itemW = 240;
       const itemH = 200;
-      const gapX = 30;
+      const gapX = 40; // 稍微拉大间距
       const gapY = 30;
       
       // 计算网格起始位置
       // 内容区高度大约 400
       const totalRows = Math.ceil(items.length / cols);
-      const startX = -((cols * itemW) + (cols - 1) * gapX) / 2 + itemW/2;
+      
+      // 计算整体网格宽度
+      const gridTotalW = cols * itemW + (cols - 1) * gapX;
+      // 起始X (第一项的中心点)
+      // 左边缘 = -gridTotalW / 2
+      // 第一项中心 = 左边缘 + itemW / 2
+      const startX = -gridTotalW / 2 + itemW / 2;
       const startY = -80; // 稍微偏上
 
       items.forEach((id, idx) => {
