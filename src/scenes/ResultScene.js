@@ -19,6 +19,7 @@ export default class ResultScene extends BaseScene {
 
     async onEnter(params) {
         super.onEnter(params);
+        console.log("Entering ResultScene with params:", params);
         this.params = params;
         const { winner, gameMode, score, stats, myTeamId, currentLevel } = params;
         const { designWidth, designHeight } = GameConfig;
@@ -52,29 +53,29 @@ export default class ResultScene extends BaseScene {
 
         // B. 主面板容器 (居中)
         // 面板高度 660, 屏幕高 1080. 中心大概在 58% 位置
-        const panelY = designHeight * 0.58;
+        const panelY = designHeight * 0.55;
         this.mainPanel = new PIXI.Container();
         this.mainPanel.position.set(designWidth / 2, panelY);
         this.container.addChild(this.mainPanel);
 
         // C. 绘制面板背景 (增大尺寸以容纳更多信息)
-        this.createPanelBackground(920, 660);
+        this.createPanelBackground(920, 620);
 
         // D. 标题 (在面板上方，独立于面板)
         this.createHeader(designWidth, 120, isWin, winner);
 
         // E. 星级 (挂载在面板上，位于面板顶部边缘)
-        this.createRatingStars(0, -350, rating); 
+        this.createRatingStars(0, -360, rating); 
 
         // F. 数据统计 (在面板内部)
         // 比分板上移
-        this.createScoreBoard(0, -220, score, myTeamId, opponentId);
+        this.createScoreBoard(0, -180, score, myTeamId, opponentId);
         // 数据列表居中
-        this.createStatsList(0, 20, stats, score, myTeamId, opponentId);
+        this.createStatsList(0, -50, stats, score, myTeamId, opponentId);
 
         // G. 奖励展示 (下移，避免遮挡)
         if (isWin) {
-            this.createRewards(0, 260, rewardCoins);
+            this.createRewards(0, 240, rewardCoins);
         }
 
         // H. 按钮 (屏幕底部)
@@ -286,17 +287,17 @@ export default class ResultScene extends BaseScene {
         // 大比分
         const scoreStyle = { fontFamily: 'Arial Black', fontSize: 100, fill: 0xffffff, dropShadow: true, dropShadowBlur: 4 };
         const s1 = new PIXI.Text(score[myId], scoreStyle);
-        s1.anchor.set(0.5); s1.x = -50;
+        s1.anchor.set(0.5); s1.x = -150;
         
         const s2 = new PIXI.Text(score[oppId], scoreStyle);
-        s2.anchor.set(0.5); s2.x = 50;
+        s2.anchor.set(0.5); s2.x = 150;
 
-        const vs = new PIXI.Text('-', { fontSize: 60, fill: 0x666666 });
-        vs.anchor.set(0.5); vs.y = 10;
+        const vs = new PIXI.Text('-', { fontSize: 100, fill: 0x666666 });
+        vs.anchor.set(0.5); vs.y = 30;
 
         // 布局调整
         t1.y = -80; t2.y = -80;
-        s1.y = 10; s2.y = 10;
+        s1.y = 40; s2.y = 40;
 
         container.addChild(t1, t2, s1, vs, s2);
         this.mainPanel.addChild(container);
@@ -320,30 +321,30 @@ export default class ResultScene extends BaseScene {
         items.forEach((item, i) => {
             const rowY = i * rowH;
             
-            const label = new PIXI.Text(item.label, { fontSize: 24, fill: 0x999999 });
+            const label = new PIXI.Text(item.label, { fontSize: 32, fill: 0x999999 });
             label.anchor.set(0.5); label.y = rowY;
             container.addChild(label);
 
-            const val1 = new PIXI.Text(item.v1, { fontSize: 28, fill: 0xffffff, fontWeight: 'bold' });
-            val1.anchor.set(1, 0.5); val1.position.set(-100, rowY); // 离中心远一点
+            const val1 = new PIXI.Text(item.v1, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
+            val1.anchor.set(1, 0.5); val1.position.set(-150, rowY); // 离中心远一点
             
-            const val2 = new PIXI.Text(item.v2, { fontSize: 28, fill: 0xffffff, fontWeight: 'bold' });
-            val2.anchor.set(0, 0.5); val2.position.set(100, rowY);
+            const val2 = new PIXI.Text(item.v2, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
+            val2.anchor.set(0, 0.5); val2.position.set(150, rowY);
 
             container.addChild(val1, val2);
 
             // 进度条
-            this.createStatBar(container, -160, rowY, item.v1, item.v2, true);
-            this.createStatBar(container, 160, rowY, item.v2, item.v1, false);
+            this.createStatBar(container, -260, rowY, item.v1, item.v2, true);
+            this.createStatBar(container, 260, rowY, item.v2, item.v1, false);
         });
 
         // 耗时 (下移，避免和最后一行太近)
         const duration = (stats.endTime - stats.startTime) / 1000;
         const min = Math.floor(duration / 60);
         const sec = Math.floor(duration % 60);
-        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒`, { fontSize: 22, fill: 0x666666 });
+        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒`, { fontSize: 30, fill: 0x666666 });
         timeText.anchor.set(0.5);
-        timeText.y = items.length * rowH + 20;
+        timeText.y = items.length * rowH + 10;
         container.addChild(timeText);
 
         this.mainPanel.addChild(container);
