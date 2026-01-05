@@ -19,6 +19,13 @@ class AccountMgr {
           field: 1,
           ball: 1,
           formationId: 0
+      },
+      // 默认解锁: 棋子1, 球场1, 足球1, 阵型0
+      unlockedThemes: {
+          striker: [1],
+          field: [1],
+          ball: [1],
+          formation: [0]
       }
     };
     this.isLoggedIn = false;
@@ -73,6 +80,20 @@ class AccountMgr {
       } catch (e) {
           this.userInfo.theme = { striker: 1, field: 1, ball: 1, formationId: 0 };
       }
+
+      // [新增] 解析 unlocked_themes
+      try {
+          const unlocked = JSON.parse(data.unlocked_themes || '{}');
+          // 合并默认值，防止缺失 Key
+          this.userInfo.unlockedThemes = {
+              striker: unlocked.striker || [1],
+              field: unlocked.field || [1],
+              ball: unlocked.ball || [1],
+              formation: unlocked.formation || [0]
+          };
+      } catch (e) {
+          this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
+      }
   }
 
   async sync() {
@@ -83,7 +104,8 @@ class AccountMgr {
           level: this.userInfo.level,
           items: this.userInfo.items,
           checkinHistory: this.userInfo.checkinHistory,
-          theme: this.userInfo.theme
+          theme: this.userInfo.theme,
+          unlockedThemes: this.userInfo.unlockedThemes // [新增]
       });
   }
 
@@ -95,6 +117,25 @@ class AccountMgr {
   updateFormation(id) {
       this.userInfo.theme.formationId = id;
       this.sync();
+  }
+
+  // [新增] 判断主题是否已解锁
+  isThemeUnlocked(type, id) {
+      const list = this.userInfo.unlockedThemes[type] || [];
+      return list.includes(id);
+  }
+
+  // [新增] 解锁主题
+  unlockTheme(type, id) {
+      if (!this.userInfo.unlockedThemes[type]) {
+          this.userInfo.unlockedThemes[type] = [];
+      }
+      if (!this.userInfo.unlockedThemes[type].includes(id)) {
+          this.userInfo.unlockedThemes[type].push(id);
+          this.sync();
+          return true;
+      }
+      return false;
   }
 
   addCoins(amount, autoSync = true) {
@@ -153,6 +194,7 @@ class AccountMgr {
       this.userInfo.nickname = '离线玩家';
       this.userInfo.coins = 999;
       this.userInfo.theme = { striker: 1, field: 1, ball: 1, formationId: 0 };
+      this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
       this.isLoggedIn = true;
   }
 }

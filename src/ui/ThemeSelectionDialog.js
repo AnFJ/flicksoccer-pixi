@@ -5,6 +5,7 @@ import { GameConfig } from '../config.js';
 import { Formations } from '../config/FormationConfig.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import ResourceManager from '../managers/ResourceManager.js';
+import Platform from '../managers/Platform.js';
 
 export default class ThemeSelectionDialog extends PIXI.Container {
   constructor(onClose) {
@@ -123,6 +124,8 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       items.forEach((id, idx) => {
           const col = idx % cols;
           const row = Math.floor(idx / cols);
+          
+          const isUnlocked = AccountMgr.isThemeUnlocked(typeKey, id);
           const isSelected = this.tempTheme[typeKey] === id;
           
           const container = new PIXI.Container();
@@ -130,18 +133,38 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           
           const bg = new PIXI.Graphics();
           bg.beginFill(0x34495e);
-          bg.lineStyle(4, isSelected ? 0xF1C40F : 0x555555);
+          // 锁定状态显示灰色边框，选中显示金色，未选中显示深灰
+          const borderColor = isSelected ? 0xF1C40F : (isUnlocked ? 0x555555 : 0x7f8c8d);
+          bg.lineStyle(4, borderColor);
           bg.drawRoundedRect(-itemW/2, -itemH/2, itemW, itemH, 15);
           container.addChild(bg);
 
+          // 预览内容
           if (this.currentTab === 0) this.renderStrikerPreview(container, id);
           else if (this.currentTab === 1) this.renderFieldPreview(container, id, itemW-20, itemH-20);
           else this.renderBallPreview(container, id, 60);
 
+          // 如果未解锁，添加遮罩和锁图标/视频图标
+          if (!isUnlocked) {
+              const lockOverlay = new PIXI.Graphics();
+              lockOverlay.beginFill(0x000000, 0.5);
+              lockOverlay.drawRoundedRect(-itemW/2, -itemH/2, itemW, itemH, 15);
+              lockOverlay.endFill();
+              container.addChild(lockOverlay);
+
+              // 绘制视频播放图标 (右下角)
+              this.renderVideoIcon(container, itemW/2 - 30, itemH/2 - 30);
+          }
+
           bg.interactive = true;
+          bg.buttonMode = true;
           bg.on('pointerdown', () => {
-              this.tempTheme[typeKey] = id;
-              this.renderContent();
+              if (isUnlocked) {
+                  this.tempTheme[typeKey] = id;
+                  this.renderContent();
+              } else {
+                  this.tryUnlock(typeKey, id);
+              }
           });
           this.contentContainer.addChild(container);
       });
@@ -154,24 +177,84 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       const gapY = 85;
 
       Formations.forEach((fmt, idx) => {
+          const isUnlocked = AccountMgr.isThemeUnlocked('formation', fmt.id);
           const isSelected = fmt.id === this.tempTheme.formationId;
+          
           const btn = new Button({
               text: `${fmt.name} (${fmt.desc})`,
               width: 350, height: 70,
-              color: isSelected ? 0xF1C40F : 0x34495e,
-              textColor: isSelected ? 0x000000 : 0xFFFFFF,
+              color: isSelected ? 0xF1C40F : (isUnlocked ? 0x34495e : 0x2c3e50),
+              textColor: isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6),
               fontSize: 28,
               onClick: () => {
-                  this.tempTheme.formationId = fmt.id;
-                  this.renderContent();
+                  if (isUnlocked) {
+                      this.tempTheme.formationId = fmt.id;
+                      this.renderContent();
+                  } else {
+                      this.tryUnlock('formation', fmt.id);
+                  }
               }
           });
           btn.position.set(listX, startY + idx * gapY);
+          
+          if (!isUnlocked) {
+              this.renderVideoIcon(btn, 140, 0, 0.7); // 在按钮右侧显示视频图标
+          }
+
           this.contentContainer.addChild(btn);
       });
 
       // 复用预览逻辑
       this.renderFormationPreview(250, 40, this.tempTheme.formationId);
+  }
+
+  // 绘制通用的视频/锁图标
+  renderVideoIcon(parent, x, y, scale = 1.0) {
+      const icon = new PIXI.Container();
+      icon.position.set(x, y);
+      icon.scale.set(scale);
+
+      // 背景圆
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0xe67e22); // 橙色
+      bg.lineStyle(2, 0xffffff);
+      bg.drawCircle(0, 0, 24);
+      bg.endFill();
+      
+      // 播放三角
+      const tri = new PIXI.Graphics();
+      tri.beginFill(0xffffff);
+      tri.moveTo(-6, -8);
+      tri.lineTo(10, 0);
+      tri.lineTo(-6, 8);
+      tri.endFill();
+
+      icon.addChild(bg, tri);
+      parent.addChild(icon);
+  }
+
+  async tryUnlock(type, id) {
+      const adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo[`theme_${type}`];
+      
+      if (!adUnitId) {
+          Platform.showToast("广告配置缺失，无法解锁");
+          return;
+      }
+
+      Platform.showToast("观看完整视频解锁主题");
+      
+      const success = await Platform.showRewardedVideoAd(adUnitId);
+      if (success) {
+          const unlocked = AccountMgr.unlockTheme(type, id);
+          if (unlocked) {
+              Platform.showToast("解锁成功！");
+              // 自动选中
+              if (type === 'formation') this.tempTheme.formationId = id;
+              else this.tempTheme[type] = id;
+              
+              this.renderContent();
+          }
+      }
   }
 
   renderFormationPreview(x, y, formationId) {

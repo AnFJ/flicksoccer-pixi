@@ -117,7 +117,7 @@ export const GameConfig = {
   },
 
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
-  // rewardedVideo: 激励视频广告ID (Coins, Aim, Unstoppable, Force)
+  // rewardedVideo: 激励视频广告ID (Coins, Aim, Unstoppable, Force, ThemeTypes)
   adConfig: {
       wechat: {
           banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
@@ -125,7 +125,12 @@ export const GameConfig = {
               coins: 'adunit-26a38148682bce5a',
               super_aim: 'adunit-0d8e4a176de1bc31',
               unstoppable: 'adunit-bc43ef817678099c',
-              super_force: 'adunit-8aa62d2e44801ab1'
+              super_force: 'adunit-8aa62d2e44801ab1',
+              // [新增] 主题解锁广告ID
+              theme_striker: 'adunit-theme-striker',
+              theme_field: 'adunit-theme-field',
+              theme_ball: 'adunit-theme-ball',
+              theme_formation: 'adunit-theme-formation'
           }
       },
       douyin: {
@@ -134,7 +139,12 @@ export const GameConfig = {
               coins: 'adunit-dy-coins',
               super_aim: 'adunit-dy-aim',
               unstoppable: 'adunit-dy-car',
-              super_force: 'adunit-dy-force'
+              super_force: 'adunit-dy-force',
+              // [新增] 主题解锁广告ID
+              theme_striker: 'adunit-dy-striker',
+              theme_field: 'adunit-dy-field',
+              theme_ball: 'adunit-dy-ball',
+              theme_formation: 'adunit-dy-formation'
           }
       }
   },

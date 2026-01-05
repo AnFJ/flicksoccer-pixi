@@ -26,6 +26,8 @@ const INITIAL_ITEMS = [
 ];
 // 默认主题包含 formationId
 const INITIAL_THEME = { striker: 1, field: 1, ball: 1, formationId: 0 };
+// 默认解锁内容 (Type: [IDs])
+const INITIAL_UNLOCKED = { striker: [1], field: [1], ball: [1], formation: [0] };
 
 export default {
   async fetch(request, env, ctx) {
@@ -59,16 +61,30 @@ export default {
             avatar_url: '', level: 1, coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
-            theme: JSON.stringify(INITIAL_THEME)
+            theme: JSON.stringify(INITIAL_THEME),
+            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
           };
+          // 注意：需要确保 DB 表结构包含 unlocked_themes 字段
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
         } else {
             // 兼容旧数据补全 theme.formationId
             let theme = JSON.parse(user.theme || '{}');
+            let needUpdate = false;
+            
             if (theme.formationId === undefined) {
                 theme.formationId = user.formation_id || 0;
+                needUpdate = true;
+            }
+            
+            // 兼容旧数据补全 unlocked_themes
+            if (!user.unlocked_themes) {
+                user.unlocked_themes = JSON.stringify(INITIAL_UNLOCKED);
+                await env.DB.prepare("UPDATE users SET unlocked_themes = ? WHERE user_id = ?").bind(user.unlocked_themes, deviceId).run();
+            }
+
+            if (needUpdate) {
                 await env.DB.prepare("UPDATE users SET theme = ? WHERE user_id = ?").bind(JSON.stringify(theme), deviceId).run();
             }
         }
@@ -86,23 +102,31 @@ export default {
             user_id: openId, platform, nickname: userInfo?.nickName || generateNickname(),
             avatar_url: userInfo?.avatarUrl || '', level: 1, coins: 200,
             items: JSON.stringify(INITIAL_ITEMS), checkin_history: '[]',
-            theme: JSON.stringify(INITIAL_THEME)
+            theme: JSON.stringify(INITIAL_THEME),
+            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
           };
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
+        } else {
+            // 补全 unlocked_themes
+             if (!user.unlocked_themes) {
+                user.unlocked_themes = JSON.stringify(INITIAL_UNLOCKED);
+                await env.DB.prepare("UPDATE users SET unlocked_themes = ? WHERE user_id = ?").bind(user.unlocked_themes, openId).run();
+            }
         }
         return response(user);
       }
 
       // --- 更新数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-          const { userId, coins, level, items, checkinHistory, theme } = await request.json();
+          const { userId, coins, level, items, checkinHistory, theme, unlockedThemes } = await request.json();
           let sql = 'UPDATE users SET coins = ?, level = ?, items = ?, last_login = datetime("now", "+8 hours")';
           let args = [coins, level, JSON.stringify(items || [])];
 
           if (checkinHistory) { sql += ', checkin_history = ?'; args.push(JSON.stringify(checkinHistory)); }
           if (theme) { sql += ', theme = ?'; args.push(JSON.stringify(theme)); }
+          if (unlockedThemes) { sql += ', unlocked_themes = ?'; args.push(JSON.stringify(unlockedThemes)); }
 
           sql += ' WHERE user_id = ?';
           args.push(userId);
