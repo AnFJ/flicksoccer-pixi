@@ -4,23 +4,24 @@ import Button from './Button.js';
 import { GameConfig } from '../config.js';
 import { Formations } from '../config/FormationConfig.js';
 import AccountMgr from '../managers/AccountMgr.js';
+import ResourceManager from '../managers/ResourceManager.js';
 
 export default class FormationSelectionDialog extends PIXI.Container {
   /**
-   * @param {string} mode 'single' | 'dual' (单人/网络 或 本地双人)
+   * @param {string} mode 'single' | 'dual' | 'single_online'
    * @param {Function} onConfirm (p1FormationId, p2FormationId) => void
    * @param {Function} onCancel
    */
   constructor(mode, onConfirm, onCancel) {
     super();
-    this.mode = mode; // 'single' (PVE/Online) or 'dual' (Local PVP)
+    this.mode = mode; // 'single' (PVE) or 'dual' (Local PVP) or 'single_online'
     this.onConfirm = onConfirm;
     this.onCancel = onCancel;
 
     // 状态
     this.p1FormationId = AccountMgr.userInfo.formationId || 0;
     this.p2FormationId = 0; // 本地P2默认
-    this.currentEditSide = 0; // 0: Player 1, 1: Player 2 (仅在 dual 模式有效)
+    this.currentEditSide = 0; // 0: Player 1 (Red), 1: Player 2 (Blue)
 
     this.init();
   }
@@ -66,36 +67,35 @@ export default class FormationSelectionDialog extends PIXI.Container {
     // 6. 渲染选择区域
     this.renderSelectionArea();
 
-    // 7. 底部按钮
+    // 7. 底部按钮布局优化
     const btnY = panelH/2 - 70;
-    const btnSpacing = 200;
+    const confirmW = 240;
+    const cancelW = 200;
+    const btnGap = 40;
+    const totalBtnW = confirmW + cancelW + btnGap;
+    const btnStartX = -totalBtnW / 2;
 
     const confirmBtn = new Button({
-        text: '开始比赛', width: 240, height: 80, color: 0x2ecc71,
+        text: this.mode === 'single_online' ? '确定' : '开始比赛', 
+        width: confirmW, height: 80, color: 0x2ecc71,
         onClick: () => {
             if (this.mode === 'single') {
-                // 保存玩家的选择
                 AccountMgr.updateFormation(this.p1FormationId);
             }
             if (this.onConfirm) this.onConfirm(this.p1FormationId, this.p2FormationId);
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    confirmBtn.position.set(-btnSpacing/2 - 120, btnY - 40);
+    confirmBtn.position.set(btnStartX, btnY - 40);
     
-    // 如果是网络对战准备阶段调用的，可以改文案
-    if (this.mode === 'single_online') {
-         confirmBtn.options.text = "确定";
-    }
-
     const cancelBtn = new Button({
-        text: '取消', width: 200, height: 80, color: 0x95a5a6,
+        text: '取消', width: cancelW, height: 80, color: 0x95a5a6,
         onClick: () => {
             if (this.onCancel) this.onCancel();
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    cancelBtn.position.set(btnSpacing/2 + 100 - 100, btnY - 40);
+    cancelBtn.position.set(btnStartX + confirmW + btnGap, btnY - 40);
 
     panel.addChild(confirmBtn);
     panel.addChild(cancelBtn);
@@ -108,9 +108,15 @@ export default class FormationSelectionDialog extends PIXI.Container {
 
       const tabW = 300;
       const tabH = 60;
+      const gap = 20;
+      const labels = ['红方 (P1)', '蓝方 (P2)'];
       
+      // [修复] 计算总宽度以实现真正居中
+      const totalW = labels.length * tabW + (labels.length - 1) * gap;
+      const startX = -totalW / 2;
+
       this.tabs = [];
-      ['红方 (P1)', '蓝方 (P2)'].forEach((label, idx) => {
+      labels.forEach((label, idx) => {
           const btn = new Button({
               text: label, width: tabW, height: tabH, 
               color: idx === this.currentEditSide ? 0x3498db : 0x7f8c8d,
@@ -120,7 +126,8 @@ export default class FormationSelectionDialog extends PIXI.Container {
                   this.renderSelectionArea();
               }
           });
-          btn.position.set((idx - 0.5) * (tabW + 20), 0);
+          // 按钮坐标是左上角，根据 startX 依次排列，垂直方向相对于容器中心 y=0 对齐
+          btn.position.set(startX + idx * (tabW + gap), -tabH / 2);
           this.tabContainer.addChild(btn);
           this.tabs.push(btn);
       });
@@ -162,95 +169,99 @@ export default class FormationSelectionDialog extends PIXI.Container {
     });
 
     // 右侧：预览图
-    const previewX = 200;
+    const previewX = 250;
     const previewY = 0;
     this.renderPreview(previewX, previewY, currentId);
   }
 
   renderPreview(x, y, formationId) {
-      const w = 400;
-      const h = 500;
+      const w = 350; // 维持压缩后的宽度，优化纵横比
+      const h = 320; 
+      const goalPadding = 60; // 球门偏移
       
       const container = new PIXI.Container();
       container.position.set(x, y);
 
-      // 1. 半场背景
-      const bg = new PIXI.Graphics();
-      bg.beginFill(0x27ae60); // 草地绿
-      bg.lineStyle(4, 0xFFFFFF);
-      bg.drawRect(-w/2, -h/2, w, h);
+      // 获取用户主题配置
+      const theme = AccountMgr.userInfo.theme || { striker: 1, field: 1 };
+      const strikerId = theme.striker || 1;
       
-      // 中线
-      bg.moveTo(-w/2, 0); // 这里的预览为了方便看，我们把球场竖起来画 (Rotate 90deg conceptually)
-      // 但实际上 config 是横向坐标。
-      // 我们这里统一：预览图是半场，左边是球门线，右边是中线。
-      
-      // 为了美观，画成竖版：下方是本方球门，上方是中线
-      // 坐标转换：Config.x (负数) -> Preview.y (正数，因为下是正)
-      // Config.y -> Preview.x
-      
-      // 画禁区
-      bg.lineStyle(2, 0xFFFFFF, 0.5);
-      bg.drawRect(-80, h/2 - 60, 160, 60);
-      
-      // [修复] PIXI v6 中没有 drawArc 方法，应使用 arc 方法
-      // 为了避免与上一个路径（矩形）产生连线，先 moveTo 到圆弧起点
-      const arcCenterX = 0;
-      const arcCenterY = h/2 - 60;
-      const arcRadius = 40;
-      const startAngle = Math.PI;
-      
-      bg.moveTo(arcCenterX + Math.cos(startAngle) * arcRadius, arcCenterY + Math.sin(startAngle) * arcRadius);
-      bg.arc(arcCenterX, arcCenterY, arcRadius, Math.PI, 0);
+      const isRedSide = this.currentEditSide === 0;
 
-      bg.endFill();
-      container.addChild(bg);
+      // 1. 背景遮罩 (裁剪显示区域)
+      const bgMask = new PIXI.Graphics();
+      bgMask.beginFill(0xffffff);
+      bgMask.drawRect(-w/2, -h/2, w, h);
+      bgMask.endFill();
+      container.addChild(bgMask);
 
-      // 2. 绘制棋子点
+      // 2. 球场背景 (使用 half_field.png)
+      const fieldTex = ResourceManager.get('half_field');
+      
+      if (fieldTex) {
+          const bg = new PIXI.Sprite(fieldTex);
+          bg.anchor.set(0.5);
+          bg.width = w;
+          bg.height = h;
+
+          if (!isRedSide) {
+              bg.scale.x *= -1;
+          }
+          
+          bg.mask = bgMask;
+          container.addChild(bg);
+      } else {
+          const bg = new PIXI.Graphics();
+          bg.beginFill(0x27ae60);
+          bg.drawRect(-w/2, -h/2, w, h);
+          bg.endFill();
+          container.addChild(bg);
+      }
+
+      // 3. 绘制棋子
       const fmt = Formations.find(f => f.id === formationId) || Formations[0];
       const positions = fmt.positions;
 
-      // 坐标映射
-      // Config x: [-0.5, 0] -> Preview y: [h/2, -h/2] (实际上是 0.5w -> 0w)
-      // Config x: -0.45 (靠近底线) -> y: h/2 - padding
-      // Config x: 0 (中线) -> y: -h/2
-      
-      // 实际上 Config x 是相对于整个球场宽度的比例。半场宽度是 W_field/2
-      // config.x = -0.45 意味着在左半场的左侧。
-      
-      // 映射逻辑：
-      // Preview X = config.y * (w / (H_field_ratio)) 
-      // Preview Y = config.x * (h / (W_field_ratio/2)) * direction
-      
-      // 简单映射：
-      // config.x range: -0.5 ~ 0
-      // preview y range: h/2 ~ -h/2
-      // y = - (config.x + 0.25) * scale? No.
-      
-      // Let's assume bottom is Goal (config x = -0.5), Top is Center (config x = 0)
-      const scaleY = h / 0.5; // full height represents half field width (0.5)
-      const scaleX = w / 1.0; // full width represents field height (ratio approx 0.6)
-      
-      positions.forEach(pos => {
-          const dot = new PIXI.Graphics();
-          const color = this.currentEditSide === 0 ? 0xe74c3c : 0x3498db; // 红/蓝
-          dot.beginFill(color);
-          dot.lineStyle(2, 0xFFFFFF);
-          dot.drawCircle(0, 0, 15);
-          dot.endFill();
-          
-          // 转换坐标到竖屏预览
-          // config.x (-0.5 ~ 0) -> y (h/2 ~ -h/2)
-          // config.x = -0.5 => y = h/2 (Bottom)
-          // config.x = 0 => y = -h/2 (Top)
-          // y = - (config.x * 2 + 1) * (h/2)  => - (2x + 1) * h/2
-          const py = -(pos.x * 2 + 0.5) * h; // approximate
-          
-          // config.y (-0.5 ~ 0.5) -> x (-w/2 ~ w/2)
-          const px = pos.y * 1.5 * w; 
+      const colorStr = isRedSide ? 'red' : 'blue';
+      const texKey = `striker_${colorStr}_${strikerId}`;
+      const strikerTex = ResourceManager.get(texKey);
 
-          dot.position.set(px, py);
-          container.addChild(dot);
+      positions.forEach(pos => {
+          let px, py;
+          const range = w/2 - (-w/2 + goalPadding);
+
+          if (isRedSide) {
+              px = w/2 + (pos.x / 0.5) * range;
+              py = pos.y * h;
+          } else {
+              px = -w/2 - (pos.x / 0.5) * range;
+              py = pos.y * h;
+          }
+
+          if (strikerTex) {
+              const sprite = new PIXI.Sprite(strikerTex);
+              sprite.width = 40;
+              sprite.height = 40;
+              sprite.anchor.set(0.5);
+              sprite.position.set(px, py);
+              const shadow = new PIXI.Graphics();
+              shadow.beginFill(0x000000, 0.4);
+              shadow.drawCircle(0, 0, 18);
+              shadow.endFill();
+              shadow.position.set(px + 3, py + 3);
+              
+              container.addChild(shadow);
+              container.addChild(sprite);
+          } else {
+              const dot = new PIXI.Graphics();
+              const color = isRedSide ? 0xe74c3c : 0x3498db;
+              dot.beginFill(color);
+              dot.lineStyle(2, 0xFFFFFF);
+              dot.drawCircle(0, 0, 18);
+              dot.endFill();
+              dot.position.set(px, py);
+              container.addChild(dot);
+          }
       });
 
       this.contentContainer.addChild(container);

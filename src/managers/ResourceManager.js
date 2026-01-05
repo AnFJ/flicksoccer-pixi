@@ -12,6 +12,7 @@ class ResourceManager {
 
     // 2. 游戏主体资源
     this.gameManifest = {
+      half_field: 'assets/images/half_field.png', // [新增] 半场预览图
       field_border: 'assets/images/field_border.png',
       bg_grass: 'assets/images/grass_texture.png',
       ball: 'assets/images/ball.png', 
@@ -39,7 +40,7 @@ class ResourceManager {
         this.gameManifest[`field_${i}`] = `assets/images/fieldtheme/field_combined${i}.png`;
     }
 
-    // 2. 足球纹理 (4套) ball_texture1 ~ 3
+    // 2. 足球纹理 (4套) ball_texture1 ~ 4
     // 注意：代码里默认使用了 ball_texture 作为 key，这里我们把 ball_texture1 设为默认的 ball_texture 以兼容旧逻辑
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
     for (let i = 1; i <= 4; i++) {
