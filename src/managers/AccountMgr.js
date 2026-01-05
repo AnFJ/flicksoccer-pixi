@@ -19,7 +19,8 @@ class AccountMgr {
           striker: 1, // 1-7
           field: 1,   // 1-4
           ball: 1     // 1-3
-      }
+      },
+      formationId: 0 // [新增] 默认阵型ID
     };
     this.isLoggedIn = false;
     this.isNewUser = false; 
@@ -106,6 +107,7 @@ class AccountMgr {
       ];
       this.userInfo.checkinHistory = [];
       this.userInfo.theme = { striker: 1, field: 1, ball: 1 };
+      this.userInfo.formationId = 0;
       this.isLoggedIn = true;
       this.isNewUser = false; 
   }
@@ -142,21 +144,32 @@ class AccountMgr {
       } catch (e) {
           this.userInfo.theme = { striker: 1, field: 1, ball: 1 };
       }
+
+      // [修改] 优先读取服务端 formation_id，Local storage 作为兜底
+      if (data.formation_id !== undefined && data.formation_id !== null) {
+          this.userInfo.formationId = parseInt(data.formation_id);
+          // 同步到本地缓存以备不时之需
+          Platform.setStorage('last_formation_id', this.userInfo.formationId);
+      } else {
+          const savedFormation = Platform.getStorage('last_formation_id');
+          this.userInfo.formationId = savedFormation ? parseInt(savedFormation) : 0;
+      }
   }
 
   async sync() {
       if (!this.isLoggedIn || this.userInfo.id.startsWith('offline_')) return;
       
-      console.log('[Account] Syncing data. Theme:', this.userInfo.theme);
+      console.log('[Account] Syncing data.');
       
-      // [修改] 同步时带上 theme
+      // 同步到后端
       await NetworkMgr.post('/api/user/update', {
           userId: this.userInfo.id,
           coins: this.userInfo.coins,
           level: this.userInfo.level,
           items: this.userInfo.items,
           checkinHistory: this.userInfo.checkinHistory,
-          theme: this.userInfo.theme // 新增
+          theme: this.userInfo.theme,
+          formationId: this.userInfo.formationId // [新增]
       });
   }
 
@@ -167,6 +180,15 @@ class AccountMgr {
       this.userInfo.theme = { ...this.userInfo.theme, ...newTheme };
       this.sync();
       console.log('[Account] Theme updated:', this.userInfo.theme);
+  }
+
+  /**
+   * [新增] 更新阵型
+   */
+  updateFormation(id) {
+      this.userInfo.formationId = id;
+      Platform.setStorage('last_formation_id', id);
+      this.sync(); // [新增] 立即同步
   }
 
   /**

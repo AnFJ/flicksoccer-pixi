@@ -12,7 +12,7 @@ export class GameRoom {
     this.sessions = [];
     // 房间内存数据
     this.roomData = {
-      players: [], // { id, nickname, avatar, level, theme, ready, teamId, socket }
+      players: [], // { id, nickname, avatar, level, theme, formationId, ready, teamId, socket }
       status: 'WAITING', // WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
@@ -59,6 +59,7 @@ export class GameRoom {
     const nickname = url.searchParams.get('nickname') || 'Unknown';
     const avatar = url.searchParams.get('avatar') || '';
     const level = parseInt(url.searchParams.get('level') || '1');
+    const formationId = parseInt(url.searchParams.get('formationId') || '0'); // [新增]
     
     // [新增] 解析 theme 参数
     let theme = { striker: 1, field: 1, ball: 1 };
@@ -72,12 +73,12 @@ export class GameRoom {
     }
 
     const { 0: client, 1: server } = new WebSocketPair();
-    await this.handleSession(server, userId, nickname, avatar, level, theme);
+    await this.handleSession(server, userId, nickname, avatar, level, theme, formationId);
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handleSession(webSocket, userId, nickname, avatar, level, theme) {
+  async handleSession(webSocket, userId, nickname, avatar, level, theme, formationId) {
     webSocket.accept();
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
@@ -94,7 +95,8 @@ export class GameRoom {
       nickname,
       avatar,
       level, 
-      theme, // [新增]
+      theme, 
+      formationId, // [新增]
       ready: false,
       teamId: -1
     };
@@ -106,7 +108,7 @@ export class GameRoom {
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
       
-      // 更新引用 (更新 info 以防昵称/等级/头像/主题变化)
+      // 更新引用 (更新 info 以防昵称/等级/头像/主题/阵型变化)
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
       // --- 新加入逻辑 ---
@@ -133,7 +135,7 @@ export class GameRoom {
                 // 发送最近一次同步的位置，如果没有则让客户端自行重置
                 positions: this.roomData.positions, 
                 players: this.roomData.players.map(p => ({
-                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level, theme: p.theme
+                    id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level, theme: p.theme, formationId: p.formationId
                 }))
             }
         }));
@@ -171,6 +173,10 @@ export class GameRoom {
     switch (msg.type) {
       case 'READY':
         player.ready = !!msg.payload.ready;
+        // [新增] 如果消息带了 formationId，更新它
+        if (msg.payload.formationId !== undefined) {
+            player.formationId = msg.payload.formationId;
+        }
         this.broadcastState();
         this.checkStart();
         await this.saveState();
@@ -283,7 +289,8 @@ export class GameRoom {
       nickname: p.nickname,
       avatar: p.avatar,
       level: p.level,
-      theme: p.theme, // [新增] 广播 theme
+      theme: p.theme, 
+      formationId: p.formationId, // [新增]
       ready: p.ready,
       teamId: p.teamId
     }));

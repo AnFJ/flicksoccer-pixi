@@ -74,13 +74,18 @@ export default class InputController {
         if (this.scene.gameMode === 'pve' && this.scene.turnMgr.currentTurn === TeamId.RIGHT) return;
 
         const local = this.scene.container.toLocal(e.data.global);
-        const pointerId = e.id;
+        const pointerId = e.data.identifier; // 使用更稳定的 identifier (Touch ID)
 
+        // 检查是否已经是拖拽状态 (处理双指/多指)
         if (this.isDragging && this.selectedBody) {
-            this.aimingPointerId = pointerId;
-            this.isDualControl = true;
-            this.controlStartPos = { x: local.x, y: local.y };
-            this.baseAimVector = { ...this.aimVector };
+            // [修复] 只有当是一个新的触摸点 ID 时，才启用双指操控
+            // 防止同一个触摸点触发多次 down 事件导致逻辑错乱
+            if (pointerId !== this.aimingPointerId) {
+                this.aimingPointerId = pointerId;
+                this.isDualControl = true;
+                this.controlStartPos = { x: local.x, y: local.y };
+                this.baseAimVector = { ...this.aimVector };
+            }
             return;
         }
 
@@ -92,6 +97,9 @@ export default class InputController {
             this.aimingPointerId = pointerId;
             this.dragStartPos = { x: striker.body.position.x, y: striker.body.position.y };
             this.aimVector = { x: 0, y: 0 };
+            
+            // 重置双指状态
+            this.isDualControl = false;
             
             if (this.scene.gameMode === 'pvp_online') {
                 NetworkMgr.send({
@@ -134,15 +142,19 @@ export default class InputController {
     }
 
     onPointerMove(e) {
-        if (!this.isDragging || !this.selectedBody || e.id !== this.aimingPointerId) return;
+        // 使用 identifier 匹配
+        if (!this.isDragging || !this.selectedBody || e.data.identifier !== this.aimingPointerId) return;
         
         const local = this.scene.container.toLocal(e.data.global);
         
         if (this.isDualControl) {
+            // 双指/微调模式：向量随手指移动增量变化 (直接操控)
             const dx = local.x - this.controlStartPos.x;
             const dy = local.y - this.controlStartPos.y;
             this.aimVector = { x: this.baseAimVector.x + dx, y: this.baseAimVector.y + dy };
         } else {
+            // 单指模式：反向弹射 (Slingshot)
+            // 向量 = 起点 - 当前点
             this.aimVector = { x: this.dragStartPos.x - local.x, y: this.dragStartPos.y - local.y };
         }
         
@@ -164,7 +176,7 @@ export default class InputController {
     }
 
     onPointerUp(e) {
-        if (this.isDragging && this.selectedBody && e.id === this.aimingPointerId) {
+        if (this.isDragging && this.selectedBody && e.data.identifier === this.aimingPointerId) {
             const dist = Math.sqrt(this.aimVector.x**2 + this.aimVector.y**2);
             
             if (this.scene.gameMode === 'pvp_online') {

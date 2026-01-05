@@ -97,12 +97,13 @@ export default {
             coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
-            theme: JSON.stringify(INITIAL_THEME) // [新增]
+            theme: JSON.stringify(INITIAL_THEME),
+            formation_id: 0
           };
 
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, formation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.formation_id).run();
           
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
@@ -125,6 +126,12 @@ export default {
               user.theme = JSON.stringify(INITIAL_THEME);
               updateFields.push("theme = ?");
               updateArgs.push(user.theme);
+          }
+          // [新增] 检查 formation_id
+          if (user.formation_id === undefined || user.formation_id === null) {
+              user.formation_id = 0;
+              updateFields.push("formation_id = ?");
+              updateArgs.push(user.formation_id);
           }
 
           if (updateFields.length > 0) {
@@ -171,12 +178,13 @@ export default {
             coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
-            theme: JSON.stringify(INITIAL_THEME) // [新增]
+            theme: JSON.stringify(INITIAL_THEME),
+            formation_id: 0
           };
           
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, formation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.formation_id).run();
           
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
@@ -203,6 +211,13 @@ export default {
               user.theme = JSON.stringify(INITIAL_THEME);
               updateSqlParts.push("theme = ?");
               updateArgs.push(user.theme);
+              needsUpdate = true;
+          }
+          // [新增]
+          if (user.formation_id === undefined || user.formation_id === null) {
+              user.formation_id = 0;
+              updateSqlParts.push("formation_id = ?");
+              updateArgs.push(user.formation_id);
               needsUpdate = true;
           }
           
@@ -232,8 +247,8 @@ export default {
 
       // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-          // [修改] 接收 theme
-          const { userId, coins, level, items, checkinHistory, theme } = await request.json();
+          // [修改] 接收 theme 和 formationId
+          const { userId, coins, level, items, checkinHistory, theme, formationId } = await request.json();
           
           let sql = 'UPDATE users SET coins = ?, level = ?, items = ?';
           let args = [coins, level, JSON.stringify(items || [])];
@@ -247,6 +262,12 @@ export default {
           if (theme !== undefined) {
               sql += ', theme = ?';
               args.push(JSON.stringify(theme));
+          }
+
+          // [新增] 更新 formation_id
+          if (formationId !== undefined) {
+              sql += ', formation_id = ?';
+              args.push(formationId);
           }
 
           sql += ' WHERE user_id = ?';
