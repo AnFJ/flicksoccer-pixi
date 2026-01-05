@@ -156,9 +156,12 @@ export default class ThemeSelectionDialog extends PIXI.Container {
               this.renderVideoIcon(container, itemW/2 - 30, itemH/2 - 30);
           }
 
-          bg.interactive = true;
-          bg.buttonMode = true;
-          bg.on('pointerdown', () => {
+          // [修复] 将点击事件绑定在整个 Container 上，而不是 bg 上
+          // 设置点击热区，确保点击范围覆盖整个格子
+          container.hitArea = new PIXI.Rectangle(-itemW/2, -itemH/2, itemW, itemH);
+          container.interactive = true;
+          container.buttonMode = true;
+          container.on('pointerdown', () => {
               if (isUnlocked) {
                   this.tempTheme[typeKey] = id;
                   this.renderContent();
@@ -166,6 +169,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
                   this.tryUnlock(typeKey, id);
               }
           });
+          
           this.contentContainer.addChild(container);
       });
   }

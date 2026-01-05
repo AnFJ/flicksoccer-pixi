@@ -127,10 +127,10 @@ export const GameConfig = {
               unstoppable: 'adunit-bc43ef817678099c',
               super_force: 'adunit-8aa62d2e44801ab1',
               // [新增] 主题解锁广告ID
-              theme_striker: 'adunit-theme-striker',
-              theme_field: 'adunit-theme-field',
-              theme_ball: 'adunit-theme-ball',
-              theme_formation: 'adunit-theme-formation'
+              theme_striker: 'adunit-88bdd3cb911f5642',
+              theme_field: 'adunit-80528d8bc18b8441',
+              theme_ball: 'adunit-6b851044132039f5',
+              theme_formation: 'adunit-342edcf7c048abe3'
           }
       },
       douyin: {
