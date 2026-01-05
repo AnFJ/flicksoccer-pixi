@@ -24,7 +24,7 @@ const INITIAL_ITEMS = [
     { id: 'super_force', count: 5 },
     { id: 'unstoppable', count: 5 }
 ];
-// [修改] 默认主题包含 formationId
+// 默认主题包含 formationId
 const INITIAL_THEME = { striker: 1, field: 1, ball: 1, formationId: 0 };
 
 export default {
@@ -97,7 +97,6 @@ export default {
 
       // --- 更新数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-          // [修改] 不再接收独立的 formationId
           const { userId, coins, level, items, checkinHistory, theme } = await request.json();
           let sql = 'UPDATE users SET coins = ?, level = ?, items = ?, last_login = datetime("now", "+8 hours")';
           let args = [coins, level, JSON.stringify(items || [])];

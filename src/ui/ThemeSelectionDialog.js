@@ -80,7 +80,8 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       this.tabContainer.removeChildren();
       const tabW = 240;
       const gap = 20;
-      const startX = -((this.tabs.length * tabW + (this.tabs.length-1)*gap) / 2);
+      const totalW = this.tabs.length * tabW + (this.tabs.length - 1) * gap;
+      const startX = -totalW / 2;
 
       this.tabs.forEach((label, idx) => {
           const isSelected = this.currentTab === idx;
@@ -133,12 +134,11 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           bg.drawRoundedRect(-itemW/2, -itemH/2, itemW, itemH, 15);
           container.addChild(bg);
 
-          // 预览图略 (保持原逻辑)
           if (this.currentTab === 0) this.renderStrikerPreview(container, id);
           else if (this.currentTab === 1) this.renderFieldPreview(container, id, itemW-20, itemH-20);
           else this.renderBallPreview(container, id, 60);
 
-          bg.interactive = true; bg.buttonMode = true;
+          bg.interactive = true;
           bg.on('pointerdown', () => {
               this.tempTheme[typeKey] = id;
               this.renderContent();

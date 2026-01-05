@@ -18,7 +18,7 @@ class AccountMgr {
           striker: 1,
           field: 1,
           ball: 1,
-          formationId: 0 // [新增]
+          formationId: 0
       }
     };
     this.isLoggedIn = false;

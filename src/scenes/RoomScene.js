@@ -24,7 +24,7 @@ export default class RoomScene extends BaseScene {
     this.statusText = null;
     this.p1Container = null;
     this.p2Container = null;
-    // [修改] 引用 theme 对象内的 formationId
+    // 引用 theme 对象内的 formationId
     this.myFormationId = AccountMgr.userInfo.theme.formationId || 0;
   }
 
@@ -94,11 +94,12 @@ export default class RoomScene extends BaseScene {
   updatePlayerSlot(container, player, isMe) {
       if (!player) {
           container.nameText.text = '等待加入...'; container.fmtText.text = ''; container.readyTag.visible = false;
+          if (container.avatarSprite) { container.removeChild(container.avatarSprite); container.avatarSprite = null; }
           return;
       }
       container.nameText.text = player.nickname;
       container.readyTag.visible = player.ready;
-      const fid = player.theme?.formationId || 0; // [修改]
+      const fid = player.theme?.formationId || 0; 
       const f = Formations.find(it => it.id === fid) || Formations[0];
       if (isMe) {
           container.fmtText.visible = false; this.formationBtn.visible = true;
@@ -106,6 +107,17 @@ export default class RoomScene extends BaseScene {
           this.formationBtn.label.text = `阵型: ${f.name}`;
       } else {
           container.fmtText.visible = true; container.fmtText.text = `阵型: ${f.name}`;
+      }
+
+      if (!container.avatarSprite && player.avatar) {
+          PIXI.Texture.fromURL(player.avatar).then(tex => {
+              if (container.destroyed) return;
+              const sp = new PIXI.Sprite(tex);
+              sp.anchor.set(0.5); sp.width = sp.height = 180;
+              const mask = new PIXI.Graphics().beginFill(0xffffff).drawCircle(0,0,90).endFill();
+              sp.mask = mask; container.addChildAt(sp, 1); container.addChildAt(mask, 2);
+              container.avatarSprite = sp;
+          }).catch(()=>{});
       }
   }
 
@@ -123,12 +135,13 @@ export default class RoomScene extends BaseScene {
       this.isReady = !this.isReady;
       this.sendReady();
       const btnW = 300, btnH = 100;
+      // 绘图必须从中心开始坐标 (-btnW/2, -btnH/2) 绘制，以匹配 Button 组件的中心点
       this.readyBtn.bg.clear().beginFill(this.isReady ? 0xe67e22 : 0x27ae60).drawRoundedRect(-btnW/2,-btnH/2,btnW,btnH,20);
       this.readyBtn.label.text = this.isReady ? '取消准备' : '准备';
   }
 
   sendReady() {
-      NetworkMgr.send({ type: NetMsg.READY, payload: { ready: this.isReady, theme: AccountMgr.userInfo.theme } });
+      NetworkMgr.send({ type: NetMsg.READY, payload: { ready: this.isReady, formationId: this.myFormationId } });
   }
 
   onNetMessage(msg) {
@@ -137,6 +150,13 @@ export default class RoomScene extends BaseScene {
           this.statusText.text = msg.payload.status === 'PLAYING' ? "对局进行中..." : "等待玩家准备...";
           this.readyBtn.visible = msg.payload.status !== 'PLAYING';
           const myId = AccountMgr.userInfo.id;
+          const me = players.find(p => p.id === myId);
+          if (me) {
+              this.isReady = me.ready;
+              this.readyBtn.label.text = this.isReady ? '取消准备' : '准备';
+              const btnW = 300, btnH = 100;
+              this.readyBtn.bg.clear().beginFill(this.isReady ? 0xe67e22 : 0x27ae60).drawRoundedRect(-btnW/2, -btnH/2, btnW, btnH, 20);
+          }
           this.updatePlayerSlot(this.p1Container, players.find(p=>p.teamId===0), players.find(p=>p.teamId===0)?.id === myId);
           this.updatePlayerSlot(this.p2Container, players.find(p=>p.teamId===1), players.find(p=>p.teamId===1)?.id === myId);
       } else if (msg.type === NetMsg.START) {

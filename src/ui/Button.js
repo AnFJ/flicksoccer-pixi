@@ -90,10 +90,8 @@ export default class Button extends PIXI.Container {
     this.on('pointerup', this.onRelease, this);
     this.on('pointerupoutside', () => this.onRelease(false));
     
-    // 兼容 touch 事件 (部分环境可能需要)
-    this.on('touchstart', this.onPress, this);
-    this.on('touchend', this.onRelease, this);
-    this.on('touchendoutside', () => this.onRelease(false));
+    // [修复] 移除 touch 事件，因为 Pixi 的 pointer 事件已经包含了 touch 支持
+    // 同时绑定会导致 onClick 被触发两次
   }
 
   drawBg(color) {
