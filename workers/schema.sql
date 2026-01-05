@@ -11,9 +11,18 @@ CREATE TABLE IF NOT EXISTS users (
     coins INTEGER DEFAULT 200,  -- 金币
     items TEXT DEFAULT '[]',    -- 道具列表 (JSON 字符串)
     created_at TEXT DEFAULT (datetime('now', '+8 hours')),         -- 注册时间戳
-    last_login TEXT DEFAULT (datetime('now', '+8 hours'))          -- 最后登录时间戳
-    checkin_history TEXT DEFAULT '[]'  -- 签到历史 (JSON 字符串)
+    last_login TEXT DEFAULT (datetime('now', '+8 hours')),          -- 最后登录时间戳
+    checkin_history TEXT DEFAULT '[]',  -- 签到历史 (JSON 字符串)
+    match_stats TEXT DEFAULT '{"totalMatches":0,"wins":0,"losses":0}', -- 比赛统计 (JSON 字符串)
 );
+ALTER TABLE users ADD COLUMN match_stats TEXT;
+CREATE TABLE IF NOT EXISTS match_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    match_type TEXT,
+    match_data TEXT,
+    created_at DATETIME DEFAULT (datetime('now', '+8 hours'))
+)
 
 -- 创建索引优化查询
 CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);

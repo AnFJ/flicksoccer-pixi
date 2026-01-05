@@ -15,7 +15,7 @@ import NetworkMgr from '../managers/NetworkMgr.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import { GameConfig } from '../config.js';
 import { TeamId, Events, NetMsg, SkillType } from '../constants.js';
-import { getFormation } from '../config/FormationConfig.js'; // [新增]
+import { getFormation } from '../config/FormationConfig.js'; 
 
 import GameMenuButton from '../ui/GameMenuButton.js';
 import GameHUD from '../ui/GameHUD.js';
@@ -25,7 +25,8 @@ import MenuScene from './MenuScene.js';
 import LobbyScene from './LobbyScene.js';
 import LevelSelectScene from './LevelSelectScene.js'; 
 import Button from '../ui/Button.js'; 
-import FormationSelectionDialog from '../ui/FormationSelectionDialog.js'; // [新增]
+import FormationSelectionDialog from '../ui/FormationSelectionDialog.js';
+import ResultScene from './ResultScene.js'; // [新增] 引入结算场景
 
 import GameLayout from '../core/GameLayout.js';
 import InputController from '../core/InputController.js';
@@ -65,11 +66,18 @@ export default class GameScene extends BaseScene {
 
     this.activeTheme = { striker: 1, field: 1, ball: 1 };
     
-    // [新增] 阵型ID
     this.p1FormationId = 0;
-    this.p2FormationId = 0; // PVE AI default or PVP P2
+    this.p2FormationId = 0; 
 
-    this.resetTimerId = null; // 用于存储进球后重置的定时器ID
+    this.resetTimerId = null;
+
+    // [新增] 比赛数据统计
+    this.matchStats = {
+        startTime: 0,
+        endTime: 0,
+        [TeamId.LEFT]: { shots: 0, skills: {} },
+        [TeamId.RIGHT]: { shots: 0, skills: {} }
+    };
   }
 
   async onEnter(params = {}) {
@@ -77,28 +85,28 @@ export default class GameScene extends BaseScene {
     this.gameMode = params.mode || 'pve';
     this.currentLevel = params.level || 1; 
     
+    // 初始化统计时间
+    this.matchStats.startTime = Date.now();
+    this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
+    this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
+
     if (this.gameMode === 'pvp_online') {
         this.players = params.players || []; 
         const me = this.players.find(p => p.id === AccountMgr.userInfo.id);
         if (me) this.myTeamId = me.teamId;
         
-        // [新增] 从玩家数据中读取阵型ID
         const p1 = this.players.find(p => p.teamId === TeamId.LEFT);
         const p2 = this.players.find(p => p.teamId === TeamId.RIGHT);
         this.p1FormationId = p1 ? (p1.formationId || 0) : 0;
         this.p2FormationId = p2 ? (p2.formationId || 0) : 0;
 
         this.networkCtrl = new OnlineMatchController(this);
-        
-        // Online 直接开始，不需要弹窗
         this.isLoading = false;
         this.initGame(params);
 
     } else {
         this.myTeamId = TeamId.LEFT;
-        this.isLoading = false; // 先解除 Loading，准备显示弹窗
-
-        // [新增] 本地模式需要先选择阵型
+        this.isLoading = false; 
         this.showFormationSelection(params);
     }
   }
@@ -109,19 +117,13 @@ export default class GameScene extends BaseScene {
 
       const dialog = new FormationSelectionDialog(mode, (p1Id, p2Id) => {
           this.p1FormationId = p1Id;
-          // PVE 模式下，p2Id 是 AI 的阵型，这里暂且保持默认 0，或者根据关卡配置读取
-          // 如果是本地 PVP，使用传入的 p2Id
           if (this.gameMode === 'pvp_local') {
               this.p2FormationId = p2Id;
           } else {
-              // PVE AI 阵型，暂时默认0，未来可在 LevelConfig 配置
               this.p2FormationId = 0;
           }
-
-          // 确认后开始初始化游戏
           this.initGame(params);
       }, () => {
-          // 取消则返回菜单
           if (this.gameMode === 'pve') SceneManager.changeScene(LevelSelectScene);
           else SceneManager.changeScene(MenuScene);
       });
@@ -142,21 +144,16 @@ export default class GameScene extends BaseScene {
     }
 
     this.physics.init();
-    
     this.layout.init(this.activeTheme.field);
-    
     this.input.init();
-    
     this.turnMgr.init(this.gameMode, params.startTurn, this.currentLevel);
-    
     this.rules = new GameRules(this.physics);
-    this.setupFormation(); // 使用新逻辑
+    this.setupFormation();
     this._createUI();
     this._setupEvents();
 
     this.isGameOver = false;
     this.isGamePaused = false;
-    
     this.accumulator = 0;
 
     if (params.snapshot && this.networkCtrl) {
@@ -215,6 +212,21 @@ export default class GameScene extends BaseScene {
     EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); 
   }
 
+  // [新增] 记录射门
+  recordShot(teamId) {
+      if (this.matchStats[teamId]) {
+          this.matchStats[teamId].shots++;
+      }
+  }
+
+  // [新增] 记录技能消耗
+  recordSkillUsage(teamId, skillType) {
+      if (this.matchStats[teamId]) {
+          const skills = this.matchStats[teamId].skills;
+          skills[skillType] = (skills[skillType] || 0) + 1;
+      }
+  }
+
   setupFormation() {
     this._clearEntities();
     const { x, y, w, h } = this.layout.fieldRect;
@@ -225,30 +237,20 @@ export default class GameScene extends BaseScene {
 
     const r = GameConfig.dimensions.strikerDiameter / 2;
 
-    // [修改] 使用 FormationConfig 获取坐标
     const fmtLeft = getFormation(this.p1FormationId);
     const fmtRight = getFormation(this.p2FormationId);
 
-    // 左方 (P1)
     fmtLeft.positions.forEach((pos, i) => {
-        // config.x 是相对半场宽度的比例 (-0.5 ~ 0)
-        // config.y 是相对半场高度的比例 (-0.5 ~ 0.5)
-        // 实际坐标：cx + (pos.x * w), cy + (pos.y * h)
-        // 左方在左侧，pos.x 本身就是负数，直接加即可
         const px = cx + pos.x * w; 
         const py = cy + pos.y * h;
-        
         const s = new Striker(px, py, r, TeamId.LEFT, this.activeTheme.striker);
         s.id = `left_${i}`;
         this.strikers.push(s); this._addEntity(s);
     });
 
-    // 右方 (P2/AI) - 需要镜像
     fmtRight.positions.forEach((pos, i) => {
-        // 镜像：x 取反
         const px = cx - pos.x * w; 
-        const py = cy + pos.y * h; // y 保持或取反皆可，通常对称即可
-        
+        const py = cy + pos.y * h; 
         const s = new Striker(px, py, r, TeamId.RIGHT, this.activeTheme.striker);
         s.id = `right_${i}`;
         this.strikers.push(s); this._addEntity(s);
@@ -261,9 +263,7 @@ export default class GameScene extends BaseScene {
   }
 
   _clearEntities() {
-    // 增加空指针保护，防止物理引擎已销毁时报错
     if (!this.physics || !this.physics.engine) return;
-
     this.strikers.forEach(s => { 
         Matter.World.remove(this.physics.engine.world, s.body); 
         this.layout.layers.game.removeChild(s.view); 
@@ -326,6 +326,8 @@ export default class GameScene extends BaseScene {
     this.isMoving = true;
     if (!isRemote) {
         AudioManager.playSFX('collision'); 
+        // [新增] 记录射门数据
+        this.recordShot(this.turnMgr.currentTurn);
     }
     this.turnMgr.timer = 0; 
   }
@@ -349,12 +351,9 @@ export default class GameScene extends BaseScene {
         this.ball.skillStates.fire = false;
     }
     
-    // 如果之前有 pending 的重置定时器，先清除
     if (this.resetTimerId) clearTimeout(this.resetTimerId);
 
-    // 延迟重置
     this.resetTimerId = setTimeout(() => { 
-        // 增加检查：场景未结束且物理引擎有效
         if (!this.isGameOver && this.physics && this.physics.engine) {
             this.setupFormation(); 
         }
@@ -363,65 +362,33 @@ export default class GameScene extends BaseScene {
 
   onGameOver(data) {
     this.isGameOver = true;
-    // 游戏结束时也要清除重置定时器，防止进球后刚好游戏结束导致重置
+    this.matchStats.endTime = Date.now(); // 记录结束时间
+
     if (this.resetTimerId) {
         clearTimeout(this.resetTimerId);
         this.resetTimerId = null;
     }
 
-    if (data.winner !== -1) {
-        const isWinner = (this.myTeamId === data.winner);
-        const economyConfig = GameConfig.gameplay.economy;
+    // 播放音效
+    AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
 
-        if (this.gameMode === 'pve') {
-             if (isWinner) {
-                 const reward = 50; 
-                 AccountMgr.addCoins(reward, false);
-                 
-                 const isLevelUp = AccountMgr.completeLevel(this.currentLevel, false);
-                 
-                 AccountMgr.sync();
-
-                 if (isLevelUp) {
-                     Platform.showToast(`通关！解锁第 ${this.currentLevel + 1} 关！`);
-                 } else {
-                     Platform.showToast(`挑战成功！获得 ${reward} 金币`);
-                 }
-             } else {
-                 Platform.showToast("挑战失败，请再接再厉");
-             }
-        } 
-        else if (this.gameMode === 'pvp_online') {
-            if (isWinner) {
-                const reward = economyConfig.winReward;
-                AccountMgr.addCoins(reward); 
-                Platform.showToast(`胜利！获得 ${reward} 金币`);
-            } else {
-                const fee = economyConfig.entryFee;
-                AccountMgr.consumeCoins(fee);
-                Platform.showToast(`惜败！扣除 ${fee} 金币`);
-            }
-        }
-        
-        AudioManager.playSFX('win');
-        if (this.gameMode === 'pvp_local') {
-            Platform.showToast(`${data.winner === TeamId.LEFT ? "红方" : "蓝方"} 获胜!`);
-        }
-    }
-
-    if (this.gameMode === 'pvp_online') {
-        Platform.removeStorage('last_room_id');
-    }
-
+    // [新增] 跳转到结算界面，传递比赛数据
     setTimeout(() => {
-        if (this.gameMode === 'pvp_online') NetworkMgr.close();
-        
-        if (this.gameMode === 'pve') {
-            SceneManager.changeScene(LevelSelectScene);
-        } else {
-            SceneManager.changeScene(this.gameMode === 'pvp_online' ? LobbyScene : MenuScene);
+        if (this.gameMode === 'pvp_online') {
+            NetworkMgr.close();
+            Platform.removeStorage('last_room_id');
         }
-    }, 3000);
+        
+        SceneManager.changeScene(ResultScene, {
+            winner: data.winner,
+            gameMode: this.gameMode,
+            currentLevel: this.currentLevel,
+            score: this.rules.score,
+            stats: this.matchStats,
+            players: this.players,
+            myTeamId: this.myTeamId
+        });
+    }, 2000);
   }
 
   update(delta) {
@@ -433,11 +400,9 @@ export default class GameScene extends BaseScene {
     this._updateStrikerHighlights(); 
 
     this.accumulator += delta;
-    
     if (this.accumulator > this.fixedTimeStep * 5) {
         this.accumulator = this.fixedTimeStep * 5;
     }
-
     while (this.accumulator >= this.fixedTimeStep) {
         this._fixedUpdate(this.fixedTimeStep);
         this.accumulator -= this.fixedTimeStep;
@@ -639,15 +604,11 @@ export default class GameScene extends BaseScene {
 
   onExit() {
       super.onExit();
-      // [新增] 离开游戏场景时清理广告
       Platform.hideGameAds();
-
-      // [新增] 清除进球重置定时器
       if (this.resetTimerId) {
           clearTimeout(this.resetTimerId);
           this.resetTimerId = null;
       }
-
       EventBus.off(Events.GOAL_SCORED, this);
       EventBus.off(Events.GAME_OVER, this);
       EventBus.off(Events.COLLISION_HIT, this);

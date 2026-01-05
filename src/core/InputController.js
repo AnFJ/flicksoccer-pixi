@@ -61,6 +61,17 @@ export default class InputController {
         this.scene.container.on('pointerupoutside', this.onPointerUp, this);
     }
 
+    /**
+     * [修复] 获取触摸点ID的兼容方法
+     * 适配 Web 标准 (e.data.identifier) 和 小游戏适配器 (e.id)
+     */
+    _getPointerId(e) {
+        if (e.data && e.data.identifier !== undefined) {
+            return e.data.identifier;
+        }
+        return e.id;
+    }
+
     onPointerDown(e) {
         if (this.scene.isGamePaused) return;
         if (this.scene.isMoving || this.scene.isGameOver || this.scene.isLoading) return;
@@ -74,13 +85,14 @@ export default class InputController {
         if (this.scene.gameMode === 'pve' && this.scene.turnMgr.currentTurn === TeamId.RIGHT) return;
 
         const local = this.scene.container.toLocal(e.data.global);
-        const pointerId = e.data.identifier; // 使用更稳定的 identifier (Touch ID)
+        const pointerId = this._getPointerId(e); // [修复] 使用兼容方法获取ID
 
         // 检查是否已经是拖拽状态 (处理双指/多指)
         if (this.isDragging && this.selectedBody) {
             // [修复] 只有当是一个新的触摸点 ID 时，才启用双指操控
             // 防止同一个触摸点触发多次 down 事件导致逻辑错乱
-            if (pointerId !== this.aimingPointerId) {
+            if (pointerId !== this.aimingPointerId && pointerId !== undefined) {
+                console.log('[Input] Dual control activated. Handing over to pointer:', pointerId);
                 this.aimingPointerId = pointerId;
                 this.isDualControl = true;
                 this.controlStartPos = { x: local.x, y: local.y };
@@ -142,8 +154,11 @@ export default class InputController {
     }
 
     onPointerMove(e) {
+        // [修复] 使用兼容方法获取ID
+        const pointerId = this._getPointerId(e);
+
         // 使用 identifier 匹配
-        if (!this.isDragging || !this.selectedBody || e.data.identifier !== this.aimingPointerId) return;
+        if (!this.isDragging || !this.selectedBody || pointerId !== this.aimingPointerId) return;
         
         const local = this.scene.container.toLocal(e.data.global);
         
@@ -176,7 +191,10 @@ export default class InputController {
     }
 
     onPointerUp(e) {
-        if (this.isDragging && this.selectedBody && e.data.identifier === this.aimingPointerId) {
+        // [修复] 使用兼容方法获取ID
+        const pointerId = this._getPointerId(e);
+
+        if (this.isDragging && this.selectedBody && pointerId === this.aimingPointerId) {
             const dist = Math.sqrt(this.aimVector.x**2 + this.aimVector.y**2);
             
             if (this.scene.gameMode === 'pvp_online') {

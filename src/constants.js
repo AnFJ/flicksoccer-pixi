@@ -4,8 +4,9 @@ export const SceneNames = {
   LOGIN: 'LoginScene',
   MENU: 'MenuScene',
   LOBBY: 'LobbyScene',
-  ROOM: 'RoomScene', // 新增
-  GAME: 'GameScene'
+  ROOM: 'RoomScene', 
+  GAME: 'GameScene',
+  RESULT: 'ResultScene' // 新增
 };
 
 // 物理碰撞分类 (Bit Mask)

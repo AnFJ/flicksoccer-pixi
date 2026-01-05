@@ -37,6 +37,12 @@ const INITIAL_ITEMS = [
 const INITIAL_THEME = { striker: 1, field: 1, ball: 1, formationId: 0 };
 // 默认解锁内容 (Type: [IDs])
 const INITIAL_UNLOCKED = { striker: [1], field: [1], ball: [1], formation: [0] };
+// [新增] 默认生涯数据
+const INITIAL_MATCH_STATS = {
+    total_pve: 0, total_local: 0, total_online: 0,
+    wins_pve: 0, wins_local: 0, wins_online: 0,
+    rating_sum_pve: 0, rating_sum_local: 0, rating_sum_online: 0
+};
 
 export default {
   async fetch(request, env, ctx) {
@@ -100,13 +106,13 @@ export default {
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
             theme: JSON.stringify(INITIAL_THEME),
-            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
+            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED),
+            match_stats: JSON.stringify(INITIAL_MATCH_STATS) // [新增]
           };
           
-          // [修复] 移除 formation_id, 确保 unlocked_themes 写入
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats).run();
 
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
@@ -124,18 +130,23 @@ export default {
             updateFields.push("checkin_history = ?");
             updateArgs.push(user.checkin_history);
           }
-          // [新增] 检查 theme
           if (!user.theme) {
             user.theme = JSON.stringify(INITIAL_THEME);
             updateFields.push("theme = ?");
             updateArgs.push(user.theme);
           }
-
-          // 兼容旧数据补全 unlocked_themes
           if (!user.unlocked_themes) {
             user.unlocked_themes = JSON.stringify(INITIAL_UNLOCKED);
-            await env.DB.prepare("UPDATE users SET unlocked_themes = ? WHERE user_id = ?").bind(user.unlocked_themes, deviceId).run();
+            updateFields.push("unlocked_themes = ?");
+            updateArgs.push(user.unlocked_themes);
           }
+          // [新增] 检查 match_stats
+          if (!user.match_stats) {
+            user.match_stats = JSON.stringify(INITIAL_MATCH_STATS);
+            updateFields.push("match_stats = ?");
+            updateArgs.push(user.match_stats);
+          }
+
           if (updateFields.length > 0) {
             updateFields.push("last_login = datetime('now', '+8 hours')");
             updateArgs.push(deviceId); // WHERE user_id = ?
@@ -181,14 +192,13 @@ export default {
             items: JSON.stringify(INITIAL_ITEMS),
             checkin_history: '[]',
             theme: JSON.stringify(INITIAL_THEME),
-            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED)
-            // formation_id 移除，使用 theme.formationId
+            unlocked_themes: JSON.stringify(INITIAL_UNLOCKED),
+            match_stats: JSON.stringify(INITIAL_MATCH_STATS) // [新增]
           };
 
-          // [修复] 移除 formation_id, 确保 unlocked_themes 写入
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats).run();
 
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
@@ -210,11 +220,23 @@ export default {
             updateArgs.push(user.checkin_history);
             needsUpdate = true;
           }
-          // [新增]
           if (!user.theme) {
             user.theme = JSON.stringify(INITIAL_THEME);
             updateSqlParts.push("theme = ?");
             updateArgs.push(user.theme);
+            needsUpdate = true;
+          }
+          if (!user.unlocked_themes) {
+            user.unlocked_themes = JSON.stringify(INITIAL_UNLOCKED);
+            updateSqlParts.push("unlocked_themes = ?");
+            updateArgs.push(user.unlocked_themes);
+            needsUpdate = true;
+          }
+          // [新增]
+          if (!user.match_stats) {
+            user.match_stats = JSON.stringify(INITIAL_MATCH_STATS);
+            updateSqlParts.push("match_stats = ?");
+            updateArgs.push(user.match_stats);
             needsUpdate = true;
           }
 
@@ -258,7 +280,6 @@ export default {
         if (theme !== undefined) {
           sql += ', theme = ?';
           args.push(JSON.stringify(theme));
-          // [移除] 不再单独更新 formation_id 列，因为表结构中没有该列
         }
 
         // [新增] 更新 unlocked_themes (确保数据库有此列)
@@ -272,6 +293,60 @@ export default {
 
         await env.DB.prepare(sql).bind(...args).run();
         return response({ success: true });
+      }
+
+      // --- 5. 比赛结算记录 ---
+      if (path === '/api/match/record' && request.method === 'POST') {
+          const { userId, matchType, isWin, rating, matchData } = await request.json();
+          
+          if (!userId) return response({ error: 'Missing userId' }, 400);
+
+          // A. 更新用户生涯数据
+          let user = await env.DB.prepare('SELECT match_stats FROM users WHERE user_id = ?').bind(userId).first();
+          if (user) {
+              let stats = INITIAL_MATCH_STATS;
+              try {
+                  if (user.match_stats) stats = JSON.parse(user.match_stats);
+              } catch(e) {}
+
+              // 累加数据
+              if (matchType === 'pve') {
+                  stats.total_pve++;
+                  if (isWin) stats.wins_pve++;
+                  stats.rating_sum_pve += rating;
+              } else if (matchType === 'pvp_local') {
+                  stats.total_local++;
+                  if (isWin) stats.wins_local++; // 本地双人P1赢算赢
+                  stats.rating_sum_local += rating;
+              } else if (matchType === 'pvp_online') {
+                  stats.total_online++;
+                  if (isWin) stats.wins_online++;
+                  stats.rating_sum_online += rating;
+              }
+
+              // 更新 users 表
+              await env.DB.prepare('UPDATE users SET match_stats = ? WHERE user_id = ?')
+                  .bind(JSON.stringify(stats), userId).run();
+          }
+
+          // B. 插入对战历史 (只保留最近10条)
+          // 1. 插入新记录
+          await env.DB.prepare('INSERT INTO match_history (user_id, match_type, match_data) VALUES (?, ?, ?)')
+              .bind(userId, matchType, JSON.stringify(matchData)).run();
+          
+          // 2. 删除旧记录 (保留最新的10条)
+          // SQLite 不支持直接 DELETE ... LIMIT，需要子查询
+          await env.DB.prepare(`
+              DELETE FROM match_history 
+              WHERE id NOT IN (
+                  SELECT id FROM match_history 
+                  WHERE user_id = ? 
+                  ORDER BY created_at DESC 
+                  LIMIT 10
+              ) AND user_id = ?
+          `).bind(userId, userId).run();
+
+          return response({ success: true });
       }
 
       return response({ error: 'Not Found' }, 404);

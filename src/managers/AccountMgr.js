@@ -22,12 +22,17 @@ class AccountMgr {
           ball: 1,
           formationId: 0
       },
-      // 默认解锁: 棋子1, 球场1, 足球1, 阵型0
       unlockedThemes: {
           striker: [1],
           field: [1],
           ball: [1],
           formation: [0]
+      },
+      // [新增] 本地缓存的生涯数据
+      matchStats: {
+          total_pve: 0, total_local: 0, total_online: 0,
+          wins_pve: 0, wins_local: 0, wins_online: 0,
+          rating_sum_pve: 0, rating_sum_local: 0, rating_sum_online: 0
       }
     };
     this.isLoggedIn = false;
@@ -35,13 +40,11 @@ class AccountMgr {
     this.tempLoginCredentials = null;
   }
 
-  // [新增] 从本地缓存加载
   loadFromCache() {
       try {
           const cachedStr = Platform.getStorage(CACHE_KEY);
           if (cachedStr) {
               const data = JSON.parse(cachedStr);
-              // 简单的格式校验
               if (data && data.id) {
                   this.userInfo = data;
                   this.isLoggedIn = true;
@@ -55,7 +58,6 @@ class AccountMgr {
       return false;
   }
 
-  // [新增] 保存到本地缓存
   saveToCache() {
       try {
           Platform.setStorage(CACHE_KEY, JSON.stringify(this.userInfo));
@@ -65,7 +67,6 @@ class AccountMgr {
   }
 
   async silentLogin() {
-    // 注意：即使 isLoggedIn 为 true，我们也允许再次调用以刷新数据（后台静默更新）
     try {
       const creds = await Platform.getLoginCredentials();
       this.tempLoginCredentials = creds; 
@@ -79,15 +80,10 @@ class AccountMgr {
       if (userData && !userData.error) {
           this.parseUserData(userData);
           this.isLoggedIn = true;
-          this.isNewUser = !!userData.is_new_user; // 记录是否新用户
-
-          // 登录成功后，保存最新数据到缓存
+          this.isNewUser = !!userData.is_new_user; 
           this.saveToCache();
-          
-          // 广播数据更新事件 (如果已经在 MenuScene，界面会刷新)
           EventBus.emit(Events.USER_DATA_REFRESHED);
       } else {
-          // 如果网络请求失败但本地有缓存，保持本地缓存状态，不进入离线模式覆盖数据
           if (!this.isLoggedIn) {
              this.enterOfflineMode();
           }
@@ -112,7 +108,6 @@ class AccountMgr {
       try { this.userInfo.items = typeof data.items === 'string' ? JSON.parse(data.items || '[]') : data.items; } catch (e) { this.userInfo.items = []; }
       try { this.userInfo.checkinHistory = typeof data.checkin_history === 'string' ? JSON.parse(data.checkin_history || '[]') : data.checkin_history; } catch (e) { this.userInfo.checkinHistory = []; }
 
-      // 解析 theme
       try {
           const theme = typeof data.theme === 'string' ? JSON.parse(data.theme || '{}') : data.theme;
           this.userInfo.theme = {
@@ -125,10 +120,8 @@ class AccountMgr {
           this.userInfo.theme = { striker: 1, field: 1, ball: 1, formationId: 0 };
       }
 
-      // [新增] 解析 unlocked_themes
       try {
           const unlocked = typeof data.unlocked_themes === 'string' ? JSON.parse(data.unlocked_themes || '{}') : data.unlocked_themes;
-          // 合并默认值，防止缺失 Key
           this.userInfo.unlockedThemes = {
               striker: unlocked?.striker || [1],
               field: unlocked?.field || [1],
@@ -138,14 +131,19 @@ class AccountMgr {
       } catch (e) {
           this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
       }
+
+      // [新增] 解析生涯数据
+      try {
+          this.userInfo.matchStats = typeof data.match_stats === 'string' ? JSON.parse(data.match_stats || '{}') : data.match_stats;
+          if (!this.userInfo.matchStats) this.userInfo.matchStats = {};
+      } catch(e) {
+          this.userInfo.matchStats = {};
+      }
   }
 
   async sync() {
       if (!this.isLoggedIn || this.userInfo.id.startsWith('offline_')) return;
-      
-      // 每次同步前先保存到本地缓存，保证本地是最新的
       this.saveToCache();
-
       await NetworkMgr.post('/api/user/update', {
           userId: this.userInfo.id,
           coins: this.userInfo.coins,
@@ -155,6 +153,41 @@ class AccountMgr {
           theme: this.userInfo.theme,
           unlockedThemes: this.userInfo.unlockedThemes 
       });
+  }
+
+  // [新增] 提交比赛结果
+  async recordMatch(matchType, isWin, rating, matchData) {
+      if (this.userInfo.id.startsWith('offline_')) return;
+
+      // 更新本地状态 (乐观更新)
+      const stats = this.userInfo.matchStats || {};
+      const keyTotal = `total_${matchType.replace('pvp_', '')}`;
+      const keyWins = `wins_${matchType.replace('pvp_', '')}`;
+      const keyRating = `rating_sum_${matchType.replace('pvp_', '')}`;
+
+      stats[keyTotal] = (stats[keyTotal] || 0) + 1;
+      if (isWin) stats[keyWins] = (stats[keyWins] || 0) + 1;
+      stats[keyRating] = (stats[keyRating] || 0) + rating;
+
+      this.saveToCache();
+
+      // 发送给服务器
+      await NetworkMgr.post('/api/match/record', {
+          userId: this.userInfo.id,
+          matchType: matchType,
+          isWin: isWin,
+          rating: rating,
+          matchData: matchData
+      });
+  }
+
+  completeLevel(level, isFail) {
+      if (!isFail && level === this.userInfo.level) {
+          this.userInfo.level++;
+          this.saveToCache(); // levelUp 需要立即保存
+          return true;
+      }
+      return false;
   }
 
   updateTheme(newTheme) {
@@ -170,7 +203,6 @@ class AccountMgr {
   async updateUserProfile(profile) {
       this.userInfo.nickname = profile.nickName;
       this.userInfo.avatarUrl = profile.avatarUrl;
-      // 重新触发登录接口以同步资料到服务器
       await this.silentLogin();
   }
 
@@ -194,7 +226,6 @@ class AccountMgr {
   addCoins(amount, autoSync = true) {
     this.userInfo.coins += amount;
     if (autoSync) this.sync(); 
-    // 触发事件通知 UI
     EventBus.emit(Events.USER_DATA_REFRESHED);
   }
 
@@ -251,8 +282,9 @@ class AccountMgr {
       this.userInfo.coins = 999;
       this.userInfo.theme = { striker: 1, field: 1, ball: 1, formationId: 0 };
       this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
+      this.userInfo.matchStats = {};
       this.isLoggedIn = true;
-      this.saveToCache(); // 离线模式也缓存一下
+      this.saveToCache(); 
   }
 }
 export default new AccountMgr();
