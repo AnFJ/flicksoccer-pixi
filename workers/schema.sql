@@ -5,8 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     platform TEXT,              -- 来源：'web', 'wechat', 'douyin'
     nickname TEXT,              -- 昵称
     avatar_url TEXT,            -- 头像链接
-    theme TEXT DEFAULT '{"striker":1,"field":1,"ball":1}', -- 主题 (JSON 字符串)
-    formation_id INTEGER DEFAULT 0, -- 阵型ID
+    theme TEXT DEFAULT '{"striker":1,"field":1,"ball":1,"formationId":0}', -- 主题 (JSON 字符串)
     level INTEGER DEFAULT 1,    -- 等级
     coins INTEGER DEFAULT 200,  -- 金币
     items TEXT DEFAULT '[]',    -- 道具列表 (JSON 字符串)
