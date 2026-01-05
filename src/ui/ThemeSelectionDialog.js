@@ -184,10 +184,14 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           const isUnlocked = AccountMgr.isThemeUnlocked('formation', fmt.id);
           const isSelected = fmt.id === this.tempTheme.formationId;
           
+          // [修改] 未选中时统一使用深蓝背景 (无论是否解锁)，保证可见性
+          const btnColor = isSelected ? 0xF1C40F : 0x34495e;
+
           const btn = new Button({
               text: `${fmt.name} (${fmt.desc})`,
               width: 350, height: 70,
-              color: isSelected ? 0xF1C40F : (isUnlocked ? 0x34495e : 0x2c3e50),
+              color: btnColor,
+              // 未解锁时文字灰色，解锁时白色，选中时黑色
               textColor: isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6),
               fontSize: 28,
               onClick: () => {
@@ -201,8 +205,14 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           });
           btn.position.set(listX, startY + idx * gapY);
           
+          // [新增] 选中时文字不加粗 (默认是 bold)
+          if (isSelected) {
+              btn.label.style.fontWeight = 'normal';
+          }
+
           if (!isUnlocked) {
-              this.renderVideoIcon(btn, 140, 0, 0.7); // 在按钮右侧显示视频图标
+              // [修改] 视频图标放在左侧 (按钮宽350，中心0，左侧边缘约-175。放 -140 位置)
+              this.renderVideoIcon(btn, -140, 0, 0.6); 
           }
 
           this.contentContainer.addChild(btn);
@@ -248,17 +258,25 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       Platform.showToast("观看完整视频解锁主题");
       
       const success = await Platform.showRewardedVideoAd(adUnitId);
-      if (success) {
-          const unlocked = AccountMgr.unlockTheme(type, id);
-          if (unlocked) {
-              Platform.showToast("解锁成功！");
-              // 自动选中
-              if (type === 'formation') this.tempTheme.formationId = id;
-              else this.tempTheme[type] = id;
-              
-              this.renderContent();
+      
+      // [修复] 增加延时处理，避免广告关闭瞬间微信小游戏 adapter 抛出 insertTextView:fail 错误
+      // 导致后续逻辑无法执行
+      setTimeout(() => {
+          if (success) {
+              const unlocked = AccountMgr.unlockTheme(type, id);
+              if (unlocked) {
+                  Platform.showToast("解锁成功！");
+                  // 自动选中
+                  if (type === 'formation') this.tempTheme.formationId = id;
+                  else this.tempTheme[type] = id;
+                  
+                  // 确保组件未被销毁
+                  if (!this._destroyed) {
+                      this.renderContent();
+                  }
+              }
           }
-      }
+      }, 500);
   }
 
   renderFormationPreview(x, y, formationId) {

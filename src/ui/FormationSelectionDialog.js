@@ -5,6 +5,7 @@ import { GameConfig } from '../config.js';
 import { Formations } from '../config/FormationConfig.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import ResourceManager from '../managers/ResourceManager.js';
+import Platform from '../managers/Platform.js'; // [新增] 引入 Platform 处理广告
 
 export default class FormationSelectionDialog extends PIXI.Container {
   /**
@@ -50,7 +51,7 @@ export default class FormationSelectionDialog extends PIXI.Container {
     this.contentContainer = new PIXI.Container();
     panel.addChild(this.contentContainer);
 
-    // [修复] 只有 dual 模式显示 Tab，且必须添加到 panel 上
+    // 只有 dual 模式显示 Tab，且必须添加到 panel 上
     if (this.mode === 'dual') {
         this.createTabs(panel, panelH);
     }
@@ -82,9 +83,6 @@ export default class FormationSelectionDialog extends PIXI.Container {
     panel.addChild(cancelBtn);
   }
 
-  /**
-   * [修复] 修改 createTabs 逻辑，确保它在面板内居中显示
-   */
   createTabs(panel, panelH) {
       this.tabContainer = new PIXI.Container();
       // 位置在标题下方
@@ -128,25 +126,110 @@ export default class FormationSelectionDialog extends PIXI.Container {
     const startY = -160, gapY = 90;
 
     Formations.forEach((fmt, idx) => {
+        // [新增] 检查解锁状态
+        // 这里的逻辑是：无论现在是在选P1还是P2，都使用当前账号(AccountMgr)的解锁数据
+        // 这样就实现了"本地双人玩家2的阵型解锁配置同玩家1保持一样"
+        const isUnlocked = AccountMgr.isThemeUnlocked('formation', fmt.id);
         const isSelected = fmt.id === currentId;
+        
+        // 按钮颜色逻辑：选中(金色) > 未选中但解锁(深蓝) > 未解锁(深蓝带锁/图标)
+        const btnColor = isSelected ? 0xF1C40F : 0x34495e;
+        // 文字颜色逻辑：选中(黑色) > 未选中但解锁(白色) > 未解锁(灰色)
+        const txtColor = isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6);
+
         const btn = new Button({
             text: `${fmt.name} (${fmt.desc})`,
             width: 350, height: 75,
-            color: isSelected ? 0xF1C40F : 0x34495e,
-            textColor: isSelected ? 0x000000 : 0xFFFFFF,
+            color: btnColor,
+            textColor: txtColor,
             fontSize: 28,
             onClick: () => {
-                if (this.currentEditSide === 0) this.p1FormationId = fmt.id;
-                else this.p2FormationId = fmt.id;
-                this.renderSelectionArea();
+                if (isUnlocked) {
+                    // 已解锁，直接选中
+                    if (this.currentEditSide === 0) this.p1FormationId = fmt.id;
+                    else this.p2FormationId = fmt.id;
+                    this.renderSelectionArea();
+                } else {
+                    // 未解锁，尝试解锁
+                    this.tryUnlock(fmt.id);
+                }
             }
         });
         btn.position.set(-350, startY + idx * gapY);
+
+        // 如果未解锁，绘制视频图标提示
+        if (!isUnlocked) {
+            this.renderVideoIcon(btn, -140, 0, 0.6);
+        }
+
+        // [新增] 选中时文字不加粗 (Button 默认是 bold，这里手动改回 normal 以示区别，或者保持 bold)
+        if (isSelected) {
+            btn.label.style.fontWeight = 'normal';
+        }
+
         this.contentContainer.addChild(btn);
     });
 
     // 右侧预览区
     this.renderPreview(250, 20, currentId);
+  }
+
+  // [新增] 绘制视频/锁图标 helper
+  renderVideoIcon(parent, x, y, scale = 1.0) {
+      const icon = new PIXI.Container();
+      icon.position.set(x, y);
+      icon.scale.set(scale);
+
+      // 背景圆
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0xe67e22); // 橙色
+      bg.lineStyle(2, 0xffffff);
+      bg.drawCircle(0, 0, 24);
+      bg.endFill();
+      
+      // 播放三角
+      const tri = new PIXI.Graphics();
+      tri.beginFill(0xffffff);
+      tri.moveTo(-6, -8);
+      tri.lineTo(10, 0);
+      tri.lineTo(-6, 8);
+      tri.endFill();
+
+      icon.addChild(bg, tri);
+      parent.addChild(icon);
+  }
+
+  // [新增] 尝试解锁阵型
+  async tryUnlock(formationId) {
+      const adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['theme_formation'];
+      
+      if (!adUnitId) {
+          Platform.showToast("广告配置缺失，无法解锁");
+          return;
+      }
+
+      Platform.showToast("观看完整视频解锁阵型");
+      
+      const success = await Platform.showRewardedVideoAd(adUnitId);
+      
+      // 延时处理，防止 UI 渲染冲突
+      setTimeout(() => {
+          if (success) {
+              const unlocked = AccountMgr.unlockTheme('formation', formationId);
+              if (unlocked) {
+                  Platform.showToast("解锁成功！");
+                  
+                  // 解锁后自动选中当前正在编辑的一方
+                  if (this.currentEditSide === 0) this.p1FormationId = formationId;
+                  else this.p2FormationId = formationId;
+
+                  // 刷新界面
+                  if (!this._destroyed) {
+                      this.renderSelectionArea();
+                  }
+              }
+          }
+      }, 500);
   }
 
   renderPreview(x, y, formationId) {
