@@ -205,12 +205,22 @@ export default class ThemeSelectionDialog extends PIXI.Container {
               itemContainer.addChild(check);
           }
 
-          // 交互
+          // 交互 [修改]：仿Button，pointerdown缩放，pointerup生效
           bg.interactive = true;
           bg.buttonMode = true;
-          bg.on('pointertap', () => {
+          
+          bg.on('pointerdown', () => {
+              itemContainer.scale.set(0.95);
+          });
+          
+          bg.on('pointerup', () => {
+              itemContainer.scale.set(1.0);
               this.tempTheme[typeKey] = id;
               this.renderContent(); // 刷新选中状态
+          });
+          
+          bg.on('pointerupoutside', () => {
+              itemContainer.scale.set(1.0);
           });
 
           this.contentContainer.addChild(itemContainer);
