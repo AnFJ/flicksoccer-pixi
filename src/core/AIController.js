@@ -7,20 +7,40 @@ export default class AIController {
   /**
    * @param {Object} scene 场景引用
    * @param {import('./PhysicsEngine').default} physics 
-   * @param {TeamId} teamId 
+   * @param {TeamId} teamId AI所属队伍
    * @param {Object} levelConfig 关卡配置
    */
   constructor(scene, physics, teamId, levelConfig) {
     this.scene = scene;
     this.physics = physics;
     this.teamId = teamId;
+    
     // 默认配置兜底
     this.config = levelConfig || {
         aiError: 0.2,
         powerMultiplier: 0.6,
         strategyDepth: 0,
+        defenseAwareness: 0,
         skills: [],
         skillRate: 0
+    };
+
+    // AI 进攻方向的目标球门 X 坐标
+    // AI (Right/Blue) 进攻 Left Goal (x=0)
+    // AI (Left/Red) 进攻 Right Goal (x=FieldWidth)
+    this.fieldW = this.scene.layout.fieldRect.w;
+    this.fieldH = this.scene.layout.fieldRect.h;
+    
+    // 目标球门中心点
+    this.targetGoal = {
+        x: this.teamId === TeamId.LEFT ? this.fieldW : 0,
+        y: this.fieldH / 2
+    };
+
+    // 自家球门中心点 (用于防守判断)
+    this.ownGoal = {
+        x: this.teamId === TeamId.LEFT ? 0 : this.fieldW,
+        y: this.fieldH / 2
     };
   }
 
@@ -30,41 +50,58 @@ export default class AIController {
   think(strikers, ball) {
     if (!ball || strikers.length === 0) return null;
 
-    // 1. 技能决策
+    // 1. 尝试使用技能
     this._tryActivateSkill();
 
-    // 2. 筛选可用棋子 (只选在球后方的)
-    let candidates = this._getCandidates(strikers, ball);
-    
-    // 3. 寻找最佳射门方案
+    // 2. 筛选可用棋子
+    // 规则：通常只选择在球后方（相对进攻方向）的棋子，除非是解围
+    const candidates = this._getCandidates(strikers, ball);
+    if (candidates.length === 0) return this._fallbackShot(strikers, ball); // 如果都在球前面，就随便找一个
+
+    // 3. 决策评分系统
     let bestAction = null;
     let maxScore = -Infinity;
 
+    // 预计算环境信息
+    const isBallInDanger = this._isBallInDanger(ball);
+    const needClearance = isBallInDanger && (Math.random() < this.config.defenseAwareness);
+
     for (const striker of candidates) {
-        // A. 直线射门评估
-        const directShot = this._evaluateDirectShot(striker, ball);
-        if (directShot.score > maxScore) {
-            maxScore = directShot.score;
-            bestAction = directShot;
+        // --- 策略 A: 射门 (最高优先级) ---
+        const shotAction = this._evaluateBestShot(striker, ball);
+        if (shotAction.score > maxScore) {
+            maxScore = shotAction.score;
+            bestAction = shotAction;
         }
 
-        // B. 反弹射门评估 (Strategy Depth >= 2)
-        if (this.config.strategyDepth >= 2) {
-            const bankShot = this._evaluateBankShot(striker, ball);
-            if (bankShot && bankShot.score > maxScore) {
-                maxScore = bankShot.score;
-                bestAction = bankShot;
+        // --- 策略 B: 解围 (危险时高优先级) ---
+        // 只有当策略深度 >= 1 且处于危险状态时触发
+        if (this.config.strategyDepth >= 1 && needClearance) {
+            const clearAction = this._evaluateClearance(striker, ball);
+            // 解围的分数通常给予较高权重，但低于"必进球"
+            if (clearAction.score > maxScore) {
+                maxScore = clearAction.score;
+                bestAction = clearAction;
             }
         }
     }
 
-    // 如果没找到好的方案，就选离球最近的随便踢一脚
-    if (!bestAction) {
+    // 如果没有好的方案，执行保底逻辑 (朝着球踢一脚)
+    if (!bestAction || maxScore < 0) {
         bestAction = this._fallbackShot(candidates, ball);
     }
 
     // 4. 应用人为误差 (模拟不同难度)
     if (bestAction) {
+        // 根据策略深度调整力度 (Level 20+ 懂得控力)
+        if (this.config.strategyDepth >= 3 && bestAction.suggestedPower) {
+             // 使用计算出的建议力度
+             bestAction.force = Matter.Vector.mult(
+                 Matter.Vector.normalise(bestAction.force), 
+                 bestAction.suggestedPower
+             );
+        }
+        
         bestAction.force = this._applyHumanError(bestAction.force);
     }
 
@@ -72,48 +109,51 @@ export default class AIController {
   }
 
   _tryActivateSkill() {
-      // 随机判定是否使用技能
       if (Math.random() < this.config.skillRate && this.config.skills.length > 0) {
-          // 随机选一个技能
           const skill = this.config.skills[Math.floor(Math.random() * this.config.skills.length)];
           
-          // 调用 Scene 的 SkillMgr 激活 (模拟点击)
-          // 注意：需要 SkillMgr 支持传入 teamId 来强制激活 AI 技能，或者 AI 也有自己的 activeSkills 状态
-          // 这里简化处理：AI 直接操作自己的 activeSkills 逻辑，或者复用 SkillManager
-          // 由于 SkillManager 目前设计主要是给 UI 用的，我们通过 Scene 接口调用
-          if (this.scene.skillMgr) {
-              // Hack: 强制激活 AI 端的技能状态
-              // 实际项目中应该给 AI 独立的 SkillManager 实例，或者 SkillManager 支持多实例
-              // 这里我们假设 SkillManager.activeSkills 是针对"当前操作者"的。
-              // 由于 AI 思考时就是 AI 的回合，我们模拟一次点击
-              // 但为了不影响 UI 显示 (UI显示的是玩家的技能)，我们需要区分。
-              // 简单做法：直接在 AI 内部标记，然后在 InputController 发送 MOVE 时带上。
-              // 鉴于目前架构，我们在 GameScene.js 的 onActionFired 会重置所有技能。
-              // 我们直接调用 toggle，但传入 AI 的 TeamId (SkillManager 需要适配)
-              
-              // 现阶段最稳妥的方式：直接修改球的状态 (如果是 Buff 类)
-              // 并在 Input/TurnManager 射门时带上特效
-              
-              if (this.scene.ball) {
-                  if (skill === 'unstoppable') {
-                      this.scene.ball.activateUnstoppable(3000);
-                  } else if (skill === 'super_force') {
-                      this.scene.ball.setLightningMode(true);
-                  }
-                  // Super Aim 对 AI 来说只是视觉效果，AI 本身计算已经是“瞄准”了
-                  // 如果想展示辅助线给玩家看 AI 的路径，比较复杂，暂略。
+          if (this.scene.ball) {
+              if (skill === 'unstoppable') {
+                  this.scene.ball.activateUnstoppable(3000);
+              } else if (skill === 'super_force') {
+                  this.scene.ball.setLightningMode(true);
               }
           }
       }
   }
 
   _getCandidates(strikers, ball) {
-    const margin = 5;
-    if (this.teamId === TeamId.LEFT) {
-        return strikers.filter(s => s.body.position.x < ball.body.position.x - margin);
-    } else {
-        return strikers.filter(s => s.body.position.x > ball.body.position.x + margin);
-    }
+    const margin = 10;
+    // 进攻方向向量
+    const attackDirX = this.teamId === TeamId.LEFT ? 1 : -1;
+    
+    // 筛选位于球后方的棋子 (X轴比较)
+    // LeftTeam(->): Striker.x < Ball.x
+    // RightTeam(<-): Striker.x > Ball.x
+    const valid = strikers.filter(s => {
+        if (attackDirX > 0) return s.body.position.x < ball.body.position.x - margin;
+        else return s.body.position.x > ball.body.position.x + margin;
+    });
+
+    // 如果没有合适位置的，就返回所有棋子 (可能需要回追)
+    return valid.length > 0 ? valid : strikers;
+  }
+
+  // 评估最佳射门 (包含直线和反弹)
+  _evaluateBestShot(striker, ball) {
+      let bestResult = { score: -Infinity };
+
+      // 1. 直线射门
+      const direct = this._evaluateDirectShot(striker, ball);
+      if (direct.score > bestResult.score) bestResult = direct;
+
+      // 2. 反弹射门 (Level 8+ 开启)
+      if (this.config.strategyDepth >= 2) {
+          const bank = this._evaluateBankShot(striker, ball);
+          if (bank && bank.score > bestResult.score) bestResult = bank;
+      }
+
+      return bestResult;
   }
 
   _evaluateDirectShot(striker, ball) {
@@ -122,108 +162,233 @@ export default class AIController {
       
       // 向量：棋子 -> 球
       const dir = Matter.Vector.sub(bPos, sPos);
-      const dist = Matter.Vector.magnitude(dir);
       const normalDir = Matter.Vector.normalise(dir);
-
-      // 评估分数：距离越近越好，角度越正越好
-      // 简单起见，主要看距离
-      let score = 1000 - dist;
-
-      // 目标位置 (对方球门中心)
-      // 左方进攻右门，右方进攻左门
-      const goalX = this.teamId === TeamId.LEFT ? this.scene.layout.fieldRect.w : 0;
-      const goalY = this.scene.layout.fieldRect.h / 2;
       
-      // 向量：球 -> 门
-      const ballToGoal = Matter.Vector.sub({x: goalX, y: goalY}, bPos);
-      
-      // 计算 "棋子->球" 和 "球->门" 的夹角
-      // 夹角越小，说明三点一线，越容易进球
-      const angleDiff = Matter.Vector.angle(normalDir, ballToGoal);
-      
-      // 惩罚大角度
-      score -= Math.abs(angleDiff) * 500;
+      // [修复] 提前定义 distStrikerBall，因为后面 suggestedPower 计算需要用到
+      const distStrikerBall = Matter.Vector.magnitude(dir);
 
-      // 射线检测：如果有障碍物挡路，分数大幅降低
-      if (this.config.strategyDepth >= 1) {
-          if (this._isPathBlocked(sPos, bPos) || this._isPathBlocked(bPos, {x: goalX, y: goalY})) {
-              score -= 2000;
-          }
+      // 向量：球 -> 目标球门
+      const ballToGoal = Matter.Vector.sub(this.targetGoal, bPos);
+      const distToGoal = Matter.Vector.magnitude(ballToGoal);
+      
+      // 检查路径阻挡 (球 -> 门)
+      // 使用射线检测，排除球自身和目标棋子
+      // 射线宽度设为球半径的一半，比较严格
+      const isBlocked = this._raycast(bPos, this.targetGoal, 10, [ball.body, striker.body]);
+
+      let score = 0;
+
+      if (isBlocked) {
+          score = 10; // 被挡住了，分数很低
+      } else {
+          // 角度越正越好
+          const angleDiff = Matter.Vector.angle(normalDir, ballToGoal);
+          
+          score = 1000 
+                  - Math.abs(angleDiff) * 300   // 角度惩罚
+                  - distStrikerBall * 0.5       // 跑位距离惩罚
+                  - distToGoal * 0.1;           // 进球距离微弱惩罚
       }
-
-      // 计算力度
+      
+      // 基础力度 (默认最大)
       const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * this.config.powerMultiplier;
       const force = Matter.Vector.mult(normalDir, maxForce);
 
-      return { striker, force, score };
+      // 建议力度 (简单计算：越远越大力)
+      // 如果策略深度够高，这里可以返回精确力度，防止踢飞
+      const suggestedPower = Math.min(maxForce, (distToGoal * 0.003 + distStrikerBall * 0.001));
+
+      return { striker, force, score, type: 'direct', suggestedPower };
   }
 
   _evaluateBankShot(striker, ball) {
-      // 简化的反弹逻辑：只考虑撞击上下墙壁进球
-      // 镜像法：将球门以墙壁为轴对称，瞄准镜像球门
+      // 简单的上/下墙反弹计算
+      // 镜像法：目标关于墙壁对称
+      // 上墙 Y = 0 (实际有厚度，取球场边界 0)
+      // 下墙 Y = fieldH
       
-      const field = this.scene.layout.fieldRect;
-      const goalX = this.teamId === TeamId.LEFT ? field.w : 0;
-      const goalY = field.h / 2;
-      
-      // 尝试上墙反弹 (Y = 0)
-      // 镜像球门 Y = -goalY
-      const mirrorGoalTop = { x: goalX, y: -goalY };
-      
-      // 计算撞击点
-      // 这是一个简单的几何估算，不考虑球的体积和摩擦
-      // 实际效果可能不完美，但对 AI 来说足够像“反弹球”
-      const bPos = ball.body.position;
-      
-      // 向量：球 -> 镜像门
-      const ballToMirror = Matter.Vector.sub(mirrorGoalTop, bPos);
-      
-      // 检测是否真的能撞到上墙 (交点 x 必须在球场范围内)
-      // ... 略去复杂几何计算，直接给一个向上的分量
-      
-      // 这里简化：如果没有直射机会，尝试给一个斜向上的力
-      const sPos = striker.body.position;
-      const dir = Matter.Vector.sub(bPos, sPos);
-      const angle = Math.atan2(dir.y, dir.x);
-      
-      // 稍微偏转角度，制造切球效果
-      const cutAngle = angle + (Math.random() > 0.5 ? 0.3 : -0.3);
-      
-      const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * this.config.powerMultiplier;
-      const force = {
-          x: Math.cos(cutAngle) * maxForce,
-          y: Math.sin(cutAngle) * maxForce
-      };
+      const walls = [0, this.fieldH]; // 上边界和下边界
+      let bestBank = null;
+      let maxScore = -Infinity;
 
-      return { striker, force, score: 500 }; // 分数略低于完美直射，但高于被阻挡的直射
+      for (const wallY of walls) {
+          // 镜像目标点
+          const mirrorGoal = {
+              x: this.targetGoal.x,
+              y: wallY + (wallY - this.targetGoal.y)
+          };
+
+          // 球 -> 镜像目标 的连线与墙壁的交点即为撞击点
+          // 向量：球 -> 镜像
+          const ballToMirror = Matter.Vector.sub(mirrorGoal, ball.body.position);
+          
+          // 检查路径 1: 球 -> 墙 (撞击点)
+          // 简单的线段相交计算求撞击点 (HitPoint)
+          // 利用相似三角形: (HitY - BallY) / (MirrorY - BallY) = Ratio
+          // HitY 就是 wallY.
+          const ratio = (wallY - ball.body.position.y) / (mirrorGoal.y - ball.body.position.y);
+          if (ratio <= 0 || ratio >= 1) continue; // 无法反弹
+
+          const hitPoint = {
+              x: ball.body.position.x + (mirrorGoal.x - ball.body.position.x) * ratio,
+              y: wallY
+          };
+
+          // 检查路径阻挡
+          // 1. 球 -> 撞击点
+          const blocked1 = this._raycast(ball.body.position, hitPoint, 10, [ball.body, striker.body]);
+          // 2. 撞击点 -> 球门
+          const blocked2 = this._raycast(hitPoint, this.targetGoal, 10, [ball.body, striker.body]);
+
+          if (!blocked1 && !blocked2) {
+              // 这是一个可行的反弹球！
+              // 计算棋子需要撞击球的角度
+              // 目标方向即 ballToMirror 的方向
+              const shotDir = Matter.Vector.normalise(ballToMirror);
+              
+              // 棋子 -> 球 的方向必须与 shotDir 一致才能把球踢向那个方向
+              // 但实际上我们需要撞击球的“反面”
+              // 这里简化：AI 只要能把球往 shotDir 的方向踢就行
+              
+              // 计算棋子位置能否踢出这个角度
+              const strikerToBall = Matter.Vector.sub(ball.body.position, striker.body.position);
+              const angleDiff = Matter.Vector.angle(Matter.Vector.normalise(strikerToBall), shotDir);
+              
+              // 如果夹角太小，说明棋子位置很好；如果太大，说明棋子得绕到球后面去踢，这在一步操作里是不可能的
+              // 允许 45度 (PI/4) 的偏差通过切球实现
+              if (Math.abs(angleDiff) < Math.PI / 4) {
+                  const score = 800 - Math.abs(angleDiff) * 200; // 略低于完美的直射
+                  
+                  if (score > maxScore) {
+                      const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * this.config.powerMultiplier;
+                      // 修正力度方向：融合 棋子->球 和 理想出射方向
+                      // 简单起见，直接用 Striker->Ball 的方向，靠 aiError 来模拟切球的不稳定性
+                      // 或者更高级：计算偏心撞击。这里为了稳定性，仍然沿连线踢，但力度调大
+                      const force = Matter.Vector.mult(Matter.Vector.normalise(strikerToBall), maxForce);
+                      
+                      bestBank = { striker, force, score, type: 'bank' };
+                      maxScore = score;
+                  }
+              }
+          }
+      }
+      return bestBank;
+  }
+
+  _evaluateClearance(striker, ball) {
+      // 解围：目标是将球踢向对方半场的开阔地带 (或者对方边角)
+      // 简单策略：瞄准对方半场的上下两个角落
+      const corners = [
+          { x: this.targetGoal.x, y: 0 },
+          { x: this.targetGoal.x, y: this.fieldH }
+      ];
+      
+      // 也是找一个最近的解围点
+      let bestDir = null;
+      let maxDist = -Infinity;
+
+      for (const target of corners) {
+          const dir = Matter.Vector.sub(target, ball.body.position);
+          const dist = Matter.Vector.magnitude(dir);
+          if (dist > maxDist) {
+              maxDist = dist;
+              bestDir = dir;
+          }
+      }
+      
+      // 向量：棋子 -> 球
+      const sPos = striker.body.position;
+      const bPos = ball.body.position;
+      const strikerToBall = Matter.Vector.sub(bPos, sPos);
+
+      // 仅仅为了把球踢远，不需要太精确的角度，只要大致向前即可
+      const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier; // 全力解围
+      const force = Matter.Vector.mult(Matter.Vector.normalise(strikerToBall), maxForce);
+      
+      // 解围的分数：越高越急
+      // 距离自家球门越近，分数越高
+      const distToOwnGoal = Matter.Vector.magnitude(Matter.Vector.sub(this.ownGoal, bPos));
+      const score = 600 + (1000 - distToOwnGoal); // 基础分600，越近越高
+
+      return { striker, force, score, type: 'clearance' };
   }
 
   _fallbackShot(candidates, ball) {
-      // 没招了，找最近的人随便踢一脚
-      let closest = candidates[0] || this.scene.strikers.filter(s => s.teamId === this.teamId)[0];
-      if (!closest) return null; // 场上没人了？
+      // 随便找个最近的人，往球的方向踢
+      // 距离球最近的
+      let closest = candidates[0];
+      let minDist = Infinity;
+      
+      for (const s of candidates) {
+          const d = Matter.Vector.magnitude(Matter.Vector.sub(ball.body.position, s.body.position));
+          if (d < minDist) {
+              minDist = d;
+              closest = s;
+          }
+      }
+
+      if (!closest) closest = this.scene.strikers.find(s => s.teamId === this.teamId);
 
       const dir = Matter.Vector.sub(ball.body.position, closest.body.position);
-      const norm = Matter.Vector.normalise(dir);
-      const force = Matter.Vector.mult(norm, GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * 0.5);
+      const force = Matter.Vector.mult(Matter.Vector.normalise(dir), GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * 0.6);
       
-      return { striker: closest, force, score: 0 };
+      return { striker: closest, force, score: 0, type: 'fallback' };
   }
 
-  _isPathBlocked(start, end) {
-      // 简易射线检测：采样中点
-      const mid = {
-          x: (start.x + end.x) / 2,
-          y: (start.y + end.y) / 2
-      };
-      const bodies = this.physics.queryPoint(mid.x, mid.y);
-      // 如果中点有任何物体 (除了球和墙)，认为阻挡
-      return bodies.some(b => b.label === 'Striker');
+  // 判断球是否在己方危险区域
+  _isBallInDanger(ball) {
+      const x = ball.body.position.x;
+      const w = this.fieldW;
+      
+      // 假设场地宽 1500
+      // AI 是 RightTeam (进攻 0, 防守 W) -> Danger > W * 0.6
+      // AI 是 LeftTeam (进攻 W, 防守 0) -> Danger < W * 0.4
+      
+      if (this.teamId === TeamId.RIGHT) {
+          return x > w * 0.6;
+      } else {
+          return x < w * 0.4;
+      }
+  }
+
+  /**
+   * 射线检测
+   * @param {Object} start 起点
+   * @param {Object} end 终点
+   * @param {number} radius 射线半径 (用于模拟球的宽度)
+   * @param {Array} ignoreBodies 忽略的刚体列表
+   * @returns {boolean} 是否被阻挡
+   */
+  _raycast(start, end, radius, ignoreBodies = []) {
+      const bodies = this.physics.engine.world.bodies;
+      
+      // 1. 简单的 Matter.Query.ray (中心线)
+      const collisions = Matter.Query.ray(bodies, start, end);
+      
+      for (const col of collisions) {
+          const body = col.body;
+          // 忽略墙壁(如果是边界检查可能需要，但射门路径通常不包含墙壁内部)、忽略自身、忽略球
+          if (ignoreBodies.includes(body)) continue;
+          if (body.isSensor) continue; // 忽略进球感应区
+          
+          // 如果碰到其他棋子，视为阻挡
+          if (body.label === 'Striker') return true;
+      }
+      
+      // 2. 进阶：如果需要考虑球的体积，可以发射两条平行射线 (start+offset -> end+offset)
+      // 简单起见，这里只做中心线检测，对于这个体量的游戏足够了。
+      // 如果想要更精准，可以检测 start->end 矩形区域内的物体 (Query.region)
+      
+      return false;
   }
 
   _applyHumanError(force) {
-      // 根据配置的 aiError (弧度) 旋转向量
-      const error = (Math.random() - 0.5) * 2 * this.config.aiError;
-      return Matter.Vector.rotate(force, error);
+      // 角度误差
+      const angleError = (Math.random() - 0.5) * 2 * this.config.aiError;
+      // 力度误差 (Level越高误差越小)
+      const powerNoise = 1.0 + (Math.random() - 0.5) * this.config.aiError * 0.5;
+
+      const rotated = Matter.Vector.rotate(force, angleError);
+      return Matter.Vector.mult(rotated, powerNoise);
   }
 }

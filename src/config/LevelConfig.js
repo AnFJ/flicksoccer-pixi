@@ -6,70 +6,64 @@ import { SkillType } from '../constants.js';
  * @param {number} level 关卡号 (1-99)
  */
 export function getLevelConfig(level) {
-    // 基础配置 (Level 1-2)
+    // 默认配置：Level 1-3 (菜鸟)
+    // 只会直线大力抽射，误差大，无防守意识
     const config = {
         level: level,
-        aiError: 0.25,        // 射门误差 (弧度)，0.25 很大，容易踢歪
-        powerMultiplier: 0.6, // 力度系数 (0~1)，新手关AI踢得轻
-        strategyDepth: 0,     // 0:仅直线, 1:尝试切球, 2:尝试反弹
-        skills: [],           // 允许使用的技能
-        skillRate: 0.0,       // 每回合使用技能的概率
-        description: "新手入门"
+        aiError: 0.3,         // 射门误差 (弧度)，0.3 很大，容易踢歪
+        powerMultiplier: 0.65, // 力度系数
+        strategyDepth: 0,     // 0:仅直线, 1:懂解围, 2:懂反弹, 3:全能
+        defenseAwareness: 0,  // 防守意识 (0~1)，触发解围的概率
+        skills: [],           
+        skillRate: 0.0,       
+        description: "菜鸟入门"
     };
 
-    // --- 难度曲线 ---
+    // --- 难度梯度 ---
 
-    // Level 3-6: 引入超距瞄准，精度提升
-    // [修改] 从第3关开始引入瞄准 (配合奖励)
-    if (level >= 3) {
-        config.aiError = 0.15;
+    // Level 4-7: 业余 (懂得基础解围)
+    if (level >= 4) {
+        config.aiError = 0.15;        // 误差减小
         config.powerMultiplier = 0.75;
-        config.strategyDepth = 1; 
+        config.strategyDepth = 1;     // 开启解围逻辑
+        config.defenseAwareness = 0.4; // 40%概率优先解围危险球
+        config.description = "业余选手";
+    }
+
+    // Level 8-20: 职业 (懂得反弹球，防守加强)
+    if (level >= 8) {
+        config.aiError = 0.08;        // 误差很小
+        config.powerMultiplier = 0.85;
+        config.strategyDepth = 2;     // 开启反弹射门
+        config.defenseAwareness = 0.7;
         config.skills.push(SkillType.SUPER_AIM);
-        config.skillRate = 0.1; 
-        config.description = "初窥门径";
+        config.skillRate = 0.1;       // 偶尔用技能
+        config.description = "职业球员";
     }
 
-    // Level 7-9: 引入无敌战车，懂得反弹
-    if (level >= 7) {
-        config.aiError = 0.10;
-        config.strategyDepth = 2; // 懂得撞墙
-        config.skills.push(SkillType.UNSTOPPABLE);
-        config.skillRate = 0.15;
-        config.description = "物理进阶";
-    }
-
-    // Level 10-20: 引入大力水手，全技能解锁
-    if (level >= 10) {
-        config.aiError = 0.08;
-        config.powerMultiplier = 0.9;
-        config.skills.push(SkillType.SUPER_FORCE);
-        config.skillRate = 0.2;
-        config.description = "暴力美学";
-    }
-
-    // Level 21-50: 高手进阶
-    if (level >= 21) {
-        config.aiError = 0.05; // 误差很小
+    // Level 20+: 大师 (精准制导，高频技能，力度控制)
+    if (level > 20) {
+        // 精度随关卡线性提升: 20关0.05 -> 50关0.01 (几乎零误差)
+        config.aiError = Math.max(0.01, 0.05 - (level - 20) * 0.0015);
         config.powerMultiplier = 1.0;
-        config.skillRate = 0.3 + (level - 20) * 0.005; // 技能频率随关卡增加
-        config.description = "大师之路";
-    }
-
-    // Level 51-99: 噩梦难度
-    if (level >= 51) {
-        config.aiError = 0.01; // 几乎零误差
-        config.skillRate = 0.5 + (level - 50) * 0.01; 
-        config.description = "传奇挑战";
+        config.strategyDepth = 3;     // 开启力度控制和高级策略
+        config.defenseAwareness = 1.0;// 绝对理性的防守
+        
+        // 技能库全开
+        config.skills = [SkillType.SUPER_AIM, SkillType.UNSTOPPABLE, SkillType.SUPER_FORCE];
+        // 技能频率: 20关0.2 -> 60关0.6
+        config.skillRate = Math.min(0.6, 0.2 + (level - 20) * 0.01);
+        
+        config.description = "足球大师";
     }
 
     // --- 特殊教学关卡强制配置 ---
 
-    // [修改] 第3关：强制展示瞄准 (原第4关)
+    // 第3关：强制展示瞄准
     if (level === 3) {
         config.skillRate = 1.0; 
         config.skills = [SkillType.SUPER_AIM];
-        config.description = "教学：超距瞄准";
+        config.description = "教学：精准制导";
     }
 
     // 第7关：强制展示战车
@@ -83,7 +77,7 @@ export function getLevelConfig(level) {
     if (level === 10) {
         config.skillRate = 1.0;
         config.skills = [SkillType.SUPER_FORCE];
-        config.description = "教学：大力水手";
+        config.description = "教学：大力神脚";
     }
 
     return config;
