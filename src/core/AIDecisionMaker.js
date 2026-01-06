@@ -50,16 +50,41 @@ export default class AIDecisionMaker {
         // 1. 全局局势分析
         const analysis = this._analyzeSituation(myStrikers, oppStrikers, ball);
         
-        // 2. 紧急防御检查
+        // 2. 紧急防御检查 (最高优先级)
         // 如果落后 (isLosing)，防御阈值提高，更倾向于进攻而不是纯粹破坏
+        // 但如果是 CriticalThreat (门前险情)，必须优先处理
         const defenseThreshold = isLosing ? 0.6 : 0.3; 
         
         if (analysis.isCriticalThreat && config.defenseAwareness > defenseThreshold) {
-            // console.log(`[AI] 发现致命威胁，尝试破坏`);
+            // [新增] 优先尝试直接解围球 (Clearance)
+            // 在极度危险时，把球踢走比撞人更稳妥
+            let bestClearance = null;
+            let maxClearScore = -Infinity;
             
+            for (const s of myStrikers) {
+                const isGoalie = (s.id === analysis.goalkeeperId);
+                const clears = this._generateClearanceActions(s, ball, isGoalie, analysis);
+                for (const c of clears) {
+                    // 距离球越近的解围越优先
+                    const distToBall = Matter.Vector.magnitude(Matter.Vector.sub(s.body.position, ball.body.position));
+                    const score = c.score - distToBall * 0.5; 
+                    if (score > maxClearScore) {
+                        maxClearScore = score;
+                        bestClearance = c;
+                    }
+                }
+            }
+            if (bestClearance) {
+                bestClearance.score = 10000; // 赋予极高分数，确保执行
+                bestClearance.desc = "紧急解围";
+                return bestClearance;
+            }
+
+            // 其次尝试破坏对手 (Sabotage)
             const sabotage = this._findSabotageMove(myStrikers, analysis.threatSource);
             if (sabotage) return sabotage;
             
+            // 最后尝试堵枪眼 (Block)
             const block = this._findDefensiveMove(myStrikers, ball, analysis.threatLine);
             if (block) return block;
         }
@@ -67,7 +92,7 @@ export default class AIDecisionMaker {
         let bestMove = null;
         let maxScore = -Infinity;
 
-        // 3. 遍历所有可能的动作进行评分
+        // 3. 遍历所有可能的动作进行评分 (常规逻辑)
         for (const striker of myStrikers) {
             const isGoalie = (striker.id === analysis.goalkeeperId);
             
@@ -133,7 +158,24 @@ export default class AIDecisionMaker {
         let threatLine = null;
         let threatSource = null;
 
-        if (distToOwn < this.fieldW * 0.7) {
+        // [新增] 绝对危险区判定 (Red Zone)
+        // 只要球在门前危险区域(350px)，且有对手在附近(400px)，无论能否直线射门，都视为致命威胁
+        // 这样可以避免因为射线检测被门柱或微小障碍阻挡而忽略近在咫尺的威胁
+        if (distToOwn < 350) {
+            for (const opp of oppStrikers) {
+                const distOppBall = Matter.Vector.magnitude(Matter.Vector.sub(opp.body.position, bPos));
+                if (distOppBall < 400) { 
+                    isCriticalThreat = true;
+                    isThreatened = true;
+                    threatSource = opp;
+                    threatLine = { start: bPos, end: this.ownGoal };
+                    break; // 发现一个就够了
+                }
+            }
+        }
+
+        // 常规威胁判定 (如果没有触发绝对危险)
+        if (!isCriticalThreat && distToOwn < this.fieldW * 0.7) {
             isThreatened = true;
             const threatTargets = [
                 this.ownGoal,
@@ -437,7 +479,6 @@ export default class AIDecisionMaker {
         return actions;
     }
 
-    // ... (保留 _findSabotageMove, _findDefensiveMove, _fallbackSafeMove) ...
     _findSabotageMove(myStrikers, threatSource) {
         if (!threatSource) return null;
         
@@ -488,6 +529,20 @@ export default class AIDecisionMaker {
         const vecGoalToBall = Matter.Vector.sub(ball.body.position, goalTarget);
         const defensePoint = Matter.Vector.add(goalTarget, Matter.Vector.mult(vecGoalToBall, 0.35)); 
 
+        // [修改] 强制防守点在球门外 (Clamping)
+        const safeMargin = 70; // 稍微大于棋子半径
+        if (this.teamId === TeamId.LEFT) {
+            // 左边球门在 x=fieldX, 防守点必须 > fieldX + safeMargin
+            if (defensePoint.x < this.fieldX + safeMargin) {
+                defensePoint.x = this.fieldX + safeMargin;
+            }
+        } else {
+            // 右边球门在 x=fieldX+fieldW, 防守点必须 < fieldX+fieldW - safeMargin
+            if (defensePoint.x > this.fieldX + this.fieldW - safeMargin) {
+                defensePoint.x = this.fieldX + this.fieldW - safeMargin;
+            }
+        }
+
         strikers.forEach(s => {
             const dist = Matter.Vector.magnitude(Matter.Vector.sub(s.body.position, defensePoint));
             const distToGoalS = Math.abs(s.body.position.x - goalTarget.x);
@@ -525,8 +580,15 @@ export default class AIDecisionMaker {
             subject = strikers.find(s => s.id === analysis.goalkeeperId);
         }
 
+        // [修改] 回撤目标不再是球门线中心，而是门前的一点 (防止进网)
+        const safeMargin = 80;
+        const safeGoalPos = {
+            x: this.teamId === TeamId.LEFT ? this.ownGoal.x + safeMargin : this.ownGoal.x - safeMargin,
+            y: this.ownGoal.y
+        };
+
         const toBall = Matter.Vector.sub(ball.body.position, subject.body.position);
-        const toOwnGoal = Matter.Vector.sub(this.ownGoal, ball.body.position);
+        const toOwnGoal = Matter.Vector.sub(safeGoalPos, ball.body.position);
         
         const dot = Matter.Vector.dot(Matter.Vector.normalise(toBall), Matter.Vector.normalise(toOwnGoal));
         
@@ -538,7 +600,7 @@ export default class AIDecisionMaker {
             };
         }
 
-        const dir = Matter.Vector.sub(this.ownGoal, subject.body.position);
+        const dir = Matter.Vector.sub(safeGoalPos, subject.body.position);
         if (Matter.Vector.magnitude(dir) < 50) {
             return {
                 striker: subject,

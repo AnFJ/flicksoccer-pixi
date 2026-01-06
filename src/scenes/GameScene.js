@@ -70,6 +70,10 @@ export default class GameScene extends BaseScene {
     this.p2FormationId = 0; 
 
     this.resetTimerId = null;
+    
+    // [新增] 物理模拟超时计时器
+    this.moveTimer = 0;
+    this.MAX_MOVE_TIME = 15000; // 15秒后强制结束回合
 
     // [新增] 比赛数据统计
     this.matchStats = {
@@ -235,6 +239,12 @@ export default class GameScene extends BaseScene {
   }
 
   setupFormation() {
+    // [修改] 如果实体已经存在，说明是重置位置，使用动画归位而不是销毁重建
+    if (this.strikers.length > 0 && this.ball) {
+        this._animateReset();
+        return;
+    }
+
     this._clearEntities();
     const { x, y, w, h } = this.layout.fieldRect;
     const cx = x + w/2, cy = y + h/2;
@@ -262,6 +272,78 @@ export default class GameScene extends BaseScene {
         s.id = `right_${i}`;
         this.strikers.push(s); this._addEntity(s);
     });
+  }
+
+  /**
+   * [新增] 动画重置位置
+   * 将所有棋子和足球平滑移动回初始点，期间关闭碰撞
+   */
+  _animateReset() {
+      const { x, y, w, h } = this.layout.fieldRect;
+      const cx = x + w/2, cy = y + h/2;
+      const duration = 1000; // 1秒归位时间
+
+      // 1. 足球归位
+      if (this.ball) {
+          this.ball.body.isSensor = true; // 暂时取消碰撞
+          this.repositionAnimations.push({
+              body: this.ball.body,
+              start: { x: this.ball.body.position.x, y: this.ball.body.position.y },
+              end: { x: cx, y: cy },
+              time: 0,
+              duration: duration
+          });
+          // 重置足球状态
+          this.ball.setLightningMode(false);
+          this.ball.skillStates.fire = false;
+      }
+
+      // 2. 棋子归位
+      const fmtLeft = getFormation(this.p1FormationId);
+      const fmtRight = getFormation(this.p2FormationId);
+
+      // 分离左右两队棋子
+      const leftStrikers = this.strikers.filter(s => s.teamId === TeamId.LEFT);
+      const rightStrikers = this.strikers.filter(s => s.teamId === TeamId.RIGHT);
+
+      // 移动左队
+      leftStrikers.forEach((s, i) => {
+          if (i < fmtLeft.positions.length) {
+              const pos = fmtLeft.positions[i];
+              const targetX = cx + pos.x * w;
+              const targetY = cy + pos.y * h;
+              
+              s.body.isSensor = true;
+              this.repositionAnimations.push({
+                  body: s.body,
+                  start: { x: s.body.position.x, y: s.body.position.y },
+                  end: { x: targetX, y: targetY },
+                  time: 0,
+                  duration: duration
+              });
+          }
+      });
+
+      // 移动右队
+      rightStrikers.forEach((s, i) => {
+          if (i < fmtRight.positions.length) {
+              const pos = fmtRight.positions[i];
+              const targetX = cx - pos.x * w;
+              const targetY = cy + pos.y * h;
+
+              s.body.isSensor = true;
+              this.repositionAnimations.push({
+                  body: s.body,
+                  start: { x: s.body.position.x, y: s.body.position.y },
+                  end: { x: targetX, y: targetY },
+                  time: 0,
+                  duration: duration
+              });
+          }
+      });
+      
+      // 强制停止所有物理模拟，防止残留速度影响
+      this._forceFreezeAll();
   }
 
   _addEntity(entity) {
@@ -331,6 +413,7 @@ export default class GameScene extends BaseScene {
 
   onActionFired(isRemote = false) {
     this.isMoving = true;
+    this.moveTimer = 0; // 重置超时计时器
     if (!isRemote) {
         AudioManager.playSFX('collision'); 
         // [新增] 记录射门数据
@@ -438,6 +521,15 @@ export default class GameScene extends BaseScene {
     }
 
     if (this.isMoving) {
+        // [新增] 物理模拟超时强制结束 (15秒)
+        this.moveTimer += dt;
+        if (this.moveTimer > this.MAX_MOVE_TIME) {
+            console.log("Turn timed out, forcing end.");
+            this._forceFreezeAll(); // 强制静止
+            this._endTurn();
+            return;
+        }
+
         if (!isPvpOnline || isMyTurn) {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
@@ -452,10 +544,24 @@ export default class GameScene extends BaseScene {
     }
   }
   
+  // [新增] 强制冻结所有物体
+  _forceFreezeAll() {
+      if (this.physics && this.physics.engine) {
+          const bodies = Matter.Composite.allBodies(this.physics.engine.world);
+          bodies.forEach(b => {
+              if (!b.isStatic) {
+                  Matter.Body.setVelocity(b, { x: 0, y: 0 });
+                  Matter.Body.setAngularVelocity(b, 0);
+              }
+          });
+      }
+  }
+  
   _endTurn() {
       if (!this.isMoving) return;
 
       this.isMoving = false;
+      this.moveTimer = 0; // 重置
       
       if (this.ball) {
           this.ball.setLightningMode(false);
@@ -594,8 +700,13 @@ export default class GameScene extends BaseScene {
           }
           return true;
       });
+      
+      // 动画结束后的清理工作
       finishedAnims.forEach(anim => {
-          anim.body.isSensor = false;
+          anim.body.isSensor = false; // 恢复碰撞
+          Matter.Body.setVelocity(anim.body, { x: 0, y: 0 });
+          Matter.Body.setAngularVelocity(anim.body, 0);
+          
           const isStriker = anim.body.label === 'Striker';
           if (isStriker && GameConfig.physics.strikerFixedRotation) {
               Matter.Body.setInertia(anim.body, Infinity);
@@ -604,8 +715,13 @@ export default class GameScene extends BaseScene {
               Matter.Body.setInertia(anim.body, (anim.body.mass * r * r) / 2);
           }
       });
+      
       if (finishedAnims.length > 0 && this.repositionAnimations.length === 0) {
-          this._endTurn();
+          // 如果是回合内的公平移动，移动完要结束回合
+          // 如果是进球后的重置，不需要调用 _endTurn，因为重置后本来就是新回合开始状态
+          if (this.isMoving) {
+              this._endTurn();
+          }
       }
   }
 
