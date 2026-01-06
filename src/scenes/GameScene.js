@@ -160,9 +160,16 @@ export default class GameScene extends BaseScene {
         this.networkCtrl.restoreState(params.snapshot);
     }
 
-    if (this.gameMode === 'pve') {
-        Platform.showToast(`第 ${this.currentLevel} 关 开始!`);
-    }
+    // [新增] 开局播放横幅提示 (代替 Toast)
+    setTimeout(() => {
+        if (!this.isGameOver) {
+            let startText = "游戏开始";
+            if (this.gameMode === 'pve') {
+                startText = `第 ${this.currentLevel} 关 开始`;
+            }
+            this.goalBanner?.play(startText);
+        }
+    }, 500);
 
     if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
         setTimeout(() => {
@@ -343,7 +350,7 @@ export default class GameScene extends BaseScene {
   _playGoalEffects(newScore) {
     AudioManager.playSFX('goal');
     this.hud?.updateScore(newScore[TeamId.LEFT], newScore[TeamId.RIGHT]);
-    this.goalBanner?.play();
+    this.goalBanner?.play("进球！"); // 默认文字
     Platform.vibrateShort();
     
     if (this.ball) {

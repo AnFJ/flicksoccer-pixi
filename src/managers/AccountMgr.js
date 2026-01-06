@@ -287,7 +287,8 @@ class AccountMgr {
       if (item) item.count += amount;
       else this.userInfo.items.push({ id: itemId, count: amount });
       this.sync();
-      EventBus.emit(Events.ITEM_UPDATE, { itemId, count: AccountMgr.getItemCount(itemId) });
+      // [修复] AccountMgr.getItemCount -> this.getItemCount
+      EventBus.emit(Events.ITEM_UPDATE, { itemId, count: this.getItemCount(itemId) });
       return true;
   }
 

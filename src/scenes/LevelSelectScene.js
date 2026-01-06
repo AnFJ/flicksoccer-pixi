@@ -188,7 +188,21 @@ export default class LevelSelectScene extends BaseScene {
         const btnX = x - size / 2;
         const btnY = y - size / 2;
 
-        const color = isLocked ? 0x7f8c8d : (level % 10 === 0 ? 0xe74c3c : 0x3498db); // BOSS关红色
+        const currentProgress = AccountMgr.userInfo.level || 1;
+        let color = 0x3498db; // 默认蓝色
+        let stateType = 'locked'; // 'cleared', 'current', 'locked'
+
+        if (isLocked) {
+            color = 0x7f8c8d; // 灰色 (锁定)
+            stateType = 'locked';
+        } else if (level === currentProgress) {
+            color = 0xF1C40F; // 黄色 (当前进行中)
+            stateType = 'current';
+        } else {
+            color = (level % 10 === 0) ? 0xe74c3c : 0x3498db; // 红色(BOSS) 或 蓝色 (已通关)
+            stateType = 'cleared';
+        }
+
         const textStr = isLocked ? '🔒' : level.toString();
         
         // 如果有关卡描述或奖励
@@ -231,30 +245,51 @@ export default class LevelSelectScene extends BaseScene {
 
         this.gridContainer.addChild(btn);
 
-        // [修改] 如果有奖励，在按钮 **外部下方** 展示
+        // [修改] 如果有奖励，在按钮外部下方展示，并根据状态显示不同提示
         if (hasReward) {
             const reward = LevelRewards[level];
-            // y + size/2 是按钮下边缘，+10 留间隙
-            this.createRewardPreview(this.gridContainer, x, y + size/2 + 40, reward, isLocked);
+            this.createRewardPreview(this.gridContainer, x, y + size/2 + 40, reward, stateType);
         }
     }
 
-    // [修改] 创建奖励预览 (外部定位，单行展示，足球特殊渲染)
-    createRewardPreview(parent, x, y, reward, isLocked) {
+    // [修改] 创建奖励预览 (处理不同状态文案及图标大小)
+    createRewardPreview(parent, x, y, reward, stateType) {
         const container = new PIXI.Container();
         container.position.set(x, y); 
         
-        // 1. "解锁" 文字
-        const label = new PIXI.Text("解锁", {
+        let labelStr = "";
+        let labelColor = 0xFFFFFF;
+        let isDimmed = false;
+
+        // 根据状态设置文案和颜色
+        if (stateType === 'cleared') {
+            labelStr = "已解锁";
+            labelColor = 0x2ecc71; // 绿色
+        } else if (stateType === 'current') {
+            labelStr = "完成可解锁";
+            labelColor = 0xF1C40F; // 金色
+        } else {
+            labelStr = "待解锁";
+            labelColor = 0xAAAAAA; // 灰色
+            isDimmed = true;
+        }
+
+        // 1. 提示文字
+        const label = new PIXI.Text(labelStr, {
             fontSize: 20, 
-            fill: 0xFFD700, 
+            fill: labelColor, 
             fontWeight: 'bold'
         });
-        label.anchor.set(0, 0.5); // 左对齐，垂直居中
+        label.anchor.set(0, 0.5); // 左对齐
 
         // 2. 准备图标
         let iconDisplay = null;
-        let targetSize = 46; // 图标尺寸 (原35放大30% -> ~46)
+        let targetSize = 46; // 默认图标尺寸
+
+        // 特殊处理：球场图标放大 (放大约2倍)
+        if (reward.type === 'field') {
+            targetSize = 80;
+        }
 
         if (reward.type === 'ball') {
             // 特殊处理足球：使用圆形遮罩渲染 + TilingSprite
@@ -263,10 +298,9 @@ export default class LevelSelectScene extends BaseScene {
             const tex = ResourceManager.get(texKey);
             
             if (tex) {
-                // 模拟足球外观 (类似 Ball.js)
                 const ball = new PIXI.TilingSprite(tex, radius * 4, radius * 4);
                 ball.anchor.set(0.5);
-                ball.tileScale.set(0.25); // 纹理缩放以适应小图标
+                ball.tileScale.set(0.25);
                 ball.width = targetSize;
                 ball.height = targetSize;
                 
@@ -308,8 +342,8 @@ export default class LevelSelectScene extends BaseScene {
 
         // 3. 组装布局 (单行居中：文字 + 间距 + 图标)
         if (iconDisplay) {
-            // 变暗逻辑
-            if (isLocked) {
+            // 变暗逻辑 (仅针对待解锁状态)
+            if (isDimmed) {
                 if (iconDisplay instanceof PIXI.Sprite || iconDisplay instanceof PIXI.TilingSprite) {
                     iconDisplay.tint = 0x555555;
                 } else if (iconDisplay instanceof PIXI.Container) {
@@ -327,14 +361,14 @@ export default class LevelSelectScene extends BaseScene {
             
             label.position.set(startX, 0);
             
-            // 图标中心X = startX + 文字宽 + 间距 + 半个图标宽 (因为anchor0.5)
+            // 图标中心X
             const iconX = startX + label.width + gap + targetSize / 2;
             iconDisplay.position.set(iconX, 0);
             
             container.addChild(label, iconDisplay);
         } else {
             // 兜底文字
-            const fallback = new PIXI.Text(`解锁 ${reward.name}`, {fontSize: 16, fill: 0xffffff});
+            const fallback = new PIXI.Text(`${labelStr} ${reward.name}`, {fontSize: 16, fill: 0xffffff});
             fallback.anchor.set(0.5);
             container.addChild(fallback);
         }
