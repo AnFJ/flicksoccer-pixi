@@ -3,6 +3,7 @@ import Platform from './Platform.js';
 import NetworkMgr from './NetworkMgr.js';
 import EventBus from './EventBus.js';
 import { Events } from '../constants.js';
+import { LevelRewards } from '../config/RewardConfig.js'; // [新增]
 
 const CACHE_KEY = 'finger_soccer_user_data';
 
@@ -181,13 +182,39 @@ class AccountMgr {
       });
   }
 
+  /**
+   * 通关逻辑
+   * @returns {Object|null} 如果有解锁的奖励，返回奖励对象 {type, id, name...}
+   */
   completeLevel(level, isFail) {
       if (!isFail && level === this.userInfo.level) {
           this.userInfo.level++;
-          this.saveToCache(); // levelUp 需要立即保存
-          return true;
+          
+          // [核心新增] 检查该等级是否有奖励
+          let unlockedReward = null;
+          // 注意：奖励是通关 level 后获得的，比如通关第2关，等级变为3，解锁奖励LevelRewards[2]或[3]?
+          // 通常是 "通关第N关，解锁第N关奖励"。此时 userInfo.level 已经 +1 了。
+          // 所以我们检查 level (即刚通关的那个关卡号)
+          const reward = LevelRewards[level];
+          
+          if (reward) {
+              if (reward.type === 'skill') {
+                  this.addItem(reward.id, reward.count);
+                  unlockedReward = reward;
+              } else {
+                  // 皮肤类：检查是否已解锁，未解锁则解锁
+                  const isUnlocked = this.isThemeUnlocked(reward.type, reward.id);
+                  if (!isUnlocked) {
+                      this.unlockTheme(reward.type, reward.id);
+                      unlockedReward = reward;
+                  }
+              }
+          }
+
+          this.saveToCache(); 
+          return unlockedReward;
       }
-      return false;
+      return null;
   }
 
   updateTheme(newTheme) {

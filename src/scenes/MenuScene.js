@@ -15,7 +15,7 @@ import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js';
 import MessageDialog from '../ui/MessageDialog.js'; 
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; // [新增] 引入 Events
-
+import ResultScene from './ResultScene.js'; 
 export default class MenuScene extends BaseScene {
   onEnter() {
     super.onEnter();
@@ -196,7 +196,35 @@ export default class MenuScene extends BaseScene {
 
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
-        Platform.handleSocialAction();
+        // Platform.handleSocialAction();
+        const params = {
+            "winner": 0,
+            "gameMode": "pvp_local",
+            "currentLevel": 1,
+            "score": {
+                "0": 1,
+                "1": 0
+            },
+            "stats": {
+                "0": {
+                    "shots": 4,
+                    "skills": {
+                        "super_aim": 4,
+                        "unstoppable": 4
+                    }
+                },
+                "1": {
+                    "shots": 3,
+                    "skills": {}
+                },
+                "startTime": 1767622359173,
+                "endTime": 1767622438652
+            },
+            "players": [],
+            "myTeamId": 0
+        };
+        SceneManager.changeScene(ResultScene, params);
+
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;

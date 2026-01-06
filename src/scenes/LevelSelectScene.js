@@ -9,6 +9,9 @@ import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import { getLevelConfig } from '../config/LevelConfig.js';
 import Platform from '../managers/Platform.js';
+import { LevelRewards } from '../config/RewardConfig.js'; // [新增]
+import ResourceManager from '../managers/ResourceManager.js'; // [新增]
+import { SkillType } from '../constants.js'; // [新增]
 
 export default class LevelSelectScene extends BaseScene {
     constructor() {
@@ -182,12 +185,16 @@ export default class LevelSelectScene extends BaseScene {
 
     createLevelButton(level, x, y, size, isLocked, config) {
         // x, y 是网格单元的中心点
-        // Button 默认左上角对齐，需要偏移
         const btnX = x - size / 2;
         const btnY = y - size / 2;
 
         const color = isLocked ? 0x7f8c8d : (level % 10 === 0 ? 0xe74c3c : 0x3498db); // BOSS关红色
         const textStr = isLocked ? '🔒' : level.toString();
+        
+        // 如果有关卡描述或奖励
+        const hasReward = !!LevelRewards[level];
+        // 如果有关卡描述 (例如 "教学")
+        const hasDesc = !isLocked && config.description && (level <= 10 || level % 10 === 0);
         
         const btn = new Button({
             text: textStr,
@@ -208,13 +215,11 @@ export default class LevelSelectScene extends BaseScene {
         
         btn.position.set(btnX, btnY);
 
-        // 描述 (例如 "教学")
-        if (!isLocked && config.description && (level <= 10 || level % 10 === 0)) {
-            // 稍微上移主数字
+        // 如果有关卡描述，显示在按钮内部
+        if (hasDesc) {
             if (btn.label) {
                 btn.label.y -= 20;
             }
-
             const descText = new PIXI.Text(config.description, {
                 fontFamily: 'Arial', fontSize: 18, fill: 0xffffff, fontWeight: 'bold',
                 dropShadow: true, dropShadowBlur: 2
@@ -225,6 +230,116 @@ export default class LevelSelectScene extends BaseScene {
         }
 
         this.gridContainer.addChild(btn);
+
+        // [修改] 如果有奖励，在按钮 **外部下方** 展示
+        if (hasReward) {
+            const reward = LevelRewards[level];
+            // y + size/2 是按钮下边缘，+10 留间隙
+            this.createRewardPreview(this.gridContainer, x, y + size/2 + 40, reward, isLocked);
+        }
+    }
+
+    // [修改] 创建奖励预览 (外部定位，单行展示，足球特殊渲染)
+    createRewardPreview(parent, x, y, reward, isLocked) {
+        const container = new PIXI.Container();
+        container.position.set(x, y); 
+        
+        // 1. "解锁" 文字
+        const label = new PIXI.Text("解锁", {
+            fontSize: 20, 
+            fill: 0xFFD700, 
+            fontWeight: 'bold'
+        });
+        label.anchor.set(0, 0.5); // 左对齐，垂直居中
+
+        // 2. 准备图标
+        let iconDisplay = null;
+        let targetSize = 46; // 图标尺寸 (原35放大30% -> ~46)
+
+        if (reward.type === 'ball') {
+            // 特殊处理足球：使用圆形遮罩渲染 + TilingSprite
+            const radius = targetSize / 2;
+            const texKey = reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`;
+            const tex = ResourceManager.get(texKey);
+            
+            if (tex) {
+                // 模拟足球外观 (类似 Ball.js)
+                const ball = new PIXI.TilingSprite(tex, radius * 4, radius * 4);
+                ball.anchor.set(0.5);
+                ball.tileScale.set(0.25); // 纹理缩放以适应小图标
+                ball.width = targetSize;
+                ball.height = targetSize;
+                
+                const mask = new PIXI.Graphics();
+                mask.beginFill(0xffffff);
+                mask.drawCircle(0, 0, radius);
+                mask.endFill();
+                
+                ball.mask = mask;
+                
+                iconDisplay = new PIXI.Container();
+                iconDisplay.addChild(mask, ball);
+            }
+        } else {
+            // 其他类型：普通 Sprite
+            let tex = null;
+            
+            if (reward.type === 'striker') {
+                tex = ResourceManager.get(`striker_red_${reward.id}`);
+            } else if (reward.type === 'field') {
+                tex = ResourceManager.get(`field_${reward.id}`);
+            } else if (reward.type === 'skill') {
+                const map = { 
+                    [SkillType.SUPER_AIM]: 'skill_aim_bg', 
+                    [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', 
+                    [SkillType.SUPER_FORCE]: 'skill_force_bg' 
+                };
+                tex = ResourceManager.get(map[reward.id]);
+            }
+
+            if (tex) {
+                const sprite = new PIXI.Sprite(tex);
+                sprite.anchor.set(0.5);
+                const scale = Math.min(targetSize / tex.width, targetSize / tex.height);
+                sprite.scale.set(scale);
+                iconDisplay = sprite;
+            }
+        }
+
+        // 3. 组装布局 (单行居中：文字 + 间距 + 图标)
+        if (iconDisplay) {
+            // 变暗逻辑
+            if (isLocked) {
+                if (iconDisplay instanceof PIXI.Sprite || iconDisplay instanceof PIXI.TilingSprite) {
+                    iconDisplay.tint = 0x555555;
+                } else if (iconDisplay instanceof PIXI.Container) {
+                    iconDisplay.children.forEach(c => {
+                        if (c.tint !== undefined && c !== iconDisplay.mask) c.tint = 0x555555;
+                    });
+                }
+            }
+
+            const gap = 10;
+            const totalWidth = label.width + gap + targetSize;
+            
+            // 计算起始X，使得整体居中
+            const startX = -totalWidth / 2;
+            
+            label.position.set(startX, 0);
+            
+            // 图标中心X = startX + 文字宽 + 间距 + 半个图标宽 (因为anchor0.5)
+            const iconX = startX + label.width + gap + targetSize / 2;
+            iconDisplay.position.set(iconX, 0);
+            
+            container.addChild(label, iconDisplay);
+        } else {
+            // 兜底文字
+            const fallback = new PIXI.Text(`解锁 ${reward.name}`, {fontSize: 16, fill: 0xffffff});
+            fallback.anchor.set(0.5);
+            container.addChild(fallback);
+        }
+
+        parent.addChild(container);
     }
 
     // 移除滚动相关的方法

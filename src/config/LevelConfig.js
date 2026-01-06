@@ -6,7 +6,7 @@ import { SkillType } from '../constants.js';
  * @param {number} level 关卡号 (1-99)
  */
 export function getLevelConfig(level) {
-    // 基础配置 (Level 1-3)
+    // 基础配置 (Level 1-2)
     const config = {
         level: level,
         aiError: 0.25,        // 射门误差 (弧度)，0.25 很大，容易踢歪
@@ -19,8 +19,9 @@ export function getLevelConfig(level) {
 
     // --- 难度曲线 ---
 
-    // Level 4-6: 引入超距瞄准，精度提升
-    if (level >= 4) {
+    // Level 3-6: 引入超距瞄准，精度提升
+    // [修改] 从第3关开始引入瞄准 (配合奖励)
+    if (level >= 3) {
         config.aiError = 0.15;
         config.powerMultiplier = 0.75;
         config.strategyDepth = 1; 
@@ -64,8 +65,8 @@ export function getLevelConfig(level) {
 
     // --- 特殊教学关卡强制配置 ---
 
-    // 第4关：强制展示瞄准
-    if (level === 4) {
+    // [修改] 第3关：强制展示瞄准 (原第4关)
+    if (level === 3) {
         config.skillRate = 1.0; 
         config.skills = [SkillType.SUPER_AIM];
         config.description = "教学：超距瞄准";

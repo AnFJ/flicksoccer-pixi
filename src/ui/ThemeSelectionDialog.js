@@ -144,20 +144,19 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           else if (this.currentTab === 1) this.renderFieldPreview(container, id, itemW-20, itemH-20);
           else this.renderBallPreview(container, id, 60);
 
-          // 如果未解锁，添加遮罩和锁图标/视频图标
+          // 如果未解锁，添加遮罩和提示
           if (!isUnlocked) {
               const lockOverlay = new PIXI.Graphics();
-              lockOverlay.beginFill(0x000000, 0.5);
+              lockOverlay.beginFill(0x000000, 0.6);
               lockOverlay.drawRoundedRect(-itemW/2, -itemH/2, itemW, itemH, 15);
               lockOverlay.endFill();
               container.addChild(lockOverlay);
 
-              // 绘制视频播放图标 (右下角)
+              // 统一显示视频图标 (移除关卡解锁的特殊判断)
               this.renderVideoIcon(container, itemW/2 - 30, itemH/2 - 30);
           }
 
-          // [修复] 将点击事件绑定在整个 Container 上，而不是 bg 上
-          // 设置点击热区，确保点击范围覆盖整个格子
+          // 交互
           container.hitArea = new PIXI.Rectangle(-itemW/2, -itemH/2, itemW, itemH);
           container.interactive = true;
           container.buttonMode = true;
@@ -166,6 +165,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
                   this.tempTheme[typeKey] = id;
                   this.renderContent();
               } else {
+                  // 所有未解锁的都尝试通过广告解锁
                   this.tryUnlock(typeKey, id);
               }
           });
@@ -174,7 +174,6 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       });
   }
 
-  // 渲染阵型内容 (列表 + 预览)
   renderFormationContent() {
       const listX = -350;
       const startY = -150;
@@ -184,14 +183,12 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           const isUnlocked = AccountMgr.isThemeUnlocked('formation', fmt.id);
           const isSelected = fmt.id === this.tempTheme.formationId;
           
-          // [修改] 未选中时统一使用深蓝背景 (无论是否解锁)，保证可见性
           const btnColor = isSelected ? 0xF1C40F : 0x34495e;
 
           const btn = new Button({
               text: `${fmt.name} (${fmt.desc})`,
               width: 350, height: 70,
               color: btnColor,
-              // 未解锁时文字灰色，解锁时白色，选中时黑色
               textColor: isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6),
               fontSize: 28,
               onClick: () => {
@@ -205,20 +202,17 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           });
           btn.position.set(listX, startY + idx * gapY);
           
-          // [新增] 选中时文字不加粗 (默认是 bold)
           if (isSelected) {
               btn.label.style.fontWeight = 'normal';
           }
 
           if (!isUnlocked) {
-              // [修改] 视频图标放在左侧 (按钮宽350，中心0，左侧边缘约-175。放 -140 位置)
-              this.renderVideoIcon(btn, -140, 0, 0.6); 
+             this.renderVideoIcon(btn, -140, 0, 0.6); 
           }
 
           this.contentContainer.addChild(btn);
       });
 
-      // 复用预览逻辑
       this.renderFormationPreview(250, 40, this.tempTheme.formationId);
   }
 
@@ -259,8 +253,6 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       
       const success = await Platform.showRewardedVideoAd(adUnitId);
       
-      // [修复] 增加延时处理，避免广告关闭瞬间微信小游戏 adapter 抛出 insertTextView:fail 错误
-      // 导致后续逻辑无法执行
       setTimeout(() => {
           if (success) {
               const unlocked = AccountMgr.unlockTheme(type, id);
@@ -270,7 +262,6 @@ export default class ThemeSelectionDialog extends PIXI.Container {
                   if (type === 'formation') this.tempTheme.formationId = id;
                   else this.tempTheme[type] = id;
                   
-                  // 确保组件未被销毁
                   if (!this._destroyed) {
                       this.renderContent();
                   }

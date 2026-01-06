@@ -7,7 +7,7 @@ import GameScene from './GameScene.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
-import { TeamId } from '../constants.js';
+import { TeamId, SkillType } from '../constants.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class ResultScene extends BaseScene {
@@ -25,19 +25,27 @@ export default class ResultScene extends BaseScene {
         const { winner, gameMode, score, stats, myTeamId, currentLevel } = params;
         const { designWidth, designHeight } = GameConfig;
 
-        // 1. 数据处理 (保持原有逻辑)
+        // 1. 数据处理
         const isWin = winner === myTeamId;
         const opponentId = myTeamId === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
         
         let rewardCoins = 0;
+        let unlockedReward = null; // [新增] 存储解锁的物品
+
         if (isWin) {
             rewardCoins = 100;
             if (gameMode === 'pve' && currentLevel === AccountMgr.userInfo.level) {
+                // 首通金币奖励
                 rewardCoins += 50;
             }
         }
+        
         if (rewardCoins > 0) AccountMgr.addCoins(rewardCoins, false);
-        if (gameMode === 'pve' && isWin) AccountMgr.completeLevel(currentLevel, false);
+        
+        // [修改] 通关逻辑调用，并接收奖励返回值
+        if (gameMode === 'pve' && isWin) {
+            unlockedReward = AccountMgr.completeLevel(currentLevel, false);
+        }
         
         const rating = this.calculateRating(isWin, score, stats, myTeamId);
         AccountMgr.recordMatch(gameMode, isWin, rating, {
@@ -53,33 +61,32 @@ export default class ResultScene extends BaseScene {
         this.createAtmosphere(designWidth, designHeight, isWin);
 
         // B. 主面板容器 (居中)
-        // 面板高度 660, 屏幕高 1080. 中心大概在 58% 位置
         const panelY = designHeight * 0.55;
         this.mainPanel = new PIXI.Container();
         this.mainPanel.position.set(designWidth / 2, panelY);
         this.container.addChild(this.mainPanel);
 
-        // C. 绘制面板背景 (增大尺寸以容纳更多信息)
+        // C. 绘制面板背景
         this.createPanelBackground(920, 620);
 
-        // D. 标题 (在面板上方，独立于面板)
+        // D. 标题
         this.createHeader(designWidth, 120, isWin, winner);
 
-        // E. 星级 (挂载在面板上，位于面板顶部边缘)
+        // E. 星级
         this.createRatingStars(0, -360, rating); 
 
-        // F. 数据统计 (在面板内部)
-        // 比分板上移
+        // F. 数据统计
         this.createScoreBoard(0, -180, score, myTeamId, opponentId);
-        // 数据列表居中
         this.createStatsList(0, -50, stats, score, myTeamId, opponentId);
 
-        // G. 奖励展示 (下移，避免遮挡)
-        if (isWin) {
+        // G. 奖励展示 (如果有物品解锁，优先显示物品，否则显示金币)
+        if (unlockedReward) {
+            this.createUnlockDisplay(0, 240, unlockedReward, rewardCoins);
+        } else if (isWin) {
             this.createRewards(0, 240, rewardCoins);
         }
 
-        // H. 按钮 (屏幕底部)
+        // H. 按钮
         this.createButtons(designWidth, designHeight, isWin);
 
         // I. 胜利特效
@@ -115,14 +122,11 @@ export default class ResultScene extends BaseScene {
 
     createPanelBackground(w, h) {
         const bg = new PIXI.Graphics();
-        // 半透明深色背景
-        bg.beginFill(0x000000, 0.75); // 加深一点背景，提高对比度
-        // 边框
+        bg.beginFill(0x000000, 0.75);
         bg.lineStyle(2, 0xffffff, 0.15);
         bg.drawRoundedRect(-w/2, -h/2, w, h, 40);
         bg.endFill();
         
-        // 顶部高光条
         bg.beginFill(0xffffff, 0.08);
         bg.drawRoundedRect(-w/2, -h/2, w, 100, 40);
         bg.endFill();
@@ -132,7 +136,7 @@ export default class ResultScene extends BaseScene {
 
     createHeader(w, y, isWin, winner) {
         let titleStr = "";
-        let mainColor = []; // 渐变色数组
+        let mainColor = []; 
         let strokeColor = 0x000000;
 
         if (this.params.gameMode === 'pvp_local') {
@@ -176,7 +180,7 @@ export default class ResultScene extends BaseScene {
     createRatingStars(x, y, rating) {
         const starContainer = new PIXI.Container();
         const starCount = 5;
-        const size = 45; // 略大一点
+        const size = 45; 
         const gap = 15;
         
         const fullStars = Math.floor(rating / 2);
@@ -188,12 +192,10 @@ export default class ResultScene extends BaseScene {
         for (let i = 0; i < starCount; i++) {
             const starX = startX + i * (size * 2 + gap);
             
-            // 底色
             const bg = this.drawStar(0x333333, size, true);
             bg.position.set(starX, 0);
             starContainer.addChild(bg);
 
-            // 亮色
             let fillType = 'none'; 
             if (i < fullStars) fillType = 'full';
             else if (i === fullStars && hasHalf) fillType = 'half';
@@ -214,7 +216,6 @@ export default class ResultScene extends BaseScene {
             }
         }
 
-        // 分数胶囊
         const scoreBg = new PIXI.Graphics();
         scoreBg.beginFill(0x000000, 0.8);
         scoreBg.lineStyle(2, 0xFFD700);
@@ -278,14 +279,12 @@ export default class ResultScene extends BaseScene {
 
         const nameStyle = { fontSize: 32, fontWeight: 'bold' };
         
-        // 名字放更开一点
         const t1 = new PIXI.Text(p1Name, { ...nameStyle, fill: 0xe74c3c });
         t1.anchor.set(0.5); t1.x = -150;
         
         const t2 = new PIXI.Text(p2Name, { ...nameStyle, fill: 0x3498db });
         t2.anchor.set(0.5); t2.x = 150;
 
-        // 大比分
         const scoreStyle = { fontFamily: 'Arial Black', fontSize: 100, fill: 0xffffff, dropShadow: true, dropShadowBlur: 4 };
         const s1 = new PIXI.Text(score[myId], scoreStyle);
         s1.anchor.set(0.5); s1.x = -150;
@@ -296,7 +295,6 @@ export default class ResultScene extends BaseScene {
         const vs = new PIXI.Text('-', { fontSize: 100, fill: 0x666666 });
         vs.anchor.set(0.5); vs.y = 30;
 
-        // 布局调整
         t1.y = -80; t2.y = -80;
         s1.y = 40; s2.y = 40;
 
@@ -306,34 +304,29 @@ export default class ResultScene extends BaseScene {
 
     createStatsList(x, y, stats, score, myId, oppId) {
         const container = new PIXI.Container();
-        container.position.set(x, y); // y=20 (相对中心)
+        container.position.set(x, y);
 
         const myStats = stats[myId];
         const oppStats = stats[oppId];
 
-        // 定义数据行
         const items = [
             { label: '射门次数', v1: myStats.shots, v2: oppStats.shots, type: 'number' },
             { label: '进球效率', v1: this.fmtPct(score[myId], myStats.shots), v2: this.fmtPct(score[oppId], oppStats.shots), type: 'number' },
-            // 技能消耗改为特殊类型 'skill'
             { label: '技能消耗', v1: myStats.skills, v2: oppStats.skills, type: 'skill' }
         ];
 
-        const rowH = 60; // 增加行高
+        const rowH = 60;
 
         items.forEach((item, i) => {
             const rowY = i * rowH;
             
-            // 中间标签
             const label = new PIXI.Text(item.label, { fontSize: 32, fill: 0x999999 });
             label.anchor.set(0.5); label.y = rowY;
             container.addChild(label);
 
             if (item.type === 'skill') {
-                // 如果是技能，调用专用渲染方法
                 this.createSkillRow(container, rowY, item.v1, item.v2);
             } else {
-                // 原有的数字/百分比 + 进度条渲染
                 const val1 = new PIXI.Text(item.v1, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
                 val1.anchor.set(1, 0.5); val1.position.set(-150, rowY);
                 
@@ -342,18 +335,14 @@ export default class ResultScene extends BaseScene {
 
                 container.addChild(val1, val2);
 
-                // 进度条
                 this.createStatBar(container, -260, rowY, item.v1, item.v2, true);
                 this.createStatBar(container, 260, rowY, item.v2, item.v1, false);
             }
         });
 
-        // 耗时 + 回合数
         const duration = (stats.endTime - stats.startTime) / 1000;
         const min = Math.floor(duration / 60);
         const sec = Math.floor(duration % 60);
-        
-        // 计算总回合 (双方射门总数)
         const totalTurns = myStats.shots + oppStats.shots;
         
         const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒  (共 ${totalTurns} 回合)`, { fontSize: 26, fill: 0x666666 });
@@ -365,15 +354,11 @@ export default class ResultScene extends BaseScene {
     }
 
     createSkillRow(parent, y, mySkills, oppSkills) {
-        // 左侧玩家 (Align Right: 靠近中线)
         this.renderSkillGroup(parent, -150, y, mySkills, true);
-        
-        // 右侧玩家 (Align Left: 靠近中线)
         this.renderSkillGroup(parent, 150, y, oppSkills, false);
     }
 
     renderSkillGroup(parent, startX, y, skills, isAlignRight) {
-        // 过滤出使用次数 > 0 的技能
         const list = [];
         if (skills) {
             for (let k in skills) {
@@ -381,10 +366,8 @@ export default class ResultScene extends BaseScene {
             }
         }
 
-        // 如果没有使用技能，显示 "-"
         if (list.length === 0) {
             const t = new PIXI.Text('-', { fontSize: 36, fill: 0x555555, fontWeight: 'bold' });
-            // 如果是左边玩家(向右对齐)，锚点 x=1；右边玩家(向左对齐)，锚点 x=0
             t.anchor.set(isAlignRight ? 1 : 0, 0.5);
             t.position.set(startX, y);
             parent.addChild(t);
@@ -397,38 +380,28 @@ export default class ResultScene extends BaseScene {
 
         list.forEach(item => {
             const grp = new PIXI.Container();
-            
-            // 图标背景
             const texName = this.getSkillTextureName(item.type);
             const tex = ResourceManager.get(texName);
-            
             const icon = new PIXI.Sprite(tex || PIXI.Texture.WHITE);
             icon.width = iconSize; 
             icon.height = iconSize;
-            icon.anchor.set(0, 0.5); // 图标左对齐
-            
-            if (!tex) icon.tint = 0x888888; // 没图显示灰色方块
+            icon.anchor.set(0, 0.5);
+            if (!tex) icon.tint = 0x888888; 
 
-            // 数量文字
             const txt = new PIXI.Text(`x${item.count}`, { 
                 fontSize: 24, fill: 0xffffff, fontWeight: 'bold' 
             });
             txt.anchor.set(0, 0.5);
-            txt.x = iconSize + 4; // 文字紧跟图标
+            txt.x = iconSize + 4; 
 
             grp.addChild(icon, txt);
-            
-            // 计算这个组合的总宽度
             const groupW = iconSize + 4 + txt.width;
 
-            // 根据对齐方向排列
             if (isAlignRight) {
-                // 向左生长：当前位置减去宽度
                 currentX -= groupW;
                 grp.position.set(currentX, y);
-                currentX -= gap; // 留出间隙
+                currentX -= gap; 
             } else {
-                // 向右生长
                 grp.position.set(currentX, y);
                 currentX += groupW + gap;
             }
@@ -449,11 +422,10 @@ export default class ResultScene extends BaseScene {
     createStatBar(parent, x, y, val, otherVal, isLeft) {
         let max = Math.max(parseFloat(val), parseFloat(otherVal));
         if (isNaN(max) || max === 0) max = 1;
-        
         let ratio = parseFloat(val) / max;
         if (isNaN(ratio)) ratio = 0;
         
-        const w = 120 * ratio; // 稍长一点
+        const w = 120 * ratio; 
         const h = 10;
         const color = isLeft ? 0x3498db : 0xe74c3c;
 
@@ -478,10 +450,9 @@ export default class ResultScene extends BaseScene {
         const container = new PIXI.Container();
         container.position.set(x, y);
 
-        // 发光底图
         const glow = new PIXI.Graphics();
         glow.beginFill(0xFFD700, 0.2);
-        glow.drawCircle(0, 0, 70); // 更大光圈
+        glow.drawCircle(0, 0, 70); 
         glow.endFill();
         container.addChild(glow);
 
@@ -498,30 +469,79 @@ export default class ResultScene extends BaseScene {
         this.mainPanel.addChild(container);
     }
 
+    // [新增] 专门用于展示解锁奖励的UI
+    createUnlockDisplay(x, y, reward, coins) {
+        const container = new PIXI.Container();
+        container.position.set(x, y);
+
+        // 标题
+        const title = new PIXI.Text("新物品解锁!", {
+            fontSize: 28, fill: 0x2ecc71, fontWeight: 'bold'
+        });
+        title.anchor.set(0.5);
+        title.y = -50;
+        container.addChild(title);
+
+        // 物品图标
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x333333);
+        bg.lineStyle(2, 0xFFD700);
+        bg.drawRoundedRect(-40, -40, 80, 80, 10);
+        bg.endFill();
+        container.addChild(bg);
+
+        let iconTex = null;
+        if (reward.type === 'striker') iconTex = ResourceManager.get(`striker_red_${reward.id}`);
+        else if (reward.type === 'ball') iconTex = ResourceManager.get(reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`);
+        else if (reward.type === 'field') iconTex = ResourceManager.get(`field_${reward.id}`);
+        else if (reward.type === 'skill') {
+            const map = { [SkillType.SUPER_AIM]: 'skill_aim_bg', [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', [SkillType.SUPER_FORCE]: 'skill_force_bg' };
+            iconTex = ResourceManager.get(map[reward.id]);
+        }
+
+        if (iconTex) {
+            const sp = new PIXI.Sprite(iconTex);
+            sp.anchor.set(0.5);
+            sp.width = sp.height = 60;
+            container.addChild(sp);
+        }
+
+        // 物品名称
+        let nameStr = reward.name;
+        if (reward.type === 'skill') nameStr += ` x${reward.count}`;
+
+        const nameText = new PIXI.Text(nameStr, {
+            fontSize: 32, fill: 0xFFFFFF, fontWeight: 'bold'
+        });
+        nameText.anchor.set(0.5);
+        nameText.y = 55;
+        container.addChild(nameText);
+
+        // 如果还有金币奖励，显示在更下方
+        if (coins > 0) {
+            const coinText = new PIXI.Text(`+${coins} 💰`, { fontSize: 24, fill: 0xFFD700 });
+            coinText.anchor.set(0.5);
+            coinText.y = 90;
+            container.addChild(coinText);
+        }
+
+        this.mainPanel.addChild(container);
+    }
+
     createButtons(w, h, isWin) {
-        // 按钮位于屏幕底部
         const btnY = h - 100;
-        
         const btnW = 240;
         const btnH = 80;
         const gap = 40;
-
-        // 计算居中起始点
-        // 总宽 = 240*2 + 40 = 520
-        // 左按钮左边缘 = w/2 - 260
-        // 右按钮左边缘 = w/2 + 20
         const startX = w / 2 - btnW - gap / 2;
 
-        // 返回按钮
         const menuBtn = new Button({
             text: '返回主页', width: btnW, height: btnH, color: 0x7f8c8d,
             onClick: () => SceneManager.changeScene(MenuScene)
         });
-        // Button 默认 anchor 是左上角，所以要修正位置
         menuBtn.position.set(startX, btnY - btnH/2);
         this.container.addChild(menuBtn);
 
-        // 继续按钮
         let nextText = "再来一局";
         let nextAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
         let btnColor = 0x27ae60;
@@ -594,11 +614,6 @@ export default class ResultScene extends BaseScene {
     fmtPct(val, total) {
         if (!total) return '0%';
         return Math.floor((val / total) * 100) + '%';
-    }
-
-    countSkills(skillMap) {
-        if (!skillMap) return 0;
-        return Object.values(skillMap).reduce((a, b) => a + b, 0);
     }
 
     calculateRating(isWin, score, stats, myId) {
