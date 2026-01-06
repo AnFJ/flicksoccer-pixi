@@ -300,7 +300,7 @@ export default class LevelSelectScene extends BaseScene {
             if (tex) {
                 const ball = new PIXI.TilingSprite(tex, radius * 4, radius * 4);
                 ball.anchor.set(0.5);
-                ball.tileScale.set(0.25);
+                ball.tileScale.set(0.8);
                 ball.width = targetSize;
                 ball.height = targetSize;
                 

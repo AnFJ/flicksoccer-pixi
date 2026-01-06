@@ -318,7 +318,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       const tex = ResourceManager.get(id===1 ? 'ball_texture' : `ball_texture_${id}`);
       if (tex) {
           const b = new PIXI.TilingSprite(tex, radius*4, radius*4);
-          b.anchor.set(0.5); b.tileScale.set(0.25); b.width = b.height = radius*2;
+          b.anchor.set(0.5); b.tileScale.set(1.6); b.width = b.height = radius*2;
           const m = new PIXI.Graphics().beginFill(0xffffff).drawCircle(0, 0, radius).endFill();
           b.mask = m; container.addChild(m, b);
       }

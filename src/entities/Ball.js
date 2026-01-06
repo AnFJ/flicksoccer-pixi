@@ -84,7 +84,7 @@ export default class Ball {
     ballContainer.addChild(mask);
     ballContainer.mask = mask;
 
-    this.textureScale = 0.18; // 纹理缩放，根据实际素材调整
+    this.textureScale = 0.36; // 纹理缩放，根据实际素材调整
     this.ballTexture = new PIXI.TilingSprite(
         texture,
         this.radius * 4,
