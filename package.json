@@ -8,10 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "build:h5": "vite build --mode h5",
+    "build:tt": "vite build --mode douyin",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@iro/interaction": "^1.3.0",
     "@iro/wechat-adapter": "^1.2.5",
     "@pixi/unsafe-eval": "^6.5.10",
     "matter-js": "^0.20.0",

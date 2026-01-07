@@ -27,11 +27,17 @@ function copyRecursiveSync(src, dest) {
 }
 
 export default defineConfig(({ mode }) => {
-  // 判断是否为 H5 构建模式
+  // 判断构建模式
   const isH5 = mode === 'h5';
+  const isDouyin = mode === 'douyin';
   
   // 确定输出目录
-  const outDir = isH5 ? '../game_dist/flicksoccer' : 'dist';
+  // H5 -> ../game_dist/flicksoccer (或 dist-h5)
+  // 抖音 -> dist-tt
+  // 微信(默认) -> dist
+  let outDir = 'dist';
+  if (isH5) outDir = '../game_dist/flicksoccer';
+  else if (isDouyin) outDir = 'dist-tt';
 
   return {
     root: './',
@@ -41,7 +47,6 @@ export default defineConfig(({ mode }) => {
       'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development'),
     },
     build: {
-      // H5 输出到 dist-h5，小游戏输出到 dist
       outDir: outDir,
       emptyOutDir: true,
       
@@ -50,7 +55,7 @@ export default defineConfig(({ mode }) => {
       lib: isH5 ? false : {
         entry: path.resolve(__dirname, 'src/main-mini.js'),
         name: 'Game',
-        // 强制输出文件名为 game.js (Vite 默认可能是 game.cjs)
+        // 强制输出文件名为 game.js
         fileName: () => 'game.js', 
         formats: ['cjs'] // 小游戏使用 CommonJS 规范
       },
@@ -73,13 +78,14 @@ export default defineConfig(({ mode }) => {
       }
     },
     plugins: [
-      // 自定义内联插件：构建完成后复制静态资源 assets 文件夹
+      // 自定义内联插件：构建完成后复制静态资源 assets 文件夹及配置文件
       {
         name: 'copy-static-assets',
         closeBundle() {
           const srcAssets = path.resolve(__dirname, 'assets');
           const destAssets = path.resolve(__dirname, outDir, 'assets');
           
+          // 1. 复制资源文件
           if (fs.existsSync(srcAssets)) {
             try {
               console.log(`[Vite] Copying assets from ${srcAssets} to ${destAssets}...`);
@@ -90,23 +96,38 @@ export default defineConfig(({ mode }) => {
             }
           }
 
-          // 2. 复制小游戏核心配置文件
-          const configFiles = [
-            'game.json',
-            'project.config.json',
-            'tt-project.config.json'
-          ];
+          // 2. 复制小游戏核心配置文件 (根据平台区分)
+          if (!isH5) {
+              const srcGameJson = path.resolve(__dirname, 'game.json');
+              const destGameJson = path.resolve(__dirname, outDir, 'game.json');
+              
+              // 复制 game.json (通用)
+              if (fs.existsSync(srcGameJson)) {
+                  fs.copyFileSync(srcGameJson, destGameJson);
+                  console.log(`[Vite] Copied game.json`);
+              }
 
-          configFiles.forEach(file => {
-             const srcFile = path.resolve(__dirname, file);
-             const destFile = path.resolve(__dirname, outDir, file);
-             if (fs.existsSync(srcFile)) {
-                 fs.copyFileSync(srcFile, destFile);
-                 console.log(`[Vite] Copied ${file}`);
-             }
-          });
+              // 复制项目配置文件 project.config.json
+              if (isDouyin) {
+                  // 抖音: 使用 tt-project.config.json 但重命名为 project.config.json 方便 IDE 识别
+                  const srcTTConfig = path.resolve(__dirname, 'tt-project.config.json');
+                  const destConfig = path.resolve(__dirname, outDir, 'project.config.json');
+                  if (fs.existsSync(srcTTConfig)) {
+                      fs.copyFileSync(srcTTConfig, destConfig);
+                      console.log(`[Vite] Copied tt-project.config.json to project.config.json for Douyin`);
+                  }
+              } else {
+                  // 微信: 使用 project.config.json
+                  const srcWxConfig = path.resolve(__dirname, 'project.config.json');
+                  const destConfig = path.resolve(__dirname, outDir, 'project.config.json');
+                  if (fs.existsSync(srcWxConfig)) {
+                      fs.copyFileSync(srcWxConfig, destConfig);
+                      console.log(`[Vite] Copied project.config.json for WeChat`);
+                  }
+              }
+          }
           
-          console.log('[Vite] Build & Copy complete. Please open the "dist" folder in WeChat DevTools.');
+          console.log(`[Vite] Build & Copy complete. Output: "${outDir}"`);
         }
       }
     ]
