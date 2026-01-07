@@ -1,3 +1,4 @@
+
 {
   "miniprogramRoot": "./",
   "projectname": "finger-soccer",
@@ -81,6 +82,10 @@
       {
         "value": "index.html",
         "type": "file"
+      },
+      {
+        "value": "doc",
+        "type": "folder"
       }
     ],
     "include": []

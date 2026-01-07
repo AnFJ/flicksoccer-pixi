@@ -97,7 +97,7 @@ export const GameConfig = {
         // [修改] 配合奖励节奏: Level 3 解锁瞄准
         superAim: { bounces: 3, distance: 2000, unlockLevel: 3 },
         // [修改] 配合奖励节奏: Level 10 解锁大力
-        superForce: { multiplier: 3, unlockLevel: 10 },
+        superForce: { multiplier: 2.5, unlockLevel: 10 },
         // [修改] 配合奖励节奏: Level 7 解锁战车
         unstoppable: { duration: 3000, unlockLevel: 7 }
     },
