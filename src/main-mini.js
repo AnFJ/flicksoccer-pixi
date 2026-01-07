@@ -5,7 +5,8 @@ import GameScene from './scenes/GameScene.js';
 import LoginScene from './scenes/LoginScene.js';
 import { GameConfig } from './config.js';
 
-import '@iro/wechat-adapter'
+import './adapter/dom-adapter/index.js'
+// import '@iro/wechat-adapter'
 import * as PIXI from 'pixi.js'
 import { install } from '@pixi/unsafe-eval'
 

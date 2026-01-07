@@ -490,20 +490,36 @@ export default class ResultScene extends BaseScene {
         bg.endFill();
         container.addChild(bg);
 
-        let iconTex = null;
-        if (reward.type === 'striker') iconTex = ResourceManager.get(`striker_red_${reward.id}`);
-        else if (reward.type === 'ball') iconTex = ResourceManager.get(reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`);
-        else if (reward.type === 'field') iconTex = ResourceManager.get(`field_${reward.id}`);
-        else if (reward.type === 'skill') {
-            const map = { [SkillType.SUPER_AIM]: 'skill_aim_bg', [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', [SkillType.SUPER_FORCE]: 'skill_force_bg' };
-            iconTex = ResourceManager.get(map[reward.id]);
-        }
+        // [修改] 针对足球类型进行特殊渲染，使其显示为圆形球体
+        if (reward.type === 'ball') {
+            const texKey = reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`;
+            const tex = ResourceManager.get(texKey);
+            if (tex) {
+                const radius = 30; // 对应直径 60
+                const b = new PIXI.TilingSprite(tex, radius*4, radius*4);
+                b.anchor.set(0.5); 
+                b.tileScale.set(0.25); 
+                b.width = b.height = radius*2;
+                
+                const m = new PIXI.Graphics().beginFill(0xffffff).drawCircle(0, 0, radius).endFill();
+                b.mask = m; 
+                container.addChild(m, b);
+            }
+        } else {
+            let iconTex = null;
+            if (reward.type === 'striker') iconTex = ResourceManager.get(`striker_red_${reward.id}`);
+            else if (reward.type === 'field') iconTex = ResourceManager.get(`field_${reward.id}`);
+            else if (reward.type === 'skill') {
+                const map = { [SkillType.SUPER_AIM]: 'skill_aim_bg', [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', [SkillType.SUPER_FORCE]: 'skill_force_bg' };
+                iconTex = ResourceManager.get(map[reward.id]);
+            }
 
-        if (iconTex) {
-            const sp = new PIXI.Sprite(iconTex);
-            sp.anchor.set(0.5);
-            sp.width = sp.height = 60;
-            container.addChild(sp);
+            if (iconTex) {
+                const sp = new PIXI.Sprite(iconTex);
+                sp.anchor.set(0.5);
+                sp.width = sp.height = 60;
+                container.addChild(sp);
+            }
         }
 
         // 物品名称

@@ -1,18 +1,18 @@
 
 /**
  * Cloudflare Worker + Durable Objects (GameRoom)
- * 优化版：支持断线重连和状态恢复
+ * 优化版：支持断线重连、自动清理僵尸玩家、节省流量
  */
 
 export class GameRoom {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    // 存储当前活跃的 WebSocket 会话
+    // 存储当前活跃的 WebSocket 会话 { ws, userId, lastSeen }
     this.sessions = [];
     // 房间内存数据
     this.roomData = {
-      players: [], // { id, nickname, avatar, level, theme, formationId, ready, teamId, socket }
+      players: [], // { id, nickname, avatar, level, theme, formationId, ready, teamId, socket, disconnectedAt, lastSeen }
       status: 'WAITING', // WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
@@ -25,13 +25,20 @@ export class GameRoom {
       if (stored) {
         this.roomData = stored;
         // 刚恢复时，socket 引用都是空的，需要等待重连
-        this.roomData.players.forEach(p => p.socket = null);
+        this.roomData.players.forEach(p => {
+            p.socket = null;
+            // 如果恢复时发现有残留玩家，标记为此时刻断线，以便后续 lazy 清理
+            if (!p.disconnectedAt) p.disconnectedAt = Date.now();
+        });
       }
     });
   }
 
   async fetch(request) {
     const url = new URL(request.url);
+
+    // [新增] 在处理任何请求前，先清理无效的僵尸玩家(含超时Socket)
+    await this.pruneInactivePlayers();
 
     // --- 1. 处理 HTTP 检查请求 ---
     if (url.pathname === '/check') {
@@ -40,7 +47,7 @@ export class GameRoom {
         return new Response(JSON.stringify({ 
             exists: isValid,
             status: this.roomData.status,
-            isGameOver: false // 如果有结束逻辑这里需要判断
+            isGameOver: false 
         }), {
             headers: { 'Content-Type': 'application/json' }
         });
@@ -59,9 +66,8 @@ export class GameRoom {
     const nickname = url.searchParams.get('nickname') || 'Unknown';
     const avatar = url.searchParams.get('avatar') || '';
     const level = parseInt(url.searchParams.get('level') || '1');
-    const formationId = parseInt(url.searchParams.get('formationId') || '0'); // [新增]
+    const formationId = parseInt(url.searchParams.get('formationId') || '0');
     
-    // [新增] 解析 theme 参数
     let theme = { striker: 1, field: 1, ball: 1 };
     try {
         const themeStr = url.searchParams.get('theme');
@@ -76,6 +82,66 @@ export class GameRoom {
     await this.handleSession(server, userId, nickname, avatar, level, theme, formationId);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // [核心新增] 清理不活跃玩家，释放房间位
+  async pruneInactivePlayers() {
+      const now = Date.now();
+      
+      // 1. 先清理 WebSocket 连接已死但未断开的 Session (超时检测)
+      // 比如客户端断网但没发 Close 帧，Server 端 Socket 仍处于 Open 状态
+      for (let i = this.sessions.length - 1; i >= 0; i--) {
+          const s = this.sessions[i];
+          // 超过 45秒 没有收到任何消息(含PING)，视为死链
+          if (now - (s.lastSeen || now) > 45000) {
+              try { s.ws.close(1000, "Timeout"); } catch(e) {}
+              this.sessions.splice(i, 1);
+              // 标记对应的玩家为断线
+              const p = this.roomData.players.find(pl => pl.id === s.userId);
+              if (p && !p.disconnectedAt) p.disconnectedAt = now;
+          }
+      }
+
+      // 2. 清理 roomData 中的僵尸玩家
+      const initialCount = this.roomData.players.length;
+      
+      this.roomData.players = this.roomData.players.filter(p => {
+          // 如果玩家有活跃 socket (在 this.sessions 中)，保留
+          const isActive = this.sessions.some(s => s.userId === p.id);
+          if (isActive) {
+              p.disconnectedAt = null; // 重置断线时间
+              return true; 
+          }
+
+          // 如果不活跃：
+          // 1. 如果房间在等待中 (WAITING)，直接踢出 (不占位)
+          if (this.roomData.status === 'WAITING') return false;
+
+          // 2. 如果游戏进行中 (PLAYING)，保留一段时间 (如 60秒) 等待重连
+          if (this.roomData.status === 'PLAYING') {
+              if (!p.disconnectedAt) p.disconnectedAt = now;
+              // 超过 60秒 未重连，视为放弃
+              if (now - p.disconnectedAt > 180000) return false;
+              return true;
+          }
+          
+          return false;
+      });
+
+      // 如果人数变化了，保存状态
+      if (this.roomData.players.length !== initialCount) {
+          // 如果人全没了
+          if (this.roomData.players.length === 0) {
+              // 立即销毁数据，防止占用
+              await this.state.storage.deleteAll();
+              this.roomData.status = 'WAITING'; // Reset local state
+              this.roomData.scores = { 0: 0, 1: 0 };
+              return;
+          } else if (this.roomData.players.length < 2 && this.roomData.status === 'PLAYING') {
+              // 如果游戏中有人彻底超时被踢，理论上应该结束游戏，这里暂时保持状态
+          }
+          await this.saveState();
+      }
   }
 
   async handleSession(webSocket, userId, nickname, avatar, level, theme, formationId) {
@@ -96,9 +162,11 @@ export class GameRoom {
       avatar,
       level, 
       theme, 
-      formationId, // [新增]
+      formationId,
       ready: false,
-      teamId: -1
+      teamId: -1,
+      disconnectedAt: null, 
+      lastSeen: Date.now() // [新增]
     };
 
     if (existingPlayerIndex !== -1) {
@@ -108,31 +176,30 @@ export class GameRoom {
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
       
-      // 更新引用 (更新 info 以防昵称/等级/头像/主题/阵型变化)
+      // 更新引用
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
       // --- 新加入逻辑 ---
+      // 分配队伍：优先填补空缺的 Team ID
       const takenTeam = this.roomData.players.length > 0 ? this.roomData.players[0].teamId : -1;
       playerInfo.teamId = (takenTeam === 0) ? 1 : 0;
       this.roomData.players.push({ ...playerInfo, socket: webSocket });
     }
 
-    const session = { ws: webSocket, userId };
+    const session = { ws: webSocket, userId, lastSeen: Date.now() };
     this.sessions.push(session);
 
     await this.saveState();
     
-    // 广播房间信息 (让大家知道有人进来了/回来了)
     this.broadcastState();
 
-    // **关键：如果游戏正在进行中，给该玩家发送恢复数据**
+    // 如果游戏正在进行中，给该玩家发送恢复数据
     if (this.roomData.status === 'PLAYING') {
         webSocket.send(JSON.stringify({
             type: 'GAME_RESUME',
             payload: {
                 currentTurn: this.roomData.currentTurn,
                 scores: this.roomData.scores,
-                // 发送最近一次同步的位置，如果没有则让客户端自行重置
                 positions: this.roomData.positions, 
                 players: this.roomData.players.map(p => ({
                     id: p.id, teamId: p.teamId, nickname: p.nickname, avatar: p.avatar, level: p.level, theme: p.theme, formationId: p.formationId
@@ -144,6 +211,11 @@ export class GameRoom {
     webSocket.addEventListener("message", async msg => {
       try {
         if (!msg.data) return;
+        
+        // [新增] 更新活跃时间
+        const s = this.sessions.find(ses => ses.userId === userId);
+        if (s) s.lastSeen = Date.now();
+
         const data = JSON.parse(msg.data);
         this.onMessage(userId, data, webSocket);
       } catch (err) {
@@ -161,7 +233,6 @@ export class GameRoom {
   }
 
   async onMessage(userId, msg, socket) {
-    // 处理心跳 PING -> PONG
     if (msg.type === 'PING') {
         socket.send(JSON.stringify({ type: 'PONG' }));
         return;
@@ -173,7 +244,6 @@ export class GameRoom {
     switch (msg.type) {
       case 'READY':
         player.ready = !!msg.payload.ready;
-        // [新增] 如果消息带了 formationId，更新它
         if (msg.payload.formationId !== undefined) {
             player.formationId = msg.payload.formationId;
         }
@@ -199,10 +269,11 @@ export class GameRoom {
       case 'AIM_START':
       case 'AIM_UPDATE':
       case 'AIM_END':
+          // [流量优化] 瞄准信息不需要发回给自己
           this.broadcast({
               type: msg.type,
               payload: msg.payload
-          });
+          }, socket);
           break;
       
       case 'SKILL':
@@ -213,10 +284,11 @@ export class GameRoom {
           break;
 
       case 'TRAJECTORY_BATCH':
+          // [流量优化] 物理轨迹是高频数据，发送者本地已经模拟，不需要回显
           this.broadcast({
               type: 'TRAJECTORY_BATCH',
               payload: msg.payload
-          });
+          }, socket);
           break;
 
       case 'FAIR_PLAY_MOVE':
@@ -238,32 +310,49 @@ export class GameRoom {
         break;
 
       case 'SNAPSHOT':
-        if (this.roomData.status === 'PLAYING' && player.teamId !== this.roomData.currentTurn) {
-        }
+        // [流量优化] 快照只需发给对方
         this.broadcast({
             type: 'SNAPSHOT',
             payload: msg.payload
-        });
+        }, socket);
         break;
         
       case 'GOAL':
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
-              
               this.broadcast({
                   type: 'GOAL',
                   payload: { newScore: this.roomData.scores }
               });
-
               await this.saveState();
           }
           break;
 
       case 'LEAVE':
+          // [核心修复] 主动离开时，立即清理数据
           this.broadcast({
               type: 'PLAYER_LEFT_GAME',
               payload: { teamId: player.teamId, userId: player.id }
           });
+          
+          this.roomData.players = this.roomData.players.filter(p => p.id !== userId);
+          
+          if (this.roomData.players.length === 0) {
+              // 人走光了，重置
+              this.roomData.status = 'WAITING';
+              this.roomData.scores = { 0: 0, 1: 0 };
+              // 立即销毁
+              await this.state.storage.deleteAll();
+          } else {
+              this.roomData.status = 'WAITING'; 
+              this.roomData.players.forEach(p => p.ready = false);
+              await this.saveState();
+          }
+          
+          // 关闭连接
+          socket.close(1000, "Left game");
+          const sIdx = this.sessions.findIndex(s => s.userId === userId);
+          if (sIdx !== -1) this.sessions.splice(sIdx, 1);
           break;
     }
   }
@@ -272,9 +361,8 @@ export class GameRoom {
     if (this.roomData.players.length === 2 && this.roomData.players.every(p => p.ready)) {
       this.roomData.status = 'PLAYING';
       this.roomData.currentTurn = 0; 
-      // 游戏开始重置比分
       this.roomData.scores = { 0: 0, 1: 0 };
-      this.roomData.positions = null; // 清除旧位置
+      this.roomData.positions = null; 
 
       this.broadcast({
         type: 'START',
@@ -290,7 +378,7 @@ export class GameRoom {
       avatar: p.avatar,
       level: p.level,
       theme: p.theme, 
-      formationId: p.formationId, // [新增]
+      formationId: p.formationId,
       ready: p.ready,
       teamId: p.teamId
     }));
@@ -304,10 +392,13 @@ export class GameRoom {
     });
   }
 
-  broadcast(msgObj) {
+  // [流量优化] 支持排除特定 socket (通常是发送者)
+  broadcast(msgObj, exceptWs = null) {
     const str = JSON.stringify(msgObj);
     this.sessions = this.sessions.filter(s => {
       try {
+        if (s.ws === exceptWs) return true; // 跳过发送，但保留 session
+
         if (s.ws.readyState === 1) {
             s.ws.send(str);
             return true;
@@ -327,15 +418,35 @@ export class GameRoom {
     
     const player = this.roomData.players.find(p => p.id === session.userId);
     if (player) {
-        this.broadcast({
-            type: 'PLAYER_OFFLINE',
-            payload: { teamId: player.teamId, userId: player.id }
-        });
+        // [新增] 标记断线时间
+        player.disconnectedAt = Date.now();
+        
+        // 如果是 WAITING 状态，直接清理掉 (防止占位)
+        if (this.roomData.status === 'WAITING') {
+            await this.pruneInactivePlayers();
+            // 广播新的玩家列表
+            this.broadcastState();
+        } else {
+            // PLAYING 状态，广播掉线，保留位置等待重连
+            this.broadcast({
+                type: 'PLAYER_OFFLINE',
+                payload: { teamId: player.teamId, userId: player.id }
+            });
+            await this.saveState();
+        }
     }
 
     if (this.sessions.length === 0) {
-      console.log(`[GameRoom] Room is empty, scheduling destruction in 3 mins...`);
-      await this.state.storage.setAlarm(Date.now() + 180000);
+      // 房间没人了
+      if (this.roomData.status === 'WAITING') {
+          // 如果是等待状态且没人，立即销毁数据，避免僵尸房间
+          console.log(`[GameRoom] Room empty (WAITING). Destroying immediately.`);
+          await this.state.storage.deleteAll();
+      } else {
+          // 如果是游戏状态，设置 1 分钟销毁闹钟 (快速回收，同时给短时重连机会)
+          console.log(`[GameRoom] Room empty (PLAYING). Schedule destruction in 180s.`);
+          await this.state.storage.setAlarm(Date.now() + 180000);
+      }
     }
   }
 
@@ -349,9 +460,13 @@ export class GameRoom {
   }
 
   async saveState() {
+    // 存储前移除 socket 和临时字段，节省空间
     const toStore = { 
         ...this.roomData,
-        players: this.roomData.players.map(p => ({...p, socket: undefined})) 
+        players: this.roomData.players.map(p => {
+            const { socket, ...rest } = p;
+            return rest;
+        }) 
     };
     await this.state.storage.put("roomData", toStore);
   }

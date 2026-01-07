@@ -142,7 +142,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           // 预览内容
           if (this.currentTab === 0) this.renderStrikerPreview(container, id);
           else if (this.currentTab === 1) this.renderFieldPreview(container, id, itemW-20, itemH-20);
-          else this.renderBallPreview(container, id, 60);
+          else this.renderBallPreview(container, id, 40);
 
           // 如果未解锁，添加遮罩和提示
           if (!isUnlocked) {
@@ -305,8 +305,9 @@ export default class ThemeSelectionDialog extends PIXI.Container {
   renderStrikerPreview(container, id) {
       const rTex = ResourceManager.get(`striker_red_${id}`);
       const bTex = ResourceManager.get(`striker_blue_${id}`);
-      if (rTex) { const s1 = new PIXI.Sprite(rTex); s1.width = s1.height = 80; s1.anchor.set(0.5); s1.position.set(-20, 10); container.addChild(s1); }
-      if (bTex) { const s2 = new PIXI.Sprite(bTex); s2.width = s2.height = 80; s2.anchor.set(0.5); s2.position.set(20, -10); container.addChild(s2); }
+      // [修改] 棋子尺寸放大30% (80 -> 104)
+      if (rTex) { const s1 = new PIXI.Sprite(rTex); s1.width = s1.height = 104; s1.anchor.set(0.5); s1.position.set(-20, 10); container.addChild(s1); }
+      if (bTex) { const s2 = new PIXI.Sprite(bTex); s2.width = s2.height = 104; s2.anchor.set(0.5); s2.position.set(20, -10); container.addChild(s2); }
   }
 
   renderFieldPreview(container, id, w, h) {
