@@ -31,7 +31,14 @@ class ResourceManager {
       // 技能按键背景素材
       skill_aim_bg: 'assets/images/skill_aim_bg.png',
       skill_force_bg: 'assets/images/skill_force_bg.png',
-      skill_unstoppable_bg: 'assets/images/skill_unstoppable_bg.png'
+      skill_unstoppable_bg: 'assets/images/skill_unstoppable_bg.png',
+
+      // [新增] AI 头像 (占位路径，请确保资源存在)
+      ai_hot: 'assets/images/avatars/ai_hot.png',
+      ai_troll: 'assets/images/avatars/ai_troll.png',
+      ai_robot: 'assets/images/avatars/ai_robot.png',
+      ai_noble: 'assets/images/avatars/ai_noble.png',
+      ai_cute: 'assets/images/avatars/ai_cute.png'
     };
 
     // [新增] 动态注册主题资源

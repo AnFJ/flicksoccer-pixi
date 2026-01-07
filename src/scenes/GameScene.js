@@ -26,13 +26,17 @@ import LobbyScene from './LobbyScene.js';
 import LevelSelectScene from './LevelSelectScene.js'; 
 import Button from '../ui/Button.js'; 
 import FormationSelectionDialog from '../ui/FormationSelectionDialog.js';
-import ResultScene from './ResultScene.js'; // [新增] 引入结算场景
+import ResultScene from './ResultScene.js'; 
 
 import GameLayout from '../core/GameLayout.js';
 import InputController from '../core/InputController.js';
 import TurnManager from '../core/TurnManager.js';
 import OnlineMatchController from '../core/OnlineMatchController.js';
 import SkillManager from '../core/SkillManager.js'; 
+
+// [新增] 引入聊天相关
+import AIChatBubble from '../ui/AIChatBubble.js';
+import { AIPersonas, AIChatTexts, ChatTrigger } from '../config/AIChatConfig.js';
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -71,11 +75,15 @@ export default class GameScene extends BaseScene {
 
     this.resetTimerId = null;
     
-    // [新增] 物理模拟超时计时器
     this.moveTimer = 0;
-    this.MAX_MOVE_TIME = 15000; // 15秒后强制结束回合
+    this.MAX_MOVE_TIME = 15000; 
 
-    // [新增] 比赛数据统计
+    // [新增] AI 聊天相关状态
+    this.aiPersona = null;
+    this.aiChatBubble = null;
+    this.lastChatTime = 0;
+    this.turnStartScores = { [TeamId.LEFT]: 0, [TeamId.RIGHT]: 0 }; // 记录回合开始时比分
+
     this.matchStats = {
         startTime: 0,
         endTime: 0,
@@ -89,10 +97,16 @@ export default class GameScene extends BaseScene {
     this.gameMode = params.mode || 'pve';
     this.currentLevel = params.level || 1; 
     
-    // 初始化统计时间
     this.matchStats.startTime = Date.now();
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
+
+    // [新增] PVE模式下，随机选择一个AI人格
+    if (this.gameMode === 'pve') {
+        const randomIndex = Math.floor(Math.random() * AIPersonas.length);
+        this.aiPersona = AIPersonas[randomIndex];
+        console.log(`[AIChat] Selected Persona: ${this.aiPersona.name}`);
+    }
 
     if (this.gameMode === 'pvp_online') {
         this.players = params.players || []; 
@@ -164,7 +178,6 @@ export default class GameScene extends BaseScene {
         this.networkCtrl.restoreState(params.snapshot);
     }
 
-    // [新增] 开局播放横幅提示 (代替 Toast)
     setTimeout(() => {
         if (!this.isGameOver) {
             let startText = "游戏开始";
@@ -187,7 +200,9 @@ export default class GameScene extends BaseScene {
   _createUI() {
     const extraData = {
         currentLevel: this.currentLevel,
-        players: this.gameMode === 'pvp_online' ? this.players : []
+        players: this.gameMode === 'pvp_online' ? this.players : [],
+        // [新增] 传入 AI 人格数据，以便 HUD 显示对应头像和名字
+        aiInfo: this.aiPersona 
     };
 
     this.hud = new GameHUD(
@@ -199,6 +214,18 @@ export default class GameScene extends BaseScene {
         extraData 
     );
     this.layout.layers.ui.addChild(this.hud);
+
+    // [新增] 初始化 AI 聊天气泡
+    if (this.gameMode === 'pve' && this.hud) {
+        this.aiChatBubble = new AIChatBubble();
+        // 将气泡添加到 HUD 层，位置相对于 AI 的头像
+        // 假设 AI (Right) 的头像是居右的，我们把气泡挂在 GameHUD 上，
+        // 坐标需要大致对齐右侧头像区域 (centerX + avatarSpacing, 60)
+        // 从 GameHUD.js 可知右侧头像是 (centerX + 480, 60)
+        const centerX = GameConfig.designWidth / 2;
+        this.aiChatBubble.position.set(centerX + 350, 160); // 放在头像左下方
+        this.hud.addChild(this.aiChatBubble);
+    }
 
     this.goalBanner = new GoalBanner();
     this.layout.layers.ui.addChild(this.goalBanner);
@@ -223,14 +250,12 @@ export default class GameScene extends BaseScene {
     EventBus.on(Events.ITEM_UPDATE, this.onItemUpdate, this); 
   }
 
-  // [新增] 记录射门
   recordShot(teamId) {
       if (this.matchStats[teamId]) {
           this.matchStats[teamId].shots++;
       }
   }
 
-  // [新增] 记录技能消耗
   recordSkillUsage(teamId, skillType) {
       if (this.matchStats[teamId]) {
           const skills = this.matchStats[teamId].skills;
@@ -239,7 +264,6 @@ export default class GameScene extends BaseScene {
   }
 
   setupFormation() {
-    // [修改] 如果实体已经存在，说明是重置位置，使用动画归位而不是销毁重建
     if (this.strikers.length > 0 && this.ball) {
         this._animateReset();
         return;
@@ -274,18 +298,13 @@ export default class GameScene extends BaseScene {
     });
   }
 
-  /**
-   * [新增] 动画重置位置
-   * 将所有棋子和足球平滑移动回初始点，期间关闭碰撞
-   */
   _animateReset() {
       const { x, y, w, h } = this.layout.fieldRect;
       const cx = x + w/2, cy = y + h/2;
-      const duration = 1000; // 1秒归位时间
+      const duration = 1000; 
 
-      // 1. 足球归位
       if (this.ball) {
-          this.ball.body.isSensor = true; // 暂时取消碰撞
+          this.ball.body.isSensor = true; 
           this.repositionAnimations.push({
               body: this.ball.body,
               start: { x: this.ball.body.position.x, y: this.ball.body.position.y },
@@ -293,20 +312,16 @@ export default class GameScene extends BaseScene {
               time: 0,
               duration: duration
           });
-          // 重置足球状态
           this.ball.setLightningMode(false);
           this.ball.skillStates.fire = false;
       }
 
-      // 2. 棋子归位
       const fmtLeft = getFormation(this.p1FormationId);
       const fmtRight = getFormation(this.p2FormationId);
 
-      // 分离左右两队棋子
       const leftStrikers = this.strikers.filter(s => s.teamId === TeamId.LEFT);
       const rightStrikers = this.strikers.filter(s => s.teamId === TeamId.RIGHT);
 
-      // 移动左队
       leftStrikers.forEach((s, i) => {
           if (i < fmtLeft.positions.length) {
               const pos = fmtLeft.positions[i];
@@ -324,7 +339,6 @@ export default class GameScene extends BaseScene {
           }
       });
 
-      // 移动右队
       rightStrikers.forEach((s, i) => {
           if (i < fmtRight.positions.length) {
               const pos = fmtRight.positions[i];
@@ -342,7 +356,6 @@ export default class GameScene extends BaseScene {
           }
       });
       
-      // 强制停止所有物理模拟，防止残留速度影响
       this._forceFreezeAll();
   }
 
@@ -370,6 +383,14 @@ export default class GameScene extends BaseScene {
           return;
       }
       AudioManager.playSFX(key);
+
+      // [新增] 监听撞门柱音效，触发聊天
+      if (key === 'hit_post' && this.gameMode === 'pve') {
+          // 只在玩家回合撞柱时触发嘲讽/遗憾
+          if (this.turnMgr.currentTurn === TeamId.LEFT) {
+              this.triggerAIChat(ChatTrigger.PLAYER_MISS);
+          }
+      }
   }
 
   onSkillStateChange(data) {
@@ -413,13 +434,15 @@ export default class GameScene extends BaseScene {
 
   onActionFired(isRemote = false) {
     this.isMoving = true;
-    this.moveTimer = 0; // 重置超时计时器
+    this.moveTimer = 0; 
     if (!isRemote) {
         AudioManager.playSFX('collision'); 
-        // [新增] 记录射门数据
         this.recordShot(this.turnMgr.currentTurn);
     }
     this.turnMgr.timer = 0; 
+    
+    // [新增] 记录回合开始时的比分，用于检测是否进球
+    this.turnStartScores = { ...this.rules.score };
   }
 
   onGoal(data) {
@@ -427,13 +450,78 @@ export default class GameScene extends BaseScene {
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
     }
+    
+    // [新增] 触发进球相关聊天
+    if (this.gameMode === 'pve') {
+        this.checkGoalChatTrigger(data.scoreTeam);
+    }
+
     this._playGoalEffects(data.newScore);
+  }
+
+  // [新增] 进球聊天判断逻辑
+  checkGoalChatTrigger(scoreTeam) {
+      const isPlayerScore = scoreTeam === TeamId.LEFT;
+      
+      // 1. 获取进球前的比分差距 (Player - AI)
+      // 注意：此时 rules.score 已经加过分了，所以要倒推回去或者用 turnStartScores
+      const prevPlayerScore = this.turnStartScores[TeamId.LEFT];
+      const prevAIScore = this.turnStartScores[TeamId.RIGHT];
+      const scoreDiff = prevPlayerScore - prevAIScore;
+
+      // 2. 检测逻辑
+      if (isPlayerScore) {
+          // 玩家进球
+          
+          // 检测翻盘/追平：之前落后或平局
+          if (scoreDiff <= 0) {
+              this.triggerAIChat(ChatTrigger.PLAYER_COMEBACK);
+          } 
+          // 检测秒进：回合步数很少 (近似用时间判断，或者直接根据逻辑)
+          // 假设 2秒内进球算秒进
+          else if (this.turnMgr.timer < 2) { // 注意 timer 是倒计时，这里不太准，应该用 moveTimer
+              // 这里简化处理：如果是玩家回合刚开始不久进球
+              this.triggerAIChat(ChatTrigger.PLAYER_INSTANT_GOAL);
+          } else {
+              this.triggerAIChat(ChatTrigger.PLAYER_GOAL);
+          }
+      } else {
+          // AI 进球
+          
+          // 检测 AI 翻盘：AI 之前落后或平局 (即 scoreDiff >= 0)
+          if (scoreDiff >= 0) {
+              this.triggerAIChat(ChatTrigger.AI_COMEBACK);
+          } else {
+              this.triggerAIChat(ChatTrigger.AI_GOAL);
+          }
+      }
+  }
+
+  // [新增] 触发 AI 聊天
+  triggerAIChat(triggerType) {
+      if (!this.aiPersona || !this.aiChatBubble) return;
+      
+      // 简单的防刷屏：2秒冷却
+      const now = Date.now();
+      if (now - this.lastChatTime < 2000) return;
+      this.lastChatTime = now;
+
+      // 获取该人格、该类型下的文案列表
+      const personaTexts = AIChatTexts[this.aiPersona.id];
+      if (!personaTexts) return;
+      
+      const lines = personaTexts[triggerType];
+      if (lines && lines.length > 0) {
+          // 随机一句
+          const text = lines[Math.floor(Math.random() * lines.length)];
+          this.aiChatBubble.show(text);
+      }
   }
 
   _playGoalEffects(newScore) {
     AudioManager.playSFX('goal');
     this.hud?.updateScore(newScore[TeamId.LEFT], newScore[TeamId.RIGHT]);
-    this.goalBanner?.play("进球！"); // 默认文字
+    this.goalBanner?.play("进球！"); 
     Platform.vibrateShort();
     
     if (this.ball) {
@@ -452,17 +540,23 @@ export default class GameScene extends BaseScene {
 
   onGameOver(data) {
     this.isGameOver = true;
-    this.matchStats.endTime = Date.now(); // 记录结束时间
+    this.matchStats.endTime = Date.now(); 
 
     if (this.resetTimerId) {
         clearTimeout(this.resetTimerId);
         this.resetTimerId = null;
     }
 
-    // 播放音效
+    // [新增] 触发胜负聊天
+    if (this.gameMode === 'pve') {
+        if (data.winner === TeamId.RIGHT) { // AI 赢
+            this.triggerAIChat(ChatTrigger.AI_WIN);
+        }
+        // 玩家赢的情况通常在 ResultScene 结算，或者这里也可以加一句不甘心的
+    }
+
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
 
-    // [新增] 跳转到结算界面，传递比赛数据
     setTimeout(() => {
         if (this.gameMode === 'pvp_online') {
             NetworkMgr.close();
@@ -500,6 +594,21 @@ export default class GameScene extends BaseScene {
 
     this.strikers.forEach(s => s.update(delta));
     this.ball?.update(delta);
+
+    // [新增] 检测玩家发呆
+    if (this.gameMode === 'pve' && 
+        this.turnMgr.currentTurn === TeamId.LEFT && 
+        !this.isMoving && 
+        !this.isGameOver) {
+        
+        // 如果倒计时过了 10秒 (总时限30秒，剩余20秒时)
+        if (this.turnMgr.timer < (this.turnMgr.maxTime - 10)) {
+            // 只有极低概率触发，避免一直催
+            if (Math.random() < 0.005) { 
+                this.triggerAIChat(ChatTrigger.IDLE);
+            }
+        }
+    }
   }
 
   _fixedUpdate(dt) {
@@ -521,11 +630,10 @@ export default class GameScene extends BaseScene {
     }
 
     if (this.isMoving) {
-        // [新增] 物理模拟超时强制结束 (15秒)
         this.moveTimer += dt;
         if (this.moveTimer > this.MAX_MOVE_TIME) {
             console.log("Turn timed out, forcing end.");
-            this._forceFreezeAll(); // 强制静止
+            this._forceFreezeAll(); 
             this._endTurn();
             return;
         }
@@ -544,7 +652,6 @@ export default class GameScene extends BaseScene {
     }
   }
   
-  // [新增] 强制冻结所有物体
   _forceFreezeAll() {
       if (this.physics && this.physics.engine) {
           const bodies = Matter.Composite.allBodies(this.physics.engine.world);
@@ -560,8 +667,21 @@ export default class GameScene extends BaseScene {
   _endTurn() {
       if (!this.isMoving) return;
 
+      // [新增] 检测是否为玩家失误（没有进球，且球没有发生大的位移，或者没碰到球）
+      // 这里简化判断：只要回合结束了且没有进球，就有概率触发“失误/未进”的嘲讽
+      // 只有 PVE 且是玩家刚踢完
+      if (this.gameMode === 'pve' && 
+          this.turnMgr.currentTurn === TeamId.LEFT &&
+          this.turnStartScores[TeamId.LEFT] === this.rules.score[TeamId.LEFT]) {
+          
+          // 30% 概率触发“踢得不好”或“没进”的吐槽
+          if (Math.random() < 0.3) {
+              this.triggerAIChat(ChatTrigger.PLAYER_BAD);
+          }
+      }
+
       this.isMoving = false;
-      this.moveTimer = 0; // 重置
+      this.moveTimer = 0; 
       
       if (this.ball) {
           this.ball.setLightningMode(false);
@@ -701,9 +821,8 @@ export default class GameScene extends BaseScene {
           return true;
       });
       
-      // 动画结束后的清理工作
       finishedAnims.forEach(anim => {
-          anim.body.isSensor = false; // 恢复碰撞
+          anim.body.isSensor = false; 
           Matter.Body.setVelocity(anim.body, { x: 0, y: 0 });
           Matter.Body.setAngularVelocity(anim.body, 0);
           
@@ -717,8 +836,6 @@ export default class GameScene extends BaseScene {
       });
       
       if (finishedAnims.length > 0 && this.repositionAnimations.length === 0) {
-          // 如果是回合内的公平移动，移动完要结束回合
-          // 如果是进球后的重置，不需要调用 _endTurn，因为重置后本来就是新回合开始状态
           if (this.isMoving) {
               this._endTurn();
           }

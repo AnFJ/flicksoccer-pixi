@@ -12,7 +12,7 @@ export default class GameHUD extends PIXI.Container {
     this.gameMode = gameMode;
     this.myTeamId = myTeamId;
     this.onSkillClick = onSkillClick;
-    this.extraData = extraData; // [新增] 保存额外数据 (Level, Players)
+    this.extraData = extraData; // [新增] 保存额外数据 (Level, Players, aiInfo)
     
     this.leftScoreText = null;
     this.rightScoreText = null;
@@ -111,17 +111,13 @@ export default class GameHUD extends PIXI.Container {
         leftLevel = myInfo.level;
         rightLevel = this.extraData.currentLevel;
     } else if (this.gameMode === 'pvp_local') {
-        // 本地双人: 不显示等级
         leftLevel = null;
         rightLevel = null;
     } else if (this.gameMode === 'pvp_online') {
-        // 网络对战: 显示真实等级
-        // 从 players 数组中查找 (注意：gameRoom.js 需同步下发 level 字段)
         const players = this.extraData.players || [];
         const leftPlayer = players.find(p => p.teamId === TeamId.LEFT);
         const rightPlayer = players.find(p => p.teamId === TeamId.RIGHT);
         
-        // 如果数据还没同步到，优先用本地数据兜底显示自己
         if (this.myTeamId === TeamId.LEFT) leftLevel = myInfo.level;
         else if (leftPlayer) leftLevel = leftPlayer.level;
 
@@ -130,9 +126,22 @@ export default class GameHUD extends PIXI.Container {
     }
 
     const leftInfo = { name: myInfo.nickname || "You", avatar: myInfo.avatarUrl };
-    const rightInfo = { name: this.gameMode === 'pve' ? "Easy AI" : "Player 2", avatar: '' };
+    
+    // [核心修改] PVE 模式下，右侧信息从 extraData.aiInfo 中获取
+    let rightInfo = { name: "Player 2", avatar: '' };
+    if (this.gameMode === 'pve') {
+        if (this.extraData.aiInfo) {
+            // 从资源管理器中加载 AI 头像
+            const aiAvatar = ResourceManager.get(this.extraData.aiInfo.avatar);
+            rightInfo = { 
+                name: this.extraData.aiInfo.name, 
+                avatar: aiAvatar // 这里直接传 texture，需要下文 createAvatarWithSkills 支持
+            };
+        } else {
+            rightInfo = { name: "Easy AI", avatar: '' };
+        }
+    }
 
-    // 如果是联网模式，覆盖名字头像
     if (this.gameMode === 'pvp_online') {
         const players = this.extraData.players || [];
         const leftP = players.find(p => p.teamId === TeamId.LEFT);
@@ -169,23 +178,38 @@ export default class GameHUD extends PIXI.Container {
     let avatarNode;
     let avatarMask = null;
     
-    // 创建遮罩层 (复用)
     avatarMask = new PIXI.Graphics();
     avatarMask.beginFill(0xffffff);
     avatarMask.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     avatarMask.endFill();
 
-    if (info.avatar && info.avatar.startsWith('http')) {
-        const sprite = new PIXI.Sprite(); 
-        sprite.anchor.set(0.5);
-        PIXI.Texture.fromURL(info.avatar).then(tex => {
-            sprite.texture = tex;
-            const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
-            sprite.scale.set(scale); 
-        }).catch(()=>{});
-        
-        sprite.mask = avatarMask;
-        avatarNode = sprite;
+    if (info.avatar) {
+        if (info.avatar instanceof PIXI.Texture) {
+            // [新增] 如果传入的是 Texture (AI 头像)，直接使用
+            const sprite = new PIXI.Sprite(info.avatar);
+            sprite.anchor.set(0.5);
+            const scale = Math.max(innerSize / info.avatar.width, innerSize / info.avatar.height);
+            sprite.scale.set(scale);
+            sprite.mask = avatarMask;
+            avatarNode = sprite;
+        } else if (typeof info.avatar === 'string' && info.avatar.startsWith('http')) {
+            // 远程 URL (微信头像)
+            const sprite = new PIXI.Sprite(); 
+            sprite.anchor.set(0.5);
+            PIXI.Texture.fromURL(info.avatar).then(tex => {
+                sprite.texture = tex;
+                const scale = Math.max(innerSize / tex.width, innerSize / tex.height);
+                sprite.scale.set(scale); 
+            }).catch(()=>{});
+            sprite.mask = avatarMask;
+            avatarNode = sprite;
+        } else {
+            // 兜底文字
+            avatarNode = new PIXI.Text(info.name.substring(0,1).toUpperCase() || '?', { 
+                fontSize: 45, fill: 0xffffff, fontWeight: 'bold' 
+            });
+            avatarNode.anchor.set(0.5);
+        }
     } else {
         avatarNode = new PIXI.Text(info.name.substring(0,1).toUpperCase() || '?', { 
             fontSize: 45, fill: 0xffffff, fontWeight: 'bold' 
@@ -193,14 +217,13 @@ export default class GameHUD extends PIXI.Container {
         avatarNode.anchor.set(0.5);
     }
 
-    // [新增] 等级标签 (嵌入在头像框内底部)
     let levelTag = null;
     if (level !== null && level !== undefined) {
         levelTag = new PIXI.Container();
         
         const tagH = 24;
         const tagBg = new PIXI.Graphics();
-        tagBg.beginFill(0x000000, 0.6); // 半透明黑底
+        tagBg.beginFill(0x000000, 0.6); 
         tagBg.drawRect(-innerSize/2, innerSize/2 - tagH, innerSize, tagH);
         tagBg.endFill();
         
@@ -211,8 +234,6 @@ export default class GameHUD extends PIXI.Container {
         lvlText.position.set(0, innerSize/2 - tagH/2);
         
         levelTag.addChild(tagBg, lvlText);
-        
-        // 应用同样的遮罩，确保不溢出圆角
         levelTag.mask = avatarMask;
     }
 
@@ -241,7 +262,7 @@ export default class GameHUD extends PIXI.Container {
 
     container.addChild(frame, bg, avatarNode);
     if (avatarMask) container.addChild(avatarMask);
-    if (levelTag) container.addChild(levelTag); // 添加等级标签
+    if (levelTag) container.addChild(levelTag); 
     
     container.addChild(timerG, nameTag, nameText);
 
@@ -252,7 +273,6 @@ export default class GameHUD extends PIXI.Container {
         isInteractive = (teamId === this.myTeamId);
     }
 
-    // [修改] 传递 level 参数，确保技能栏根据该玩家的等级显示
     this.createSkillBar(teamId, container, isInteractive, level);
     
     this.createOfflineUI(teamId, container, size);
@@ -325,22 +345,16 @@ export default class GameHUD extends PIXI.Container {
   }
 
   createSkillBar(teamId, parent, isInteractive, level) {
-      // 获取配置中的解锁等级
       const skillConfig = GameConfig.gameplay.skills;
 
-      // 定义所有可能的技能 (按解锁顺序排列: 瞄准(4) -> 战车(7) -> 大力(10))
       const allSkills = [
           { type: SkillType.SUPER_AIM, tex: 'skill_aim_bg', unlockLevel: skillConfig.superAim.unlockLevel, label: "瞄准" },
           { type: SkillType.UNSTOPPABLE, tex: 'skill_unstoppable_bg', unlockLevel: skillConfig.unstoppable.unlockLevel, label: "战车" },
           { type: SkillType.SUPER_FORCE, tex: 'skill_force_bg', unlockLevel: skillConfig.superForce.unlockLevel, label: "大力" },
       ];
 
-      // [核心修改] 根据传入的 level 判断技能解锁。
-      // 如果 level 为 null/undefined (如本地双人)，则回退到本地玩家等级 (或者可以视需求全解锁)
-      // 这里为了兼容性，如果没传 level，默认使用 AccountMgr.userInfo.level
       const effectiveLevel = (level !== null && level !== undefined) ? level : (AccountMgr.userInfo.level || 1);
 
-      // 过滤出该玩家等级已解锁的技能
       const visibleSkills = allSkills.filter(skill => effectiveLevel >= skill.unlockLevel);
 
       const btnSize = 100; 
@@ -357,12 +371,11 @@ export default class GameHUD extends PIXI.Container {
           const skillTex = ResourceManager.get(skill.tex);
 
           if (isInteractive) {
-              // 传入 texture 参数，使用素材图作为按钮背景
               const btn = new Button({
                   text: skill.label, 
                   width: btnSize, 
                   height: btnSize, 
-                  color: 0x333333, // 默认颜色，如果有 texture 会被覆盖
+                  color: 0x333333, 
                   texture: skillTex, 
                   fontSize: 36,
                   onClick: () => {
@@ -400,7 +413,6 @@ export default class GameHUD extends PIXI.Container {
 
               let iconBg;
               if (skillTex) {
-                  // 如果有素材图，远程玩家也显示素材图
                   iconBg = new PIXI.Sprite(skillTex);
                   iconBg.anchor.set(0.5);
                   iconBg.width = btnSize;
