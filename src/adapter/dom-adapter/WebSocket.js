@@ -1,4 +1,6 @@
+
 /* from: https://github.com/finscn/weapp-adapter/blob/master/src/WebSocket.js */
+import minigame from './minigame'
 
 const _socketTask = new WeakMap()
 
@@ -28,7 +30,7 @@ export default class WebSocket {
     this.url = url
     this.readyState = WebSocket.CONNECTING
 
-    const socketTask = wx.connectSocket({
+    const socketTask = minigame.connectSocket({
       url,
       protocols: Array.isArray(protocols) ? protocols : [protocols]
     })

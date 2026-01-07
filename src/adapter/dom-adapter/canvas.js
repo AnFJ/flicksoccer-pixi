@@ -1,5 +1,8 @@
+
+import minigame from './minigame'
+
 function Canvas() {
-  const canvas = wx.createCanvas()
+  const canvas = minigame.createCanvas()
   canvas.style = {cursor: null}
   return canvas
 }

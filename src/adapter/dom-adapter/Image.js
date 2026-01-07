@@ -1,6 +1,9 @@
+
+import minigame from './minigame'
+
 export default function() {
-  const image = wx.createImage()
+  const image = minigame.createImage()
   return image
 }
 
-export const img = wx.createImage()
+export const img = minigame.createImage()

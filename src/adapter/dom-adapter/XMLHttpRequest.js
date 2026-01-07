@@ -1,4 +1,6 @@
+
 import {noop} from './util'
+import minigame from './minigame'
 
 export default class XMLHttpRequest {
   static UNSEND = 0
@@ -65,7 +67,7 @@ export default class XMLHttpRequest {
 
   readFile(path, encoding) {
     return new Promise((resolve, reject) => {
-      const fs = wx.getFileSystemManager()
+      const fs = minigame.getFileSystemManager()
       fs.readFile({
         encoding,
         filePath: path,
@@ -95,7 +97,7 @@ export default class XMLHttpRequest {
         this.emit('error')
       })
     } else {
-      wx.request({
+      minigame.request({
         data,
         url: this.url,
         header: this.header,

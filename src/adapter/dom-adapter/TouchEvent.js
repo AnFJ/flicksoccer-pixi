@@ -1,6 +1,8 @@
+
 import document from './document'
 import {noop} from './util'
 import {canvas} from './canvas'
+import minigame from './minigame'
 
 class TouchEvent {
   preventDefault = noop
@@ -24,9 +26,9 @@ function factory(type) {
   }
 }
 
-wx.onTouchStart(factory('touchstart'))
-wx.onTouchMove(factory('touchmove'))
-wx.onTouchEnd(factory('touchend'))
-wx.onTouchCancel(factory('touchcancel'))
+minigame.onTouchStart(factory('touchstart'))
+minigame.onTouchMove(factory('touchmove'))
+minigame.onTouchEnd(factory('touchend'))
+minigame.onTouchCancel(factory('touchcancel'))
 
 export default TouchEvent

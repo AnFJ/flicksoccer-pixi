@@ -1,3 +1,4 @@
+
 import {noop} from './util'
 import Image, {img} from './Image'
 import {canvas} from './canvas'
@@ -11,8 +12,9 @@ import localStorage from './localStorage'
 import * as performance from './performance'
 import XMLHttpRequest from './XMLHttpRequest'
 import {Element, HTMLCanvasElement, HTMLImageElement, HTMLVideoElement} from './element'
+import minigame from './minigame'
 
-const {platform} = wx.getSystemInfoSync()
+const {platform} = minigame.getSystemInfoSync()
 
 
 GameGlobal.canvas = canvas

@@ -1,13 +1,16 @@
+
+import minigame from './minigame'
+
 export default {
   getItem(key) {
-    return wx.getStorageSync(key)
+    return minigame.getStorageSync(key)
   },
 
   setItem(key, val) {
-    return wx.setStorageSync(key, val)
+    return minigame.setStorageSync(key, val)
   },
 
   clear() {
-    wx.clearStorageSync()
+    minigame.clearStorageSync()
   }
 }
