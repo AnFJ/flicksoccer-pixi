@@ -26,7 +26,7 @@ export const GameConfig = {
   // 视觉配置
   visuals: {
     strikerThickness: 15,    // 棋子圆柱体厚度
-    shadowOffset: 12,        // [修改] 增大阴影偏移 (5 -> 12)，配合更实的阴影绘制
+    shadowOffset: 8,        // [修改] 增大阴影偏移 (5 -> 12)，配合更实的阴影绘制
     aimLineColorStart: 0x2ecc71, // 瞄准线起始颜色
     aimLineColorEnd: 0xe74c3c,   // 瞄准线结束颜色
     dashedLineColor: 0xffffff,   // 后方虚线颜色

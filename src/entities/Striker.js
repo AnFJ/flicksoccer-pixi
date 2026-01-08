@@ -6,13 +6,6 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class Striker {
-  /**
-   * @param {number} x
-   * @param {number} y
-   * @param {number} radius
-   * @param {number} teamId
-   * @param {number} themeId [新增] 主题ID 1-7
-   */
   constructor(x, y, radius, teamId, themeId = 1) {
     this.teamId = teamId;
     this.radius = GameConfig.dimensions.strikerDiameter / 2;
@@ -33,41 +26,51 @@ export default class Striker {
       bodyOptions.inertia = Infinity; 
     }
 
-    // 1. 物理刚体
     this.body = Matter.Bodies.circle(x, y, this.radius, bodyOptions);
     this.body.entity = this;
 
-    // 2. Pixi 视图
+    // 1. 根视图 (不再整体旋转，保证阴影方向固定)
     this.view = new PIXI.Container();
     this.view.interactive = true; 
     this.view.interactiveChildren = false; 
     this.view.hitArea = new PIXI.Circle(0, 0, this.radius * 1.6);
     this.view.entity = this;
     
-    // --- 绘制阴影 (优化版) ---
+    // 2. 阴影 (固定在底层，不随棋子自转)
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset); 
     this.view.addChild(shadow);
 
-    // --- 选中光圈 ---
+    // 3. 选中光圈 (通常也是不随自转的)
     this.glow = this.createGlowGraphics();
     this.glow.visible = false; 
     this.glow.alpha = 0; 
     this.view.addChild(this.glow);
-
     this.targetGlowAlpha = 0; 
 
-    // --- 绘制本体 [修改] 根据 themeId 获取 ---
+    // 4. 棋子主体容器 (只有这个容器会随物理刚体旋转)
+    this.mainContainer = new PIXI.Container();
+    this.view.addChild(this.mainContainer);
+
+    // 遮罩 (解决边缘锯齿)
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0xffffff);
+    mask.drawCircle(0, 0, this.radius);
+    mask.endFill();
+    this.mainContainer.addChild(mask);
+    this.mainContainer.mask = mask;
+
+    // 绘制本体
     const colorKey = teamId === TeamId.LEFT ? 'red' : 'blue';
     const textureKey = `striker_${colorKey}_${themeId}`;
-    const texture = ResourceManager.get(textureKey) || ResourceManager.get(`striker_${colorKey}`); // 回退
+    const texture = ResourceManager.get(textureKey) || ResourceManager.get(`striker_${colorKey}`);
 
     if (texture) {
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
         sprite.width = this.radius * 2;
         sprite.height = this.radius * 2;
-        this.view.addChild(sprite);
+        this.mainContainer.addChild(sprite);
     } else {
         // Fallback: 矢量绘制
         const mainColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
@@ -76,29 +79,38 @@ export default class Striker {
 
         const graphics = new PIXI.Graphics();
         
-        // 侧面
         graphics.beginFill(sideColor);
         graphics.drawCircle(0, thickness, this.radius);
         graphics.endFill();
         
-        // 侧面高光
         graphics.lineStyle(2, 0xffffff, 0.3);
         graphics.arc(0, thickness, this.radius, 0.1, Math.PI - 0.1);
         
-        // 顶面
-        graphics.lineStyle(0); // 清除描边
+        graphics.lineStyle(0); 
         graphics.beginFill(mainColor);
         graphics.drawCircle(0, 0, this.radius);
         graphics.endFill();
         
-        // 内圈装饰
         graphics.lineStyle(3, 0xFFFFFF, 0.3);
         graphics.drawCircle(0, 0, this.radius - 2);
         graphics.endFill(); 
 
         this.drawStar(graphics, 0, 0, 5, this.radius * 0.5, this.radius * 0.25, starColor);
         
-        this.view.addChild(graphics);
+        this.mainContainer.addChild(graphics);
+    }
+
+    // 5. 光影蒙版 (Overlay)
+    // 放入 mainContainer 以受遮罩影响
+    const overlayTex = this.createLightingOverlay();
+    if (overlayTex) {
+        this.overlay = new PIXI.Sprite(overlayTex);
+        this.overlay.anchor.set(0.5);
+        this.overlay.width = this.radius * 2;
+        this.overlay.height = this.radius * 2;
+        // 稍微放大一点消除缝隙
+        this.overlay.scale.set(1.01);
+        this.mainContainer.addChild(this.overlay);
     }
   }
 
@@ -134,9 +146,8 @@ export default class Striker {
   }
 
   createShadowSprite() {
-    // [优化] 同样使用 Canvas 纹理生成柔和阴影，避免实时 BlurFilter 导致闪烁
     const r = this.radius;
-    const blurPadding = 12; // 棋子的阴影稍硬一点
+    const blurPadding = 16; 
     const size = (r + blurPadding) * 2;
 
     if (typeof document !== 'undefined' && document.createElement) {
@@ -149,10 +160,10 @@ export default class Striker {
             if (ctx) {
                 const cx = size / 2;
                 const cy = size / 2;
-                const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r + blurPadding);
+                const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r + blurPadding * 0.9);
                 
-                grad.addColorStop(0, 'rgba(0, 0, 0, 0.5)'); 
-                grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.35)'); 
+                grad.addColorStop(0, 'rgba(0, 0, 0, 0.75)'); 
+                grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.45)'); 
                 grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
 
                 ctx.fillStyle = grad;
@@ -163,21 +174,73 @@ export default class Striker {
                 const texture = PIXI.Texture.from(canvas);
                 const sprite = new PIXI.Sprite(texture);
                 sprite.anchor.set(0.5);
-                // 棋子阴影稍大一点
                 sprite.scale.set(1.05); 
+                sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+
                 return sprite;
             }
-        } catch(e) {
-            console.warn('Canvas shadow creation failed', e);
-        }
+        } catch(e) {}
     }
 
-    // 兜底
     const g = new PIXI.Graphics();
-    g.beginFill(0x000000, 0.35);
+    g.beginFill(0x000000, 0.4);
     g.drawCircle(0, 0, r);
     g.endFill();
+    g.blendMode = PIXI.BLEND_MODES.MULTIPLY;
     return g;
+  }
+
+  createLightingOverlay() {
+      if (typeof document !== 'undefined' && document.createElement) {
+          try {
+              const size = this.radius * 2;
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d');
+              const cx = size / 2;
+              const cy = size / 2;
+              const r = this.radius;
+
+              if (ctx) {
+                  // 1. 边缘高光 (Bevel)
+                  const ringGrad = ctx.createLinearGradient(0, 0, size, size);
+                  ringGrad.addColorStop(0, 'rgba(255,255,255,0.9)');
+                  ringGrad.addColorStop(0.4, 'rgba(255,255,255,0.1)');
+                  ringGrad.addColorStop(0.6, 'rgba(0,0,0,0.1)');
+                  ringGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+                  
+                  ctx.strokeStyle = ringGrad;
+                  ctx.lineWidth = 4;
+                  ctx.beginPath();
+                  ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+                  ctx.stroke();
+
+                  // 2. 顶部高光 (Glossy Highlight)
+                  const grad = ctx.createLinearGradient(0, 0, 0, size * 0.6);
+                  grad.addColorStop(0, 'rgba(255,255,255,0.5)');
+                  grad.addColorStop(1, 'rgba(255,255,255,0)');
+                  
+                  ctx.fillStyle = grad;
+                  ctx.beginPath();
+                  ctx.ellipse(cx, r * 0.4, r * 0.75, r * 0.35, 0, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  // 3. 底部阴影 (Ambient Shadow)
+                  const botGrad = ctx.createLinearGradient(0, size*0.5, 0, size);
+                  botGrad.addColorStop(0, 'rgba(0,0,0,0)');
+                  botGrad.addColorStop(1, 'rgba(0,0,0,0.5)');
+                  
+                  ctx.fillStyle = botGrad;
+                  ctx.beginPath();
+                  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  return PIXI.Texture.from(canvas);
+              }
+          } catch(e) {}
+      }
+      return null;
   }
 
   drawStar(g, cx, cy, spikes, outerRadius, innerRadius, color) {
@@ -210,7 +273,19 @@ export default class Striker {
     if (this.body && this.view) {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
-      this.view.rotation = this.body.angle;
+      
+      // [关键修改]
+      // 以前：this.view.rotation = this.body.angle; (导致阴影乱转)
+      // 现在：只旋转 mainContainer，阴影保持不动
+      if (this.mainContainer) {
+          this.mainContainer.rotation = this.body.angle;
+      }
+
+      // overlay 需要反向旋转以保持高光固定
+      // 现在的参照系是 mainContainer，所以取反 mainContainer 的旋转即可
+      if (this.overlay && this.mainContainer) {
+          this.overlay.rotation = -this.mainContainer.rotation;
+      }
     }
 
     const dtRatio = deltaMS / 16.66;
