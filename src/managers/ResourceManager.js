@@ -42,19 +42,19 @@ class ResourceManager {
     };
 
     // [新增] 动态注册主题资源
-    // 1. 球场 (4套) field_combined1 ~ 4
-    for (let i = 1; i <= 4; i++) {
+    // 1. 球场 (改为2套) field_combined1 ~ 2
+    for (let i = 1; i <= 2; i++) {
         this.gameManifest[`field_${i}`] = `assets/images/fieldtheme/field_combined${i}.png`;
     }
 
-    // 2. 足球纹理 (4套) ball_texture1 ~ 4
+    // 2. 足球纹理 (改为4套: 1默认 + 2奖励)
     // 注意：代码里默认使用了 ball_texture 作为 key，这里我们把 ball_texture1 设为默认的 ball_texture 以兼容旧逻辑
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
     for (let i = 1; i <= 4; i++) {
         this.gameManifest[`ball_texture_${i}`] = `assets/images/footballtheme/ball_texture${i}.png`;
     }
 
-    // 3. 棋子 (7套) red_1/blue_1 ~ red_7/blue_7
+    // 3. 棋子 (改为7套: 1默认 + 2奖励)
     // 兼容旧逻辑：striker_red, striker_blue 映射到第1套
     this.gameManifest['striker_red'] = `assets/images/strikerstheme/red_1.png`;
     this.gameManifest['striker_blue'] = `assets/images/strikerstheme/blue_1.png`;

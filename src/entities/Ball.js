@@ -39,9 +39,10 @@ export default class Ball {
     // 2. 视图容器
     this.view = new PIXI.Container();
     
-    // A. 阴影
+    // A. 阴影 (优化版：使用 Canvas 纹理替代滤镜)
     const shadow = this.createShadowSprite();
-    shadow.position.set(GameConfig.visuals.shadowOffset - 5, GameConfig.visuals.shadowOffset - 5);
+    // 稍微向右下偏移，模拟顶光
+    shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
     this.view.addChild(shadow);
 
     // B. 常规拖尾特效 (Trail Effect)
@@ -127,30 +128,51 @@ export default class Ball {
   }
 
   createShadowSprite() {
+    // [优化] 解决滤镜在移动时的闪烁问题：
+    // 不再使用 PIXI.filters.BlurFilter，而是生成一个带径向渐变的 Canvas 纹理。
+    // 这样性能更好，且渲染绝对稳定。
     const r = this.radius;
-    const size = r * 2.8; 
+    const blurPadding = 16; 
+    const size = (r + blurPadding) * 2;
+
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const canvas = document.createElement('canvas');
             canvas.width = size;
             canvas.height = size;
             const ctx = canvas.getContext('2d');
-            const cx = size / 2;
-            const cy = size / 2;
-            const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.5);
-            grd.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
-            grd.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)');
-            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
-            ctx.fillStyle = grd;
-            ctx.fillRect(0, 0, size, size);
-            const sprite = new PIXI.Sprite(PIXI.Texture.from(canvas));
-            sprite.anchor.set(0.5);
-            return sprite;
-        } catch(e) {}
+            
+            if (ctx) {
+                const cx = size / 2;
+                const cy = size / 2;
+                // 径向渐变：从中心向外
+                const grad = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, r + blurPadding);
+                
+                // 模拟柔和阴影的透明度曲线
+                grad.addColorStop(0, 'rgba(0, 0, 0, 0.45)'); 
+                grad.addColorStop(0.4, 'rgba(0, 0, 0, 0.3)'); 
+                grad.addColorStop(0.8, 'rgba(0, 0, 0, 0.1)'); 
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
+
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
+                ctx.fill();
+
+                const texture = PIXI.Texture.from(canvas);
+                const sprite = new PIXI.Sprite(texture);
+                sprite.anchor.set(0.5);
+                return sprite;
+            }
+        } catch(e) {
+            console.warn('Canvas shadow creation failed', e);
+        }
     }
+
+    // 兜底：简单的半透明圆
     const g = new PIXI.Graphics();
-    g.beginFill(0x000000, 0.4);
-    g.drawCircle(0, 0, r);
+    g.beginFill(0x000000, 0.3);
+    g.drawCircle(0, 0, r + 4);
     g.endFill();
     return g;
   }

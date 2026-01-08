@@ -13,10 +13,6 @@ export default class AIChatBubble extends PIXI.Container {
     }
 
     init() {
-        // 气泡背景 (圆角矩形 + 小三角)
-        // 默认向右开口，因为 AI 在右边，气泡显示在 AI 头像的左下方或正下方
-        // 这里设计为：气泡主体在上方，小三角指向下方 (类似漫画气泡)
-        
         this.bg = new PIXI.Graphics();
         this.addChild(this.bg);
 
@@ -48,29 +44,32 @@ export default class AIChatBubble extends PIXI.Container {
         const paddingY = 20;
         const w = Math.max(100, this.text.width + paddingX * 2);
         const h = Math.max(60, this.text.height + paddingY * 2);
+        const arrowH = 15; // 箭头高度
         
         this.bg.clear();
         
-        // 阴影
+        // 阴影 (向下偏移)
         this.bg.beginFill(0x000000, 0.2);
-        this.bg.drawRoundedRect(-w/2 + 4, -h/2 + 4, w, h, 15);
+        this.bg.drawRoundedRect(-w/2 + 4, arrowH + 4, w, h, 15);
         this.bg.endFill();
 
         // 主体 (白色)
         this.bg.beginFill(0xFFFFFF);
-        this.bg.drawRoundedRect(-w/2, -h/2, w, h, 15);
         
-        // 小三角 (指向右上方，因为挂载在 AI 头像的左下/下方)
-        // 假设气泡在头像的左侧，三角指向右边
-        // Triangle tip
-        const tipX = w/2 + 10;
-        const tipY = -10;
+        // 绘制向上箭头 (Tip at 0,0)
+        // 箭头底边在 y = arrowH
+        this.bg.moveTo(0, 0);
+        this.bg.lineTo(-12, arrowH); // 左底角
+        this.bg.lineTo(12, arrowH);  // 右底角
+        this.bg.lineTo(0, 0);
         
-        this.bg.moveTo(w/2, -20);
-        this.bg.lineTo(tipX, tipY); // Tip
-        this.bg.lineTo(w/2, 0);
-        
+        // 绘制气泡矩形 (在箭头下方)
+        this.bg.drawRoundedRect(-w/2, arrowH, w, h, 15);
         this.bg.endFill();
+
+        // 调整文本位置：位于气泡矩形中心
+        // 矩形中心 Y = arrowH + h/2
+        this.text.position.set(0, arrowH + h/2);
 
         // 3. 动画效果
         this.visible = true;

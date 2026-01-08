@@ -12,27 +12,15 @@ import { SkillType } from '../constants.js';
  */
 export const LevelRewards = {
     // --- 前10关：新手诱惑 ---
-    2: { type: 'striker', id: 2, name: '火焰纹章' },
-    3: { type: 'skill', id: SkillType.SUPER_AIM, count: 5, name: '超距瞄准' },
-    5: { type: 'ball', id: 2, name: '经典黑白' },
-    7: { type: 'skill', id: SkillType.UNSTOPPABLE, count: 5, name: '无敌战车' },
-    9: { type: 'ball', id: 3, name: '烈焰足球' },
-    10: { type: 'skill', id: SkillType.SUPER_FORCE, count: 5, name: '大力水手' },
+    2: { type: 'striker', id: 2, name: '火焰纹章' }, // 棋子奖励 #1
+    4: { type: 'skill', id: SkillType.SUPER_AIM, count: 5, name: '超距瞄准' },
 
-    // --- 后续：整十关卡解锁 (9个剩余物品) ---
-    // 剩余棋子: 3, 4, 5, 6, 7
-    // 剩余球场: 2, 3, 4
-    // 剩余足球: 4
-    
-    20: { type: 'field', id: 2, name: '硬地赛场' },
-    30: { type: 'striker', id: 3, name: '蓝宝石' },
-    40: { type: 'striker', id: 4, name: '翡翠梦境' },
-    50: { type: 'field', id: 3, name: '街头涂鸦' },
-    60: { type: 'ball', id: 4, name: '未来科技' },
-    70: { type: 'striker', id: 5, name: '黄金时代' },
-    80: { type: 'field', id: 4, name: '室内球馆' },
-    90: { type: 'striker', id: 6, name: '暗夜骑士' },
-    99: { type: 'striker', id: 7, name: '荣耀王者' } // 满级奖励
+    7: { type: 'skill', id: SkillType.UNSTOPPABLE, count: 5, name: '无敌战车' },
+    10: { type: 'skill', id: SkillType.SUPER_FORCE, count: 5, name: '大力水手' },
+    20: { type: 'ball', id: 2, name: '经典黑白' }, // 足球奖励 #1
+
+    50: { type: 'striker', id: 3, name: '蓝宝石' }, // 棋子奖励 #2
+    99: { type: 'field', id: 2, name: '冬日主题' },
 };
 
 /**

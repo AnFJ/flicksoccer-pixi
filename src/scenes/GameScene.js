@@ -218,12 +218,16 @@ export default class GameScene extends BaseScene {
     // [新增] 初始化 AI 聊天气泡
     if (this.gameMode === 'pve' && this.hud) {
         this.aiChatBubble = new AIChatBubble();
-        // 将气泡添加到 HUD 层，位置相对于 AI 的头像
-        // 假设 AI (Right) 的头像是居右的，我们把气泡挂在 GameHUD 上，
-        // 坐标需要大致对齐右侧头像区域 (centerX + avatarSpacing, 60)
-        // 从 GameHUD.js 可知右侧头像是 (centerX + 480, 60)
+        
+        // 调整位置：
+        // 右侧头像中心 X = designWidth/2 + 480
+        // 头像 Y = 60，半径 50 -> 底部 Y = 110
+        // 将气泡尖端对准头像底部，稍微下移留点空隙
         const centerX = GameConfig.designWidth / 2;
-        this.aiChatBubble.position.set(centerX + 350, 160); // 放在头像左下方
+        // x: 对齐右侧头像 (1200 + 480 = 1680)
+        // y: 头像下方 (60 + 50 + 15 = 125)
+        this.aiChatBubble.position.set(centerX + 480, 125); 
+        
         this.hud.addChild(this.aiChatBubble);
     }
 

@@ -16,9 +16,10 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     
     // 配置
     this.tabs = ['棋子', '球场', '足球', '阵型'];
-    this.totalStrikers = 7;
-    this.totalFields = 4;
-    this.totalBalls = 3;
+    // [修改] 更新数量配置
+    this.totalStrikers = 7; // 1默认 + 2奖励
+    this.totalFields = 2;   // 2套背景 (无奖励，靠广告解锁)
+    this.totalBalls = 4;    // 1默认 + 2奖励
 
     this.init();
   }

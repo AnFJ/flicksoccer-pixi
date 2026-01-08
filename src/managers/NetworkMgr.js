@@ -33,11 +33,14 @@ class NetworkMgr {
 
     try {
       let resData;
-      if (Platform.env === 'wechat') {
-        resData = await this._requestMinigame(wx, url, data);
-      } else if (Platform.env === 'douyin') {
-        resData = await this._requestMinigame(tt, url, data);
+      // [修复] 统一使用 Platform.getProvider() 获取当前环境的 API 提供者
+      const provider = Platform.getProvider();
+
+      if (provider) {
+        // 小游戏环境 (WeChat / Douyin)
+        resData = await this._requestMinigame(provider, url, data);
       } else {
+        // Web 环境
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

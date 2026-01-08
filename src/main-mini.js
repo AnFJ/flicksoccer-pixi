@@ -1,28 +1,29 @@
 
 import './adapter/symbol.js';       // 1. 加载 Symbol Polyfill
+import './adapter/dom-adapter/index.js' // 2. Adapter (必须在业务逻辑之前加载)
+
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
 import LoginScene from './scenes/LoginScene.js';
-import { GameConfig } from './config.js';
+// import { GameConfig } from './config.js';
 
-import './adapter/dom-adapter/index.js'
-// import '@iro/wechat-adapter'
 import * as PIXI from 'pixi.js'
 import { install } from '@pixi/unsafe-eval'
 
-// 核心修改：引入本地的 Interaction 类
 // @ts-ignore
 import Interaction from './adapter/pixi-interaction.js'
-// import Interaction from '@iro/interaction'
 
 // PixiJS 设置
 PIXI.settings.SORTABLE_CHILDREN = true
 
-// 兼容性优化 1: 移除强制 WEBGL_LEGACY，让 Pixi 自动检测最佳 WebGL 版本
+// [修改] 不再强制使用 LEGACY (WebGL 1.0)。
+// 抖音小游戏 Krypton 引擎支持 WebGL 2.0，强制降级可能反而导致 context 创建失败或性能问题。
 // PIXI.settings.PREFER_ENV = PIXI.ENV.WEBGL_LEGACY 
 
-// 兼容性优化 2: 降低 Shader 精度
-// iPhone 7 等旧设备在 HIGH 精度下可能会因为显存或驱动问题导致 WebGL Context 创建失败
+// [新增] 忽略性能警告，强制尝试创建 Context
+PIXI.settings.FAIL_IF_MAJOR_PERFORMANCE_CAVEAT = false;
+
+// 降低 Shader 精度以提升兼容性
 PIXI.settings.PRECISION_VERTEX = PIXI.PRECISION.MEDIUM
 PIXI.settings.PRECISION_FRAGMENT = PIXI.PRECISION.MEDIUM
 
@@ -56,36 +57,52 @@ PIXI.extensions.add(
 
 async function initGame() {
   try {
-    const isMiniGame = (typeof wx !== 'undefined' || typeof tt !== 'undefined');
+    // 获取环境全局对象
+    let minigame = null;
+    if (typeof wx !== 'undefined') minigame = wx;
+    else if (typeof tt !== 'undefined') minigame = tt;
+
+    const isMiniGame = !!minigame;
+    console.log(`[Main] Environment detected: ${isMiniGame ? (minigame === wx ? 'WeChat' : 'Douyin') : 'Web'}`);
 
     let canvasTarget;
     if (isMiniGame) {
       // @ts-ignore
-      // 确保能获取到全局 canvas
       canvasTarget = window.canvas || (typeof canvas !== 'undefined' ? canvas : null);
     }
 
-    // 获取真机系统信息
-    const systemInfo = wx.getSystemInfoSync();
-    const screenWidth = systemInfo.windowWidth;   // 逻辑宽度
-    const screenHeight = systemInfo.windowHeight; // 逻辑高度
-    const dpr = systemInfo.devicePixelRatio;
+    // 获取系统信息
+    let screenWidth = 750;
+    let screenHeight = 1334;
+    let dpr = 2;
 
-    console.log(`[Main] Screen: ${screenWidth}x${screenHeight}, DPR: ${dpr}`);
+    if (minigame) {
+        const systemInfo = minigame.getSystemInfoSync();
+        screenWidth = systemInfo.windowWidth;
+        screenHeight = systemInfo.windowHeight;
+        dpr = systemInfo.devicePixelRatio;
+    }
+
+    console.log(`[Main] Screen: ${screenWidth}x${screenHeight}, DPR: ${dpr},canvasTarget: ${canvasTarget}`);
+
+    // [修改] 移除手动创建 Context 的逻辑
+    // 原因：手动创建可能使用了不被当前设备/引擎支持的属性组合 (如 stencil)，导致 create 失败。
+    // PixiJS 内部有完善的尝试机制 (try WebGL2 -> try WebGL1 -> try attributes)，交给它处理更稳妥。
 
     // 初始化 Pixi 应用
-    // 关键兼容性修复：antialias: false
-    const app = new PIXI.Application({
+    const PIXIData = {
       view: canvasTarget, 
       width: screenWidth,   
       height: screenHeight, 
       backgroundColor: 0x1a1a1a,
       resolution: dpr,      
       autoDensity: true,
-      antialias: false, // 兼容性优化 3: 关闭抗锯齿，极大降低旧设备 WebGL 崩溃概率
-      preserveDrawingBuffer: false // 显式关闭，节省内存
-    });
-
+      antialias: false, // 明确关闭抗锯齿，性能优先
+      preserveDrawingBuffer: false
+    };
+    console.log("PIXI Application Data:", PIXIData);
+    const app = new PIXI.Application(PIXIData);
+    console.log('PIXI app inited', app);
     // 将 app 挂载到全局方便调试
     // @ts-ignore
     if (typeof globalThis !== 'undefined') {
@@ -106,12 +123,10 @@ async function initGame() {
 
   } catch (err) {
     console.error('Game Init Failed:', err);
-    // 如果是 WebGL 不支持的错误，且是在真机上，尝试提示用户
-    if (err.message && err.message.indexOf('WebGL') !== -1) {
-        console.error('CRITICAL: WebGL Context creation failed. Try using pixi.js-legacy for Canvas fallback.');
+    if (err && err.message) {
+        console.error('Error Details:', err.message);
     }
   }
 }
 
-// H5 逻辑在此文件已移除，由 main.js 处理
 initGame();

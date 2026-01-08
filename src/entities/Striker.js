@@ -44,7 +44,7 @@ export default class Striker {
     this.view.hitArea = new PIXI.Circle(0, 0, this.radius * 1.6);
     this.view.entity = this;
     
-    // --- 绘制阴影 ---
+    // --- 绘制阴影 (优化版) ---
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset); 
     this.view.addChild(shadow);
@@ -134,10 +134,11 @@ export default class Striker {
   }
 
   createShadowSprite() {
+    // [优化] 同样使用 Canvas 纹理生成柔和阴影，避免实时 BlurFilter 导致闪烁
     const r = this.radius;
-    const padding = 20; 
-    const size = (r + padding) * 2;
-    
+    const blurPadding = 12; // 棋子的阴影稍硬一点
+    const size = (r + blurPadding) * 2;
+
     if (typeof document !== 'undefined' && document.createElement) {
         try {
             const canvas = document.createElement('canvas');
@@ -145,28 +146,35 @@ export default class Striker {
             canvas.height = size;
             const ctx = canvas.getContext('2d');
             
-            ctx.shadowColor = "rgba(0, 0, 0, 0.4)"; 
-            ctx.shadowBlur = 25; 
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
-            
-            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
-            
-            ctx.beginPath();
-            ctx.arc(size/2, size/2, r - 5, 0, Math.PI * 2);
-            ctx.fill();
+            if (ctx) {
+                const cx = size / 2;
+                const cy = size / 2;
+                const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r + blurPadding);
+                
+                grad.addColorStop(0, 'rgba(0, 0, 0, 0.5)'); 
+                grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.35)'); 
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
 
-            const sprite = new PIXI.Sprite(PIXI.Texture.from(canvas));
-            sprite.anchor.set(0.5);
-            return sprite;
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
+                ctx.fill();
 
-        } catch (e) {
-            console.warn('Canvas shadow generation failed:', e);
+                const texture = PIXI.Texture.from(canvas);
+                const sprite = new PIXI.Sprite(texture);
+                sprite.anchor.set(0.5);
+                // 棋子阴影稍大一点
+                sprite.scale.set(1.05); 
+                return sprite;
+            }
+        } catch(e) {
+            console.warn('Canvas shadow creation failed', e);
         }
     }
 
+    // 兜底
     const g = new PIXI.Graphics();
-    g.beginFill(0x000000, 0.4);
+    g.beginFill(0x000000, 0.35);
     g.drawCircle(0, 0, r);
     g.endFill();
     return g;
