@@ -390,6 +390,8 @@ export default class OnlineMatchController {
     }
     _handlePlayerOffline(payload) { 
         const offlineTeamId = payload.teamId; 
+        const reason = payload.reason; // [新增] 获取原因
+
         if (offlineTeamId !== undefined) {
             if (!this.hasOpponentLeft) {
                 this.scene.hud?.setPlayerOffline(offlineTeamId, true);
@@ -397,8 +399,14 @@ export default class OnlineMatchController {
             this.scene.isGamePaused = true;
             this.scene.turnMgr.pause();
             this.scene.input.reset();
+            
             if (!this.hasOpponentLeft) {
-                Platform.showToast("对方连接断开，等待重连...");
+                // [新增] 根据原因显示不同提示
+                if (reason === 'manual') {
+                    Platform.showToast("对方主动离开了...");
+                } else {
+                    Platform.showToast("对方连接断开，等待重连...");
+                }
             }
         }
     }

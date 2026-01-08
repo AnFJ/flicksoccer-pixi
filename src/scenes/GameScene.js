@@ -426,6 +426,8 @@ export default class GameScene extends BaseScene {
 
   onMenuBtnClick() {
       if (this.gameMode === 'pvp_online' && !this.isGameOver) {
+          // [修改] 发送 LEAVE 消息，让服务端知道是主动离开
+          // 服务端根据当前游戏状态(PLAYING)决定是保留房间(标记Offline)还是销毁房间
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
       }

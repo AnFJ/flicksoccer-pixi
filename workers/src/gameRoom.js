@@ -388,29 +388,40 @@ export class GameRoom {
           break;
 
       case 'LEAVE':
-          // [核心修复] 主动离开时，立即清理数据
-          this.broadcast({
-              type: 'PLAYER_LEFT_GAME',
-              payload: { teamId: player.teamId, userId: player.id }
-          });
-          
-          this.roomData.players = this.roomData.players.filter(p => p.id !== userId);
-          
-          if (this.roomData.players.length === 0) {
-              // 人走光了，关闭房间
-              await this.resetRoomState();
-              await this.closeRoomInDb(); // [修改] 标记为 UNUSED
+          // [核心修改] 区分游戏状态
+          if (this.roomData.status === 'PLAYING') {
+              // 1. 游戏中离开：视为"暂停/掉线"，保留玩家数据以便重连
+              // 标记当前 session 为主动离开，以便 cleanupSession 广播正确的 reason
+              const session = this.sessions.find(s => s.userId === userId);
+              if (session) session.isManualLeave = true;
+              
+              // 关闭连接 (这会触发 close 事件 -> 调用 cleanupSession)
+              socket.close(1000, "Left game (Paused)");
           } else {
-              this.roomData.status = 'WAITING'; 
-              this.roomData.players.forEach(p => p.ready = false);
-              await this.saveState();
-              await this.syncToDb(); // [新增] 更新
+              // 2. 等待中离开：视为"放弃"，彻底清除
+              this.broadcast({
+                  type: 'PLAYER_LEFT_GAME',
+                  payload: { teamId: player.teamId, userId: player.id }
+              });
+              
+              this.roomData.players = this.roomData.players.filter(p => p.id !== userId);
+              
+              if (this.roomData.players.length === 0) {
+                  // 人走光了，关闭房间
+                  await this.resetRoomState();
+                  await this.closeRoomInDb(); // [修改] 标记为 UNUSED
+              } else {
+                  this.roomData.status = 'WAITING'; 
+                  this.roomData.players.forEach(p => p.ready = false);
+                  await this.saveState();
+                  await this.syncToDb(); // [新增] 更新
+              }
+              
+              // 关闭连接
+              socket.close(1000, "Left game");
+              const sIdx = this.sessions.findIndex(s => s.userId === userId);
+              if (sIdx !== -1) this.sessions.splice(sIdx, 1);
           }
-          
-          // 关闭连接
-          socket.close(1000, "Left game");
-          const sIdx = this.sessions.findIndex(s => s.userId === userId);
-          if (sIdx !== -1) this.sessions.splice(sIdx, 1);
           break;
     }
   }
@@ -488,9 +499,16 @@ export class GameRoom {
             this.broadcastState();
         } else {
             // PLAYING 状态，广播掉线，保留位置等待重连
+            // [新增] 区分是主动离开(manual) 还是 意外掉线(timeout/error)
+            const reason = session.isManualLeave ? 'manual' : 'disconnect';
+            
             this.broadcast({
                 type: 'PLAYER_OFFLINE',
-                payload: { teamId: player.teamId, userId: player.id }
+                payload: { 
+                    teamId: player.teamId, 
+                    userId: player.id,
+                    reason: reason // 告诉客户端原因
+                }
             });
             await this.saveState();
         }
