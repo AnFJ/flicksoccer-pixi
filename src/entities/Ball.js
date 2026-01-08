@@ -44,23 +44,39 @@ export default class Ball {
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
     this.view.addChild(shadow);
 
-    // B. 拖尾特效
-    this.trailTexture = this.generateTrailTexture();
-    this.trail = new PIXI.Sprite(this.trailTexture);
-    this.trail.anchor.set(1, 0.5); 
-    this.trail.position.set(0, 0); 
-    this.trail.alpha = 0; 
-    this.trail.height = this.radius * 1.6; 
-    this.view.addChild(this.trail);
+    // [核心优化] 轨迹历史记录
+    // maxPathLen 增加以支持更细腻的曲线，但实际渲染长度由速度决定
+    this.pathHistory = [];
+    this.maxPathLen = 50; 
+    this.lastRecordPos = { x: x, y: y }; 
+    // 减小阈值，让转弯处的采样点更密集，解决折角问题
+    this.historyRecordThreshold = 2; 
 
+    // B. 常规拖尾特效 (SimpleRope)
+    this.trailTexture = this.generateTrailTexture();
+    
+    // Rope 的段数，段数越多越平滑
+    this.ropeSegmentCount = 20;
+    this.ropePoints = [];
+    for (let i = 0; i < this.ropeSegmentCount; i++) {
+        this.ropePoints.push(new PIXI.Point(0, 0));
+    }
+    
+    this.trailRope = new PIXI.SimpleRope(this.trailTexture, this.ropePoints);
+    this.trailRope.blendMode = PIXI.BLEND_MODES.ADD;
+    this.trailRope.alpha = 0; 
+    this.view.addChild(this.trailRope);
+
+    // C. 闪电拖尾
     this.lightningTrail = new PIXI.Graphics();
     this.lightningTrail.blendMode = PIXI.BLEND_MODES.ADD; 
     this.view.addChild(this.lightningTrail);
 
+    // D. 火焰特效容器
     this.fireContainer = new PIXI.Container();
     this.view.addChild(this.fireContainer);
 
-    // C. 足球本体容器
+    // E. 足球本体容器
     const ballContainer = new PIXI.Container();
     this.view.addChild(ballContainer);
 
@@ -95,7 +111,6 @@ export default class Ball {
 
     // [优化] 光影蒙版 (Overlay)
     // 移入 ballContainer，使其受 mask 影响，解决边缘毛刺问题
-    // 注意：ballTexture 会旋转，但 ballContainer 不会，所以 overlay 保持静止，符合光照逻辑
     const overlayTexture = this.generateProceduralOverlay();
     const overlay = new PIXI.Sprite(overlayTexture);
     overlay.anchor.set(0.5);
@@ -179,21 +194,23 @@ export default class Ball {
   generateTrailTexture() {
     if (typeof document !== 'undefined' && document.createElement) {
         try {
-            const w = 256, h = 64;
+            const w = 256, h = 64; 
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 const grad = ctx.createLinearGradient(0, 0, w, 0);
-                grad.addColorStop(0, 'rgba(255, 255, 255, 0)');     
-                grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)'); 
-                grad.addColorStop(1, 'rgba(255, 255, 255, 0.9)');   
+                grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)'); // 尾巴尖端透明
+                grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)'); 
+                grad.addColorStop(1, 'rgba(255, 255, 255, 0.9)'); // 头部不透明  
+                
                 ctx.fillStyle = grad;
                 ctx.beginPath();
-                ctx.moveTo(0, h/2); 
-                ctx.bezierCurveTo(w * 0.5, h * 0.1, w * 0.8, 0, w, 0);
-                ctx.lineTo(w, h);
-                ctx.bezierCurveTo(w * 0.8, h, w * 0.5, h * 0.9, 0, h/2);
+                // 流星形状
+                ctx.moveTo(0, h/2 - h*0.4); 
+                ctx.bezierCurveTo(w * 0.2, h * 0.1, w * 0.6, h * 0.45, w, h/2);
+                ctx.bezierCurveTo(w * 0.6, h * 0.55, w * 0.2, h * 0.9, 0, h/2 + h*0.4);
+                
                 ctx.fill();
                 return PIXI.Texture.from(canvas);
             }
@@ -216,56 +233,36 @@ export default class Ball {
               const r = this.radius;
 
               if (ctx) {
-                  // 1. 基础环境光遮蔽 (Inner Shadow)
-                  // 让球体边缘变暗，看起来像圆球而不是圆片
                   const shadowGrad = ctx.createRadialGradient(cx, cy, r * 0.65, cx, cy, r);
                   shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
                   shadowGrad.addColorStop(0.8, 'rgba(0,0,0,0.2)');
                   shadowGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
-                  
                   ctx.fillStyle = shadowGrad;
-                  ctx.beginPath();
-                  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                  ctx.fill();
+                  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
 
-                  // 2. 主高光 (Specular) - 左上角
-                  // 模拟强光照射
                   const hx = cx - r * 0.25; 
                   const hy = cy - r * 0.25;
                   const hlGrad = ctx.createRadialGradient(hx, hy, 0, hx, hy, r * 0.5);
-                  hlGrad.addColorStop(0, 'rgba(255,255,255,0.7)'); // 中心亮白
+                  hlGrad.addColorStop(0, 'rgba(255,255,255,0.7)'); 
                   hlGrad.addColorStop(0.3, 'rgba(255,255,255,0.2)');
                   hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
-
                   ctx.fillStyle = hlGrad;
-                  ctx.beginPath();
-                  ctx.arc(hx, hy, r * 0.5, 0, Math.PI * 2);
-                  ctx.fill();
+                  ctx.beginPath(); ctx.arc(hx, hy, r * 0.5, 0, Math.PI * 2); ctx.fill();
 
-                  // 3. 反光 (Rim Light) - 右下角
-                  // 模拟地面反光，增强立体感
                   const rx = cx + r * 0.2;
                   const ry = cy + r * 0.2;
                   const rimGrad = ctx.createRadialGradient(rx, ry, r * 0.4, rx, ry, r * 0.8);
                   rimGrad.addColorStop(0, 'rgba(255,255,255,0)');
-                  rimGrad.addColorStop(0.8, 'rgba(255,255,255,0.1)'); // 淡淡的反光
+                  rimGrad.addColorStop(0.8, 'rgba(255,255,255,0.1)'); 
                   rimGrad.addColorStop(1, 'rgba(255,255,255,0)');
-                  
-                  // 这里用 clip 限制只在右下角
                   ctx.save();
-                  ctx.beginPath();
-                  ctx.arc(cx, cy, r, 0, Math.PI * 2); 
-                  ctx.clip();
-                  
-                  ctx.fillStyle = rimGrad;
-                  ctx.fillRect(0, 0, size, size);
+                  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+                  ctx.fillStyle = rimGrad; ctx.fillRect(0, 0, size, size);
                   ctx.restore();
 
                   return PIXI.Texture.from(canvas);
               }
-          } catch (e) {
-              console.warn('Canvas overlay failed', e);
-          }
+          } catch (e) { }
       }
       return PIXI.Texture.EMPTY; 
   }
@@ -275,7 +272,6 @@ export default class Ball {
       this.view.position.x = this.body.position.x;
       this.view.position.y = this.body.position.y;
       
-      // 纹理旋转
       this.ballTexture.rotation = this.body.angle;
 
       const velocity = this.body.velocity;
@@ -291,6 +287,8 @@ export default class Ball {
           this.moveAngle += diff * turnSpeed;
       }
 
+      this.updatePathHistory();
+
       if (this.skillStates.fire) {
           this.skillStates.fireTimer -= deltaMS;
           this.body.frictionAir = 0;
@@ -305,7 +303,7 @@ export default class Ball {
       this.updateFireParticlesState();
 
       if (this.skillStates.fire) {
-          this.trail.visible = false;
+          this.trailRope.visible = false;
           this.lightningTrail.clear();
           if (speed > 0.1) {
               this.spawnFireParticles(speed, this.moveAngle);
@@ -314,20 +312,20 @@ export default class Ball {
           this.fireContainer.removeChildren();
           
           if (this.skillStates.lightning && speed > 0.5) {
-              this.updateLightningTrail(speed, this.moveAngle);
-              this.trail.visible = false;
+              this.updateLightningTrail(speed);
+              this.trailRope.visible = false;
           } else {
               this.lightningTrail.clear();
-              if (speed > 0.2) { 
-                  this.trail.rotation = this.moveAngle;
-                  const maxLen = this.radius * 8; 
-                  const lenFactor = 12.0; 
-                  const targetWidth = Math.min(speed * lenFactor, maxLen);
-                  this.trail.width += (targetWidth - this.trail.width) * 0.2 * dtRatio;
-                  this.trail.alpha = Math.min((speed - 0.2) * 0.4, 0.8);
-                  this.trail.visible = true;
+              if (speed > 0.5) { 
+                  // 更新 Rope
+                  this.updateRopeTrail(speed);
+                  
+                  this.trailRope.scale.y = 0.5; 
+                  // 淡入淡出
+                  this.trailRope.alpha = Math.min((speed - 0.5) * 0.1, 0.8);
+                  this.trailRope.visible = true;
               } else {
-                  this.trail.visible = false;
+                  this.trailRope.visible = false;
               }
           }
       }
@@ -343,77 +341,221 @@ export default class Ball {
     }
   }
 
-  // ... (保留 updateLightningTrail, spawnFireParticles, updateFireParticlesState, updateFireEffect)
-  updateLightningTrail(speed, moveAngle) {
+  updatePathHistory() {
+      const curX = this.body.position.x;
+      const curY = this.body.position.y;
+      
+      const dist = Math.sqrt(Math.pow(curX - this.lastRecordPos.x, 2) + Math.pow(curY - this.lastRecordPos.y, 2));
+      
+      // 记录阈值：移动距离超过阈值才记录，防止静止时堆积
+      if (dist > this.historyRecordThreshold || this.pathHistory.length === 0) {
+          this.pathHistory.unshift({ x: curX, y: curY });
+          if (this.pathHistory.length > this.maxPathLen) {
+              this.pathHistory.pop();
+          }
+          this.lastRecordPos = { x: curX, y: curY };
+      } else {
+          // 实时更新第一个点，保证拖尾紧贴球体
+          if (this.pathHistory.length > 0) {
+              this.pathHistory[0] = { x: curX, y: curY };
+          }
+      }
+  }
+
+  /**
+   * [核心算法优化] 重采样路径点
+   * 无论历史点如何分布，通过距离插值生成均匀的 Rope 点
+   * 解决转弯时拖尾拉伸、变形的问题
+   */
+  getResampledPath(speed) {
+      if (this.pathHistory.length < 2) return [];
+
+      // 1. 计算目标拖尾长度 (根据速度动态变化)
+      // [调整] 减少空气拖尾长度 (系数 25->12, 上限 300->150)
+      const targetLength = Math.min(speed * 18, 150); 
+      
+      // 每一段 Rope 的理想物理长度
+      const segmentLen = targetLength / (this.ropeSegmentCount - 1);
+
+      const resultPoints = [];
+      const currentX = this.body.position.x;
+      const currentY = this.body.position.y;
+
+      // 第一个点总是当前球的位置 (局部坐标 0,0)
+      resultPoints.push({ x: 0, y: 0 });
+
+      // 开始沿路径回溯
+      let historyIndex = 0;
+      let consumedDistInSegment = 0; // 当前历史线段已经走过的距离
+      
+      // 我们需要找 N-1 个后续点
+      for (let i = 1; i < this.ropeSegmentCount; i++) {
+          let distanceToTravel = segmentLen;
+          let foundPoint = null;
+
+          // 在历史记录中寻找下一个距离点
+          while (historyIndex < this.pathHistory.length - 1) {
+              const p1 = this.pathHistory[historyIndex];
+              const p2 = this.pathHistory[historyIndex + 1];
+              
+              // 计算这段历史记录的长度
+              const segDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+              const remainingDistInHistorySeg = segDist - consumedDistInSegment;
+
+              if (remainingDistInHistorySeg >= distanceToTravel) {
+                  // 目标点在当前历史线段内 (插值)
+                  const t = (consumedDistInSegment + distanceToTravel) / segDist;
+                  const targetX = p1.x + (p2.x - p1.x) * t;
+                  const targetY = p1.y + (p2.y - p1.y) * t;
+                  
+                  // 转换为局部坐标
+                  foundPoint = { x: targetX - currentX, y: targetY - currentY };
+                  
+                  // 更新由于插值消耗的距离
+                  consumedDistInSegment += distanceToTravel;
+                  break; 
+              } else {
+                  // 走完这段历史还不够，继续下一段
+                  distanceToTravel -= remainingDistInHistorySeg;
+                  consumedDistInSegment = 0;
+                  historyIndex++;
+              }
+          }
+
+          if (foundPoint) {
+              resultPoints.push(foundPoint);
+          } else {
+              // 历史记录耗尽了，剩下的点都聚在最后
+              // 这通常发生在起步阶段
+              const last = this.pathHistory[this.pathHistory.length - 1];
+              resultPoints.push({ x: last.x - currentX, y: last.y - currentY });
+          }
+      }
+      
+      return resultPoints;
+  }
+
+  updateRopeTrail(speed) {
+      const smoothPoints = this.getResampledPath(speed);
+      
+      // 将计算出的点赋给 Rope
+      for (let i = 0; i < this.ropePoints.length; i++) {
+          const p = this.ropePoints[i];
+          if (i < smoothPoints.length) {
+              p.x = smoothPoints[i].x;
+              p.y = smoothPoints[i].y;
+          } else {
+              // 理论上 getResampledPath 会返回足够数量的点，这里兜底
+              const last = smoothPoints[smoothPoints.length - 1];
+              p.x = last.x;
+              p.y = last.y;
+          }
+      }
+  }
+
+  updateLightningTrail(speed) {
     const g = this.lightningTrail;
     g.clear();
-    const len = Math.min(speed * 18, 180); 
-    const angle = moveAngle + Math.PI; 
-    const segments = Math.max(Math.floor(len / 12), 2); 
-    const getLightningPoints = (amp) => {
-        const points = [{x: 0, y: 0}]; 
-        for (let i = 1; i <= segments; i++) {
-            const ratio = i / segments;
-            const dist = len * ratio;
-            const jitter = (Math.random() - 0.5) * amp;
-            const px = Math.cos(angle) * dist + Math.cos(angle + Math.PI/2) * jitter;
-            const py = Math.sin(angle) * dist + Math.sin(angle + Math.PI/2) * jitter;
-            points.push({x: px, y: py});
-        }
-        return points;
-    };
-    const glowPoints = getLightningPoints(25); 
-    g.lineStyle(12, 0x0055FF, 0.3); 
-    g.moveTo(0, 0);
-    for (let i = 1; i < glowPoints.length; i++) {
-        g.lineTo(glowPoints[i].x, glowPoints[i].y);
-    }
-    const corePoints = getLightningPoints(20); 
-    g.lineStyle(3, 0xFFFFFF, 0.9); 
-    g.moveTo(0, 0);
-    for (let i = 1; i < corePoints.length; i++) {
-        g.lineTo(corePoints[i].x, corePoints[i].y);
-    }
-    if (Math.random() > 0.6) {
-        const branchStartIdx = Math.floor(Math.random() * (segments / 2));
-        if (corePoints[branchStartIdx]) {
-            const startP = corePoints[branchStartIdx];
-            g.lineStyle(2, 0x00FFFF, 0.6); 
-            g.moveTo(startP.x, startP.y);
-            const branchLen = 40 + Math.random() * 30;
+
+    // 同样使用重采样后的点，保证闪电路径和物理运动一致且平滑
+    const points = this.getResampledPath(speed);
+    if (points.length < 2) return;
+
+    // 绘制主干
+    this.drawLightningBranch(g, points, 15, 0.3, 0x0055FF, 12); // 外发光
+    this.drawLightningBranch(g, points, 5, 0.9, 0xFFFFFF, 3);   // 内核
+
+    // 绘制分叉
+    for (let i = 1; i < points.length - 1; i++) {
+        if (Math.random() > 0.7) { 
+            const startP = points[i];
+            const prevP = points[i-1];
+            
+            const dx = startP.x - prevP.x;
+            const dy = startP.y - prevP.y;
+            const angle = Math.atan2(dy, dx);
+            
             const branchAngle = angle + (Math.random() - 0.5) * 1.5; 
-            const bx = startP.x + Math.cos(branchAngle) * branchLen;
-            const by = startP.y + Math.sin(branchAngle) * branchLen;
-            const midX = (startP.x + bx) / 2 + (Math.random()-0.5) * 15;
-            const midY = (startP.y + by) / 2 + (Math.random()-0.5) * 15;
-            g.lineTo(midX, midY);
-            g.lineTo(bx, by);
+            const branchLen = 30 + Math.random() * 40;
+            
+            const endX = startP.x + Math.cos(branchAngle) * branchLen;
+            const endY = startP.y + Math.sin(branchAngle) * branchLen;
+            
+            const midX = (startP.x + endX) / 2 + (Math.random() - 0.5) * 10;
+            const midY = (startP.y + endY) / 2 + (Math.random() - 0.5) * 10;
+            
+            const branchPath = [startP, {x: midX, y: midY}, {x: endX, y: endY}];
+            
+            this.drawLightningBranch(g, branchPath, 3, 0.6, 0x00FFFF, 2);
         }
     }
   }
 
+  drawLightningBranch(g, pts, amp, alpha, color, width) {
+        g.lineStyle(width, color, alpha);
+        g.moveTo(pts[0].x, pts[0].y);
+        
+        for (let i = 1; i < pts.length; i++) {
+            const p1 = pts[i-1];
+            const p2 = pts[i];
+            
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+            
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.sqrt(dx*dx + dy*dy);
+            
+            if (len > 5) {
+                const nx = -dy / len;
+                const ny = dx / len;
+                const jitter = (Math.random() - 0.5) * amp;
+                g.lineTo(midX + nx * jitter, midY + ny * jitter);
+            }
+            g.lineTo(p2.x, p2.y);
+        }
+  }
+
   spawnFireParticles(speed, moveAngle) {
-      const intensity = Math.min(speed, 12) / 12;
-      const angle = moveAngle + Math.PI; 
-      const spawnCount = Math.floor(speed * 0.8) + 1;
-      for (let i = 0; i < spawnCount; i++) {
+      const vx = this.body.velocity.x;
+      const vy = this.body.velocity.y;
+      
+      const steps = Math.ceil(speed / 5); 
+      
+      for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          const spawnX = -vx * t; 
+          const spawnY = -vy * t; 
+          
           const p = new PIXI.Graphics();
           const isGold = Math.random() > 0.4;
           const color = isGold ? 0xFFD700 : 0xFF4500; 
+          const intensity = Math.min(speed, 12) / 12;
           const size = (6 + Math.random() * 8) * intensity;
+          
           p.beginFill(color, (0.4 + Math.random() * 0.4) * intensity);
           p.drawCircle(0, 0, size);
           p.endFill();
+          
           const offsetAngle = Math.random() * Math.PI * 2;
-          const offsetR = Math.random() * this.radius * 0.8;
-          p.x = Math.cos(offsetAngle) * offsetR;
-          p.y = Math.sin(offsetAngle) * offsetR;
-          const spread = 0.5; 
+          const offsetR = Math.random() * this.radius * 0.6;
+          
+          p.x = spawnX + Math.cos(offsetAngle) * offsetR;
+          p.y = spawnY + Math.sin(offsetAngle) * offsetR;
+          
+          const angle = moveAngle + Math.PI; 
+          const spread = 0.6; 
           const pAngle = angle + (Math.random() - 0.5) * spread;
-          const pSpeed = speed * (0.2 + Math.random() * 0.3);
+          const pSpeed = speed * (0.1 + Math.random() * 0.2); 
+          
           p.vx = Math.cos(pAngle) * pSpeed;
           p.vy = Math.sin(pAngle) * pSpeed;
-          p.alphaDecay = 0.03 + Math.random() * 0.04;
+          p.vx += vx * 0.1;
+          p.vy += vy * 0.1;
+
+          // [调整] 增加火焰长度：减小 alphaDecay，让粒子存活时间翻倍 (原 0.03 -> 0.015)
+          p.alphaDecay = 0.015 + Math.random() * 0.02;
+          
           this.fireContainer.addChild(p);
       }
   }
@@ -424,8 +566,9 @@ export default class Ball {
           p.x += p.vx;
           p.y += p.vy;
           p.alpha -= p.alphaDecay;
-          p.scale.x *= 0.94;
-          p.scale.y *= 0.94;
+          // [调整] 减缓缩放衰减，让粒子在更长的生命周期内慢慢变小 (原 0.94 -> 0.96)
+          p.scale.x *= 0.96;
+          p.scale.y *= 0.96;
           if (p.alpha <= 0 || p.scale.x < 0.1) {
               this.fireContainer.removeChild(p);
           }
