@@ -27,6 +27,9 @@ export default class OnlineMatchController {
         this.replayTime = 0;           
         this.totalBufferedTime = 0;    
         
+        // [新增] 缓存挂起的同步指令
+        this.queuedTurnSync = null;
+
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
         EventBus.on(Events.PLAY_SOUND, this.onLocalSound, this); // [新增] 监听本地音效
     }
@@ -109,6 +112,15 @@ export default class OnlineMatchController {
     }
 
     _processPlayback(dt) {
+        // [新增] 如果队列已空且有挂起的同步，直接执行同步并退出
+        if (this.replayQueue.length === 0) {
+            if (this.queuedTurnSync) {
+                this._handleTurnSync(this.queuedTurnSync);
+                this.queuedTurnSync = null;
+            }
+            return;
+        }
+
         if (this.isBuffering) {
             if (this.totalBufferedTime >= GameConfig.network.replayBufferTime) {
                 this.isBuffering = false;
@@ -116,8 +128,6 @@ export default class OnlineMatchController {
                 return;
             }
         }
-
-        if (this.replayQueue.length === 0) return;
 
         let remainingDt = dt;
         while (remainingDt > 0 && this.replayQueue.length > 0) {
@@ -139,6 +149,12 @@ export default class OnlineMatchController {
                 this.replayQueue.shift();
                 this.totalBufferedTime -= currentFrame.originalT || currentFrame.t; 
             }
+        }
+
+        // [新增] 播放完本帧后，再次检查队列是否耗尽，如果耗尽且有挂起的同步，立即执行
+        if (this.replayQueue.length === 0 && this.queuedTurnSync) {
+            this._handleTurnSync(this.queuedTurnSync);
+            this.queuedTurnSync = null;
         }
     }
 
@@ -204,6 +220,7 @@ export default class OnlineMatchController {
                     this.isBuffering = true;
                     this.replayQueue = [];
                     this.totalBufferedTime = 0;
+                    this.queuedTurnSync = null; // 重置挂起状态
                     scene.onActionFired(true); 
                 }
                 break;
@@ -249,7 +266,14 @@ export default class OnlineMatchController {
                 break;
 
             case NetMsg.TURN_SYNC:
-                this._handleTurnSync(msg.payload);
+                // [核心修复] 如果正在回放且队列未空，暂存同步指令，等待回放自然结束
+                // 解决球还在滚动时被强制瞬移到停止点造成的卡顿问题
+                if (this.isReplaying && this.replayQueue.length > 0) {
+                    // console.log("[Online] Buffering TURN_SYNC until replay finishes");
+                    this.queuedTurnSync = msg.payload;
+                } else {
+                    this._handleTurnSync(msg.payload);
+                }
                 break;
 
             case NetMsg.GOAL:
@@ -296,6 +320,7 @@ export default class OnlineMatchController {
         this.isReplaying = false;
         this.isBuffering = false;
         this.replayQueue = [];
+        this.queuedTurnSync = null; // 重置
         
         if (payload.strikers) {
             payload.strikers.forEach(data => {
