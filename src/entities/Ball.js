@@ -154,6 +154,24 @@ export default class Ball {
       this.body.friction = 0;
   }
 
+  // [新增] 强制重置所有技能状态和物理属性
+  resetStates() {
+      this.skillStates.fire = false;
+      this.skillStates.lightning = false;
+      this.skillStates.fireTimer = 0;
+      
+      // 关键：恢复物理属性，防止 frictionAir 停留在 0 导致无限滑行
+      if (this.body) {
+          this.body.frictionAir = this.baseFrictionAir;
+          this.body.friction = this.baseFriction;
+      }
+      
+      // 清理特效
+      this.lightningTrail.clear();
+      this.fireContainer.removeChildren();
+      this.trailRope.visible = false;
+  }
+
   createShadowSprite() {
     const r = this.radius;
     const blurPadding = 20; 

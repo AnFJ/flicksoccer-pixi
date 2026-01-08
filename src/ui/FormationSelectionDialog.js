@@ -158,8 +158,9 @@ export default class FormationSelectionDialog extends PIXI.Container {
         btn.position.set(-350, startY + idx * gapY);
 
         // 如果未解锁，绘制视频图标提示
+        // [修复] 将图标添加到 btn.inner 以基于中心坐标定位 (-140, 0)
         if (!isUnlocked) {
-            this.renderVideoIcon(btn, -140, 0, 0.6);
+            this.renderVideoIcon(btn.inner, -140, 0, 0.6);
         }
 
         // [新增] 选中时文字不加粗 (Button 默认是 bold，这里手动改回 normal 以示区别，或者保持 bold)

@@ -196,7 +196,7 @@ export default class MenuScene extends BaseScene {
 
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
-        // Platform.handleSocialAction();
+        Platform.handleSocialAction();
         const params = {
             "winner": 0,
             "gameMode": "pvp_local",
@@ -223,7 +223,7 @@ export default class MenuScene extends BaseScene {
             "players": [],
             "myTeamId": 0
         };
-        SceneManager.changeScene(ResultScene, params);
+        // SceneManager.changeScene(ResultScene, params);
 
     });
     container.addChild(socialBtn);

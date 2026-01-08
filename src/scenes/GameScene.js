@@ -323,7 +323,7 @@ export default class GameScene extends BaseScene {
               duration: duration
           });
           this.ball.setLightningMode(false);
-          this.ball.skillStates.fire = false;
+          this.ball.resetStates(); // [核心修改]
       }
 
       const fmtLeft = getFormation(this.p1FormationId);
@@ -575,7 +575,7 @@ export default class GameScene extends BaseScene {
     
     if (this.ball) {
         this.ball.setLightningMode(false);
-        this.ball.skillStates.fire = false;
+        this.ball.resetStates(); // [核心修改] 进球后立即重置状态，防止无限滑行
     }
     
     if (this.resetTimerId) clearTimeout(this.resetTimerId);
@@ -756,7 +756,7 @@ export default class GameScene extends BaseScene {
       
       if (this.ball) {
           this.ball.setLightningMode(false);
-          this.ball.skillStates.fire = false;
+          this.ball.resetStates(); // [核心修改] 回合结束强制重置技能状态
       }
 
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {

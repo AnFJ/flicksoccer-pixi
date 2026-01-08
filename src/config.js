@@ -66,16 +66,16 @@ export const GameConfig = {
     // [优化] 低速急停配置 - 调整参数以减少卡顿感
     stoppingFriction: {
         enabled: true,
-        threshold: 0.8,      // [降低] 只有速度非常慢时才介入阻尼 (原 1.2)，避免正常低速滑行被打断
-        damping: 0.90,       // [降低] 阻尼系数稍微温和一点 (原 0.95)，让停下来的过程更线性
-        minSpeed: 0.08       // [提高] 强制静止的阈值 (原 0.001)，避免肉眼不可见的微小抖动持续计算
+        threshold: 1.6,      // [提高] 从 0.5 提到 3.0，让阻尼更早介入，解决"低速无限滑"
+        damping: 0.92,       // [提高] 阻尼系数稍微温和一点 (原 0.90)，配合高阈值
+        minSpeed: 0.12       // [提高] 强制静止的阈值 (原 0.08)，更早切断速度
     },
 
     frictionAir: 0.016,       
     restitution: 0.8,        
     strikerDensity: 0.0007,   
     
-    ballFrictionAir: 0.01,  
+    ballFrictionAir: 0.014,  // [提高] 从 0.01 提到 0.025，模拟草地摩擦，防止太滑
     ballRestitution: 0.9,    
     ballDensity: 0.0028,      
 
