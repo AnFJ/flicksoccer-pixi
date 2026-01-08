@@ -45,17 +45,15 @@ export default class Ball {
     this.view.addChild(shadow);
 
     // [核心优化] 轨迹历史记录
-    // maxPathLen 增加以支持更细腻的曲线，但实际渲染长度由速度决定
     this.pathHistory = [];
     this.maxPathLen = 50; 
     this.lastRecordPos = { x: x, y: y }; 
-    // 减小阈值，让转弯处的采样点更密集，解决折角问题
     this.historyRecordThreshold = 2; 
 
     // B. 常规拖尾特效 (SimpleRope)
     this.trailTexture = this.generateTrailTexture();
     
-    // Rope 的段数，段数越多越平滑
+    // Rope 的段数
     this.ropeSegmentCount = 20;
     this.ropePoints = [];
     for (let i = 0; i < this.ropeSegmentCount; i++) {
@@ -77,16 +75,17 @@ export default class Ball {
     this.view.addChild(this.fireContainer);
 
     // E. 足球本体容器
-    const ballContainer = new PIXI.Container();
-    this.view.addChild(ballContainer);
+    // [修复] 保存引用以便在 update 中旋转整个容器，解决 TilingSprite 旋转偏心问题
+    this.ballContainer = new PIXI.Container();
+    this.view.addChild(this.ballContainer);
 
     // [关键] 创建遮罩，确保球体和光影层边缘完美对其
     const mask = new PIXI.Graphics();
     mask.beginFill(0xffffff);
     mask.drawCircle(0, 0, this.radius);
     mask.endFill();
-    ballContainer.addChild(mask);
-    ballContainer.mask = mask;
+    this.ballContainer.addChild(mask);
+    this.ballContainer.mask = mask;
 
     // 纹理
     let texKey = 'ball_texture';
@@ -107,10 +106,9 @@ export default class Ball {
     this.ballTexture.tint = 0xdddddd; // 稍微暗一点，靠光影层提亮
     
     // 将纹理加入容器
-    ballContainer.addChild(this.ballTexture);
+    this.ballContainer.addChild(this.ballTexture);
 
     // [优化] 光影蒙版 (Overlay)
-    // 移入 ballContainer，使其受 mask 影响，解决边缘毛刺问题
     const overlayTexture = this.generateProceduralOverlay();
     const overlay = new PIXI.Sprite(overlayTexture);
     overlay.anchor.set(0.5);
@@ -119,7 +117,7 @@ export default class Ball {
     // 稍微放大一点点以防计算误差导致的白边
     overlay.scale.set(1.01);
     
-    ballContainer.addChild(overlay);
+    this.ballContainer.addChild(overlay);
 
     // --- 状态变量 ---
     this.skillStates = {
@@ -130,6 +128,9 @@ export default class Ball {
     };
 
     this.moveAngle = 0;
+    
+    // [修复] 记录上一帧的视图位置，用于计算纹理滚动增量
+    this.prevPos = { x: x, y: y };
   }
 
   setLightningMode(active) {
@@ -269,24 +270,72 @@ export default class Ball {
 
   update(deltaMS = 16.66) {
     if (this.body && this.view) {
-      this.view.position.x = this.body.position.x;
-      this.view.position.y = this.body.position.y;
+      // 1. 同步位置
+      const curX = this.body.position.x;
+      const curY = this.body.position.y;
       
-      this.ballTexture.rotation = this.body.angle;
+      this.view.position.x = curX;
+      this.view.position.y = curY;
+      
+      // [修复] 旋转逻辑：不再旋转 ballTexture，而是旋转 ballContainer
+      // 这样可以确保视觉中心点始终是 (0,0)，解决偏心摆动问题
+      this.ballContainer.rotation = this.body.angle;
 
+      // 2. 计算速度 (用于特效)
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
-      const dtRatio = deltaMS / 16.66;
+      
+      // [修复] 自转物理阻尼：模拟草地对旋转的强摩擦力
+      // MatterJS 默认摩擦力对角速度衰减不够，导致球停下来了还在转
+      if (Math.abs(this.body.angularVelocity) > 0.001) {
+          // 每一帧衰减 8%，让自转能符合直觉地快速停下
+          Matter.Body.setAngularVelocity(this.body, this.body.angularVelocity * 0.92);
+      } else if (this.body.angularVelocity !== 0) {
+          // 低于阈值直接置零，防止微小抖动
+          Matter.Body.setAngularVelocity(this.body, 0);
+      }
 
+      // 3. 更新移动角度 (用于特效方向)
       if (speed > 0.1) {
           const targetAngle = Math.atan2(velocity.y, velocity.x);
           let diff = targetAngle - this.moveAngle;
           while (diff < -Math.PI) diff += Math.PI * 2;
           while (diff > Math.PI) diff -= Math.PI * 2;
-          const turnSpeed = 0.15 * dtRatio;
+          const turnSpeed = 0.15 * (deltaMS / 16.66);
           this.moveAngle += diff * turnSpeed;
       }
 
+      // 4. [核心修复] 纹理滚动计算
+      // 使用“实际移动距离”而非“瞬时速度”来滚动纹理，消除抖动
+      const dx = curX - this.prevPos.x;
+      const dy = curY - this.prevPos.y;
+      const distMoved = Math.sqrt(dx * dx + dy * dy);
+
+      // 只有发生实质性移动时才更新纹理
+      if (distMoved > 0.05) {
+          // 将世界坐标系的位移 (dx, dy) 转换到球体的局部坐标系
+          // 球体容器有旋转 (body.angle)，导致纹理坐标轴旋转，所以要逆向投影
+          const angle = -this.body.angle; 
+          const cos = Math.cos(angle), sin = Math.sin(angle);
+          
+          // 投影到局部轴
+          const localDx = dx * cos - dy * sin;
+          const localDy = dx * sin + dy * cos;
+          
+          // 更新 TilingSprite 的偏移
+          this.ballTexture.tilePosition.x += localDx * 0.5;
+          this.ballTexture.tilePosition.y += localDy * 0.5;
+          
+          // 防止数值过大导致精度丢失或抖动
+          if (Math.abs(this.ballTexture.tilePosition.x) > 10000) this.ballTexture.tilePosition.x %= this.ballTexture.texture.width;
+          if (Math.abs(this.ballTexture.tilePosition.y) > 10000) this.ballTexture.tilePosition.y %= this.ballTexture.texture.height;
+      }
+
+      // 更新上一帧位置
+      this.prevPos.x = curX;
+      this.prevPos.y = curY;
+
+      // 5. 更新特效
       this.updatePathHistory();
 
       if (this.skillStates.fire) {
@@ -317,26 +366,14 @@ export default class Ball {
           } else {
               this.lightningTrail.clear();
               if (speed > 0.5) { 
-                  // 更新 Rope
                   this.updateRopeTrail(speed);
-                  
                   this.trailRope.scale.y = 0.5; 
-                  // 淡入淡出
                   this.trailRope.alpha = Math.min((speed - 0.5) * 0.1, 0.8);
                   this.trailRope.visible = true;
               } else {
                   this.trailRope.visible = false;
               }
           }
-      }
-
-      if (speed > 0.01) {
-          const angle = -this.body.angle; 
-          const cos = Math.cos(angle), sin = Math.sin(angle);
-          const localVx = velocity.x * cos - velocity.y * sin;
-          const localVy = velocity.x * sin + velocity.y * cos;
-          this.ballTexture.tilePosition.x += localVx * dtRatio * 0.5;
-          this.ballTexture.tilePosition.y += localVy * dtRatio * 0.5;
       }
     }
   }
@@ -372,7 +409,7 @@ export default class Ball {
 
       // 1. 计算目标拖尾长度 (根据速度动态变化)
       // [调整] 减少空气拖尾长度 (系数 25->12, 上限 300->150)
-      const targetLength = Math.min(speed * 18, 150); 
+      const targetLength = Math.min(speed * 12, 150); 
       
       // 每一段 Rope 的理想物理长度
       const segmentLen = targetLength / (this.ropeSegmentCount - 1);

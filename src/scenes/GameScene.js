@@ -445,7 +445,7 @@ export default class GameScene extends BaseScene {
     }
     this.turnMgr.timer = 0; 
     
-    // [新增] 记录回合开始时的比分，用于检测是否进球
+    // [新增] 记录回合开始时的比分，用于检测是否进球和判断乌龙球
     this.turnStartScores = { ...this.rules.score };
   }
 
@@ -463,39 +463,76 @@ export default class GameScene extends BaseScene {
     this._playGoalEffects(data.newScore);
   }
 
-  // [新增] 进球聊天判断逻辑
+  // [新增] 进球聊天判断逻辑 (优化版：支持乌龙球和复杂比分场景)
   checkGoalChatTrigger(scoreTeam) {
-      const isPlayerScore = scoreTeam === TeamId.LEFT;
-      
-      // 1. 获取进球前的比分差距 (Player - AI)
-      // 注意：此时 rules.score 已经加过分了，所以要倒推回去或者用 turnStartScores
-      const prevPlayerScore = this.turnStartScores[TeamId.LEFT];
-      const prevAIScore = this.turnStartScores[TeamId.RIGHT];
-      const scoreDiff = prevPlayerScore - prevAIScore;
+      // 谁踢的球？(回合方)
+      const turnId = this.turnMgr.currentTurn;
+      // 谁得了分？
+      const scoreId = scoreTeam;
 
-      // 2. 检测逻辑
-      if (isPlayerScore) {
-          // 玩家进球
-          
-          // 检测翻盘/追平：之前落后或平局
-          if (scoreDiff <= 0) {
-              this.triggerAIChat(ChatTrigger.PLAYER_COMEBACK);
-          } 
-          // 检测秒进：回合步数很少 (近似用时间判断，或者直接根据逻辑)
-          // 假设 2秒内进球算秒进
-          else if (this.turnMgr.timer < 2) { // 注意 timer 是倒计时，这里不太准，应该用 moveTimer
-              // 这里简化处理：如果是玩家回合刚开始不久进球
-              this.triggerAIChat(ChatTrigger.PLAYER_INSTANT_GOAL);
+      // 判断是否是乌龙球 (踢球方 != 得分方)
+      const isOwnGoal = turnId !== scoreId;
+
+      const prevScoreP = this.turnStartScores[TeamId.LEFT];
+      const prevScoreAI = this.turnStartScores[TeamId.RIGHT];
+      
+      const newScoreP = scoreTeam === TeamId.LEFT ? prevScoreP + 1 : prevScoreP;
+      const newScoreAI = scoreTeam === TeamId.RIGHT ? prevScoreAI + 1 : prevScoreAI;
+
+      // 1. 处理乌龙球
+      if (isOwnGoal) {
+          if (scoreId === TeamId.RIGHT) {
+              // 玩家乌龙 (AI得分)
+              this.triggerAIChat(ChatTrigger.PLAYER_OWN_GOAL);
           } else {
+              // AI乌龙 (玩家得分)
+              this.triggerAIChat(ChatTrigger.AI_OWN_GOAL);
+          }
+          return;
+      }
+
+      // 2. 处理正常进球
+      if (scoreId === TeamId.LEFT) {
+          // --- 玩家进球 ---
+          
+          // 场景判定
+          if (prevScoreP < prevScoreAI && newScoreP === newScoreAI) {
+              // 追平 (例如 0-1 -> 1-1)
+              this.triggerAIChat(ChatTrigger.PLAYER_EQUALIZER);
+          } 
+          else if (prevScoreP === prevScoreAI && newScoreP > newScoreAI) {
+              // 反超 (例如 1-1 -> 2-1)
+              this.triggerAIChat(ChatTrigger.PLAYER_OVERTAKE);
+          }
+          else if (prevScoreP > prevScoreAI && newScoreP > newScoreAI) {
+              // 扩大领先 (例如 1-0 -> 2-0)
+              this.triggerAIChat(ChatTrigger.PLAYER_LEAD_EXTEND);
+          }
+          else if (this.turnMgr.timer < 2) { 
+              // 秒进 (备选，优先级较低)
+              this.triggerAIChat(ChatTrigger.PLAYER_INSTANT_GOAL);
+          }
+          else {
+              // 普通进球 (例如 0-0 -> 1-0 也算开局领先，或者默认)
               this.triggerAIChat(ChatTrigger.PLAYER_GOAL);
           }
+
       } else {
-          // AI 进球
+          // --- AI 进球 ---
           
-          // 检测 AI 翻盘：AI 之前落后或平局 (即 scoreDiff >= 0)
-          if (scoreDiff >= 0) {
-              this.triggerAIChat(ChatTrigger.AI_COMEBACK);
-          } else {
+          if (prevScoreAI < prevScoreP && newScoreAI === newScoreP) {
+              // AI 追平
+              this.triggerAIChat(ChatTrigger.AI_EQUALIZER);
+          }
+          else if (prevScoreAI === prevScoreP && newScoreAI > newScoreP) {
+              // AI 反超
+              this.triggerAIChat(ChatTrigger.AI_OVERTAKE);
+          }
+          else if (prevScoreAI > prevScoreP && newScoreAI > newScoreP) {
+              // AI 扩大领先
+              this.triggerAIChat(ChatTrigger.AI_LEAD_EXTEND);
+          }
+          else {
               this.triggerAIChat(ChatTrigger.AI_GOAL);
           }
       }

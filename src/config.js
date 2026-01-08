@@ -26,7 +26,7 @@ export const GameConfig = {
   // 视觉配置
   visuals: {
     strikerThickness: 15,    // 棋子圆柱体厚度
-    shadowOffset: 8,        // [修改] 增大阴影偏移 (5 -> 12)，配合更实的阴影绘制
+    shadowOffset: 8,         // [修改] 减小阴影偏移 (12 -> 8)，更贴地
     aimLineColorStart: 0x2ecc71, // 瞄准线起始颜色
     aimLineColorEnd: 0xe74c3c,   // 瞄准线结束颜色
     dashedLineColor: 0xffffff,   // 后方虚线颜色
@@ -63,12 +63,12 @@ export const GameConfig = {
     strikerFixedRotation: true, 
     ballFixedRotation: true,  
 
-    // 低速急停配置
+    // [优化] 低速急停配置 - 调整参数以减少卡顿感
     stoppingFriction: {
         enabled: true,
-        threshold: 1.2,      
-        damping: 0.95,       
-        minSpeed: 0.001      
+        threshold: 0.5,      // [降低] 只有速度非常慢时才介入阻尼 (原 1.2)，避免正常低速滑行被打断
+        damping: 0.90,       // [降低] 阻尼系数稍微温和一点 (原 0.95)，让停下来的过程更线性
+        minSpeed: 0.08       // [提高] 强制静止的阈值 (原 0.001)，避免肉眼不可见的微小抖动持续计算
     },
 
     frictionAir: 0.016,       
