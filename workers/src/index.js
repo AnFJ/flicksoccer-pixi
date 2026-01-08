@@ -58,6 +58,34 @@ export default {
 
     try {
       // --- 1. 多人房间相关 ---
+      
+      // [新增] 获取可加入的房间列表
+      if (path === '/api/rooms/list' && request.method === 'GET') {
+          // 查询状态为 0 (WAITING) 的最近 5 个房间
+          // 注意：需要确保数据库表 room_records 存在
+          const { results } = await env.DB.prepare(`
+              SELECT room_id, host_info, created_at 
+              FROM room_records 
+              WHERE status = 0 
+              ORDER BY created_at DESC 
+              LIMIT 5
+          `).all();
+          
+          // 解析 JSON 字段
+          const rooms = results.map(r => {
+              try {
+                  return {
+                      ...r,
+                      host_info: JSON.parse(r.host_info)
+                  };
+              } catch(e) {
+                  return r;
+              }
+          });
+
+          return response({ rooms });
+      }
+
       if (path === '/api/room/check' && request.method === 'POST') {
         const { roomId } = await request.json();
         if (!roomId) return response({ error: 'Missing roomId' }, 400);

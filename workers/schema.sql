@@ -1,5 +1,5 @@
 DROP TABLE IF EXISTS users;
-
+-- 用户
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,   -- 唯一标识：H5是UUID，小程序是OpenID
     platform TEXT,              -- 来源：'web', 'wechat', 'douyin'
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     checkin_history TEXT DEFAULT '[]',  -- 签到历史 (JSON 字符串)
     match_stats TEXT DEFAULT '{"totalMatches":0,"wins":0,"losses":0}', -- 比赛统计 (JSON 字符串)
 );
-ALTER TABLE users ADD COLUMN match_stats TEXT;
+-- 对战记录
 CREATE TABLE IF NOT EXISTS match_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
@@ -23,10 +23,21 @@ CREATE TABLE IF NOT EXISTS match_history (
     match_data TEXT,
     created_at DATETIME DEFAULT (datetime('now', '+8 hours'))
 )
+-- 房间记录
+CREATE TABLE IF NOT EXISTS room_records (
+    room_id TEXT PRIMARY KEY,
+    status INTEGER DEFAULT 0, -- 0: WAITING, 1: PLAYING
+    host_info TEXT, -- JSON string {nickname, avatar, level, id}
+    guest_info TEXT, -- JSON string
+    match_count INTEGER DEFAULT 0,
+    created_at INTEGER,
+    updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
 
 -- 创建索引优化查询
 CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);
-
+ALTER TABLE users ADD COLUMN match_stats TEXT;
 -- 删除用户
 DELETE FROM users WHERE user_id = "oCQN01z3Mhnbmfjt46QnkVz1jw5g";
 -- 更新用户信息

@@ -2,6 +2,7 @@
 /**
  * Cloudflare Worker + Durable Objects (GameRoom)
  * 优化版：支持断线重连、自动清理僵尸玩家、节省流量
+ * [新增] D1 数据库同步功能，用于大厅列表展示
  */
 
 export class GameRoom {
@@ -16,7 +17,9 @@ export class GameRoom {
       status: 'WAITING', // WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
-      positions: null // 记录上一回合结束时的棋子位置 (用于恢复)
+      positions: null, // 记录上一回合结束时的棋子位置 (用于恢复)
+      matchCount: 0, // [新增] 累计对局数
+      roomId: null // [新增] 缓存房间号
     };
 
     // 尝试从持久化存储中恢复之前的状态 (如果存在)
@@ -36,12 +39,19 @@ export class GameRoom {
 
   async fetch(request) {
     const url = new URL(request.url);
+    
+    // [新增] 解析并保存 roomId (URL格式: .../api/room/{roomId}/websocket)
+    const pathParts = url.pathname.split('/');
+    // pathParts[3] 应该是 roomId (根据 index.js 的路由逻辑)
+    if (pathParts.length > 3) {
+        this.roomData.roomId = pathParts[3];
+    }
 
     // [新增] 在处理任何请求前，先清理无效的僵尸玩家(含超时Socket)
     await this.pruneInactivePlayers();
 
     // --- 1. 处理 HTTP 检查请求 ---
-    if (url.pathname === '/check') {
+    if (url.pathname.endsWith('/check')) {
         // 只有当房间处于游戏进行中，或者有人在等且未满时，才认为房间有效可连
         const isValid = this.roomData.status === 'PLAYING' || (this.roomData.status === 'WAITING' && this.roomData.players.length > 0);
         return new Response(JSON.stringify({ 
@@ -134,6 +144,7 @@ export class GameRoom {
           if (this.roomData.players.length === 0) {
               // 立即销毁数据，防止占用
               await this.state.storage.deleteAll();
+              await this.deleteFromDb(); // [新增] 从数据库移除
               this.roomData.status = 'WAITING'; // Reset local state
               this.roomData.scores = { 0: 0, 1: 0 };
               return;
@@ -141,6 +152,7 @@ export class GameRoom {
               // 如果游戏中有人彻底超时被踢，理论上应该结束游戏，这里暂时保持状态
           }
           await this.saveState();
+          await this.syncToDb(); // [新增] 同步更新数据库
       }
   }
 
@@ -190,6 +202,7 @@ export class GameRoom {
     this.sessions.push(session);
 
     await this.saveState();
+    await this.syncToDb(); // [新增] 同步到数据库
     
     this.broadcastState();
 
@@ -338,10 +351,14 @@ export class GameRoom {
           this.roomData.status = 'WAITING';
           this.roomData.scores = { 0: 0, 1: 0 };
           this.roomData.positions = null;
+          // [新增] 累计局数
+          this.roomData.matchCount = (this.roomData.matchCount || 0) + 1;
+          
           // 重置所有玩家准备状态
           this.roomData.players.forEach(p => p.ready = false);
           
           await this.saveState();
+          await this.syncToDb(); // [新增] 更新数据库状态为 WAITING 并增加局数
           this.broadcastState(); // 广播新状态给所有客户端，以便UI刷新
           break;
 
@@ -360,10 +377,12 @@ export class GameRoom {
               this.roomData.scores = { 0: 0, 1: 0 };
               // 立即销毁
               await this.state.storage.deleteAll();
+              await this.deleteFromDb(); // [新增] 删除记录
           } else {
               this.roomData.status = 'WAITING'; 
               this.roomData.players.forEach(p => p.ready = false);
               await this.saveState();
+              await this.syncToDb(); // [新增] 更新
           }
           
           // 关闭连接
@@ -380,6 +399,8 @@ export class GameRoom {
       this.roomData.currentTurn = 0; 
       this.roomData.scores = { 0: 0, 1: 0 };
       this.roomData.positions = null; 
+
+      this.syncToDb(); // [新增] 更新状态为 PLAYING
 
       this.broadcast({
         type: 'START',
@@ -459,6 +480,7 @@ export class GameRoom {
           // 如果是等待状态且没人，立即销毁数据，避免僵尸房间
           console.log(`[GameRoom] Room empty (WAITING). Destroying immediately.`);
           await this.state.storage.deleteAll();
+          await this.deleteFromDb(); // [新增]
       } else {
           // 如果是游戏状态，设置 1 分钟销毁闹钟 (快速回收，同时给短时重连机会)
           console.log(`[GameRoom] Room empty (PLAYING). Schedule destruction in 180s.`);
@@ -471,6 +493,7 @@ export class GameRoom {
     if (this.sessions.length === 0) {
       console.log(`[GameRoom] Executing auto-destruction due to inactivity.`);
       await this.state.storage.deleteAll();
+      await this.deleteFromDb(); // [新增]
     } else {
       console.log(`[GameRoom] Destruction cancelled, players returned.`);
     }
@@ -486,5 +509,53 @@ export class GameRoom {
         }) 
     };
     await this.state.storage.put("roomData", toStore);
+  }
+
+  // [新增] 同步房间状态到 D1 数据库
+  async syncToDb() {
+      if (!this.roomData.roomId || !this.env.DB) return;
+
+      const p1 = this.roomData.players.find(p => p.teamId === 0); // Host
+      const p2 = this.roomData.players.find(p => p.teamId === 1); // Guest
+
+      const hostInfo = p1 ? JSON.stringify({ id: p1.id, nickname: p1.nickname, avatar: p1.avatar, level: p1.level }) : null;
+      const guestInfo = p2 ? JSON.stringify({ id: p2.id, nickname: p2.nickname, avatar: p2.avatar, level: p2.level }) : null;
+      
+      const statusInt = this.roomData.status === 'PLAYING' ? 1 : 0;
+      const now = Date.now();
+
+      try {
+          await this.env.DB.prepare(`
+            INSERT INTO room_records (room_id, status, host_info, guest_info, match_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(room_id) DO UPDATE SET
+            status = excluded.status,
+            host_info = excluded.host_info,
+            guest_info = excluded.guest_info,
+            match_count = excluded.match_count,
+            updated_at = excluded.updated_at
+          `).bind(
+              this.roomData.roomId,
+              statusInt,
+              hostInfo,
+              guestInfo,
+              this.roomData.matchCount || 0,
+              now, // created_at (only used on insert)
+              now  // updated_at
+          ).run();
+      } catch (e) {
+          console.error('[GameRoom] Sync DB failed', e);
+      }
+  }
+
+  // [新增] 从数据库删除房间记录
+  async deleteFromDb() {
+      if (!this.roomData.roomId || !this.env.DB) return;
+      try {
+          await this.env.DB.prepare('DELETE FROM room_records WHERE room_id = ?')
+              .bind(this.roomData.roomId).run();
+      } catch (e) {
+          console.error('[GameRoom] Delete DB failed', e);
+      }
   }
 }
