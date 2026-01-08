@@ -501,9 +501,16 @@ export default class GameHUD extends PIXI.Container {
         g.clear();
         if (parseInt(teamId) === activeTeamId && ratio > 0) {
             const bigRadius = 160; 
-            g.beginFill(0x00FF00, 0.4);
+            g.beginFill(0x00BFFF, 0.4);
             g.moveTo(0, 0);
-            g.arc(0, 0, bigRadius, 0, Math.PI * 2 * ratio);
+            
+            // [修改] 顺时针消失效果
+            // 倒计时开始(ratio=1): 2PI*0 到 2PI -> 完整圆
+            // 倒计时结束(ratio=0): 2PI 到 2PI -> 空
+            const startAngle = Math.PI * 2 * (1 - ratio);
+            const endAngle = Math.PI * 2;
+            
+            g.arc(0, 0, bigRadius, startAngle, endAngle);
             g.lineTo(0, 0);
             g.endFill();
         }

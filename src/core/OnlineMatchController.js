@@ -160,11 +160,24 @@ export default class OnlineMatchController {
 
     _handleReplayEvent(frame) {
         if (frame.eventType === NetMsg.GOAL) {
-            const { newScore } = frame.payload;
+            let { newScore, scoreTeam } = frame.payload;
+            
+            // [增强] 如果 scoreTeam 缺失 (兼容旧服务器代码)，尝试本地推断
+            if (scoreTeam === undefined || scoreTeam === null) {
+                const oldScore = this.scene.rules.score;
+                if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) scoreTeam = TeamId.LEFT;
+                else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) scoreTeam = TeamId.RIGHT;
+            }
+
             this.scene.rules.score = newScore;
-            this.scene._playGoalEffects(newScore);
+            // [核心修复] 传递 scoreTeam
+            this.scene._playGoalEffects(newScore, scoreTeam);
             // [修复] 更新分数后立即检查是否满足结束条件
             this._checkRemoteGameOver(newScore);
+            
+            // [核心优化] 不再清空回放队列 (isReplaying/replayQueue)
+            // 允许后续的轨迹数据（如球撞网后的运动）继续播放，直到 GameScene 重置场景
+            
         } else if (frame.eventType === 'SOUND') {
             // [新增] 播放同步的碰撞音效
             AudioManager.playSFX(frame.key);
@@ -287,9 +300,18 @@ export default class OnlineMatchController {
                         t: 0 
                     });
                 } else {
-                    const newScore = msg.payload.newScore;
+                    let { newScore, scoreTeam } = msg.payload;
+                    
+                    // [增强] 本地推断 scoreTeam
+                    if (scoreTeam === undefined || scoreTeam === null) {
+                        const oldScore = scene.rules.score;
+                        if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) scoreTeam = TeamId.LEFT;
+                        else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) scoreTeam = TeamId.RIGHT;
+                    }
+
                     scene.rules.score = newScore;
-                    scene._playGoalEffects(newScore);
+                    // [核心修复] 传递 scoreTeam
+                    scene._playGoalEffects(newScore, scoreTeam);
                     // [修复] 如果是非回放状态下收到GOAL (通常不常见，但为了稳健)，也检查结束条件
                     this._checkRemoteGameOver(newScore);
                 }
@@ -365,13 +387,21 @@ export default class OnlineMatchController {
     handleLocalGoal(data) {
         if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
             this.scene.rules.score[data.scoreTeam]--; 
-            return true; 
+            return true; // 如果不是我的回合，说明我是被动方，本地先回滚分数，等待网络同步
         }
+        
+        // [核心修复] 必须先刷新缓冲区，确保这一帧之前的物理轨迹(球进门的过程)先发出去
+        // 这样接收方在收到 GOAL 消息前，会先收到并播放完球滚进门的动画
+        this._flushSendBuffer();
+
+        // 1. 发送 GOAL 消息给对方
         NetworkMgr.send({
             type: NetMsg.GOAL,
-            payload: { newScore: data.newScore }
+            payload: { newScore: data.newScore, scoreTeam: data.scoreTeam }
         });
-        return true; 
+        
+        // 2. 返回 false，告诉 GameScene 继续执行本地的进球特效和重置逻辑
+        return false; 
     }
 
     sendFairPlayMove(id, start, end, duration) {

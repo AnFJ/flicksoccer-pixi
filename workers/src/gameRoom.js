@@ -363,10 +363,16 @@ export class GameRoom {
       case 'GOAL':
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
+              // [核心修复] 
+              // 1. 将 scoreTeam 传递给其他客户端
+              // 2. 排除发送者 (socket)，因为发送者已经本地乐观更新了
               this.broadcast({
                   type: 'GOAL',
-                  payload: { newScore: this.roomData.scores }
-              });
+                  payload: { 
+                      newScore: this.roomData.scores,
+                      scoreTeam: msg.payload.scoreTeam 
+                  }
+              }, socket);
               await this.saveState();
           }
           break;

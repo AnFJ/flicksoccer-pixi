@@ -59,6 +59,9 @@ export default class GameScene extends BaseScene {
     this.isGamePaused = false; 
     this.myTeamId = TeamId.LEFT;
 
+    // [新增] 进球重置状态锁，防止物理静止检测干扰进球重置流程
+    this.isGoalResetting = false;
+
     this.hud = null;
     this.goalBanner = null;
     this.sparkSystem = null;
@@ -96,6 +99,7 @@ export default class GameScene extends BaseScene {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
     this.currentLevel = params.level || 1; 
+    this.isGoalResetting = false;
     
     this.matchStats.startTime = Date.now();
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
@@ -468,7 +472,7 @@ export default class GameScene extends BaseScene {
         this.checkGoalChatTrigger(data.scoreTeam);
     }
 
-    this._playGoalEffects(data.newScore);
+    this._playGoalEffects(data.newScore, data.scoreTeam);
   }
 
   // [新增] 进球聊天判断逻辑 (优化版：支持乌龙球和复杂比分场景)
@@ -567,12 +571,15 @@ export default class GameScene extends BaseScene {
       }
   }
 
-  _playGoalEffects(newScore) {
+  _playGoalEffects(newScore, scoreTeam) {
     AudioManager.playSFX('goal');
     this.hud?.updateScore(newScore[TeamId.LEFT], newScore[TeamId.RIGHT]);
     this.goalBanner?.play("进球！"); 
     Platform.vibrateShort();
     
+    // [核心修改] 锁定状态，阻止物理静止检测自动切换回合
+    this.isGoalResetting = true;
+
     if (this.ball) {
         this.ball.setLightningMode(false);
         this.ball.resetStates(); // [核心修改] 进球后立即重置状态，防止无限滑行
@@ -583,6 +590,17 @@ export default class GameScene extends BaseScene {
     this.resetTimerId = setTimeout(() => { 
         if (!this.isGameOver && this.physics && this.physics.engine) {
             this.setupFormation(); 
+            
+            // [核心修改] 进球后，由失分方（scoreTeam 的对方）开球
+            if (scoreTeam !== undefined && scoreTeam !== null) {
+                const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+                this.turnMgr.currentTurn = nextTurn;
+                this.turnMgr.resetTimer();
+            }
+
+            // 重置完成，解锁状态
+            this.isGoalResetting = false;
+            this.isMoving = false;
         }
     }, 2000);
   }
@@ -711,7 +729,10 @@ export default class GameScene extends BaseScene {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
 
-            if (isPhysicsSleeping && isAnimFinished) {
+            // [核心修改] 增加 !this.isGoalResetting 判断
+            // 如果正在处理进球重置逻辑，不要因为物理静止了就自动切换回合
+            // 而是等待 setTimeout 中的重置逻辑来切换回合
+            if (isPhysicsSleeping && isAnimFinished && !this.isGoalResetting) {
                  const startedAnyAnim = this._enforceFairPlay();
                  if (!startedAnyAnim) {
                      this._endTurn();

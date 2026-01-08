@@ -22,6 +22,9 @@ export default class MenuScene extends BaseScene {
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
+    this.checkInBtn = null;
+    this.shakeTimer = 9000;
+
     // 1. 背景
     const bgTex = ResourceManager.get('main_bg');
     if (bgTex) {
@@ -133,6 +136,28 @@ export default class MenuScene extends BaseScene {
       EventBus.off(Events.USER_DATA_REFRESHED, this.refreshUI, this);
   }
 
+  update(delta) {
+      // 签到按钮动效: 间隔10秒左右晃动
+      if (this.checkInBtn && this.checkInBtn.parent && this.checkInBtn.visible) {
+          this.shakeTimer += delta;
+          const interval = 10000; // 10秒
+          const shakeDuration = 900; // [修改] 晃动时长 600 -> 900 (+50%)
+          
+          if (this.shakeTimer >= interval) {
+              if (this.shakeTimer < interval + shakeDuration) {
+                  // 晃动中
+                  const t = this.shakeTimer - interval;
+                  // 频率 0.03, 幅度 0.15弧度 (约8.5度)
+                  this.checkInBtn.rotation = Math.sin(t * 0.03) * 0.15;
+              } else {
+                  // 晃动结束，重置
+                  this.checkInBtn.rotation = 0;
+                  this.shakeTimer = 0;
+              }
+          }
+      }
+  }
+
   alignUserInfo() {
       if (!this.userInfoContainer) return;
       const margin = 40; 
@@ -197,34 +222,6 @@ export default class MenuScene extends BaseScene {
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         Platform.handleSocialAction();
-        const params = {
-            "winner": 0,
-            "gameMode": "pvp_local",
-            "currentLevel": 1,
-            "score": {
-                "0": 1,
-                "1": 0
-            },
-            "stats": {
-                "0": {
-                    "shots": 4,
-                    "skills": {
-                        "super_aim": 4,
-                        "unstoppable": 4
-                    }
-                },
-                "1": {
-                    "shots": 3,
-                    "skills": {}
-                },
-                "startTime": 1767622359173,
-                "endTime": 1767622438652
-            },
-            "players": [],
-            "myTeamId": 0
-        };
-        // SceneManager.changeScene(ResultScene, params);
-
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
@@ -252,10 +249,10 @@ export default class MenuScene extends BaseScene {
 
     // 4. 每日签到
     if (!AccountMgr.isCheckedInToday()) {
-        const checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '签到有奖', 0xFF5722, () => {
-            this.handleDailyCheckIn(checkInBtn);
+        this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '签到有奖', 0xFF5722, () => {
+            this.handleDailyCheckIn(this.checkInBtn);
         });
-        container.addChild(checkInBtn);
+        container.addChild(this.checkInBtn);
     }
 
     // --- 右侧用户信息文字 ---
@@ -347,7 +344,7 @@ export default class MenuScene extends BaseScene {
   }
 
   async handleDailyCheckIn(btn) {
-      btn.interactive = false;
+      if (btn) btn.interactive = false;
       let success = false;
       try {
           success = await Platform.showInterstitialAd();
@@ -371,6 +368,7 @@ export default class MenuScene extends BaseScene {
       if (btn && btn.parent) {
           btn.parent.removeChild(btn);
       }
+      this.checkInBtn = null; // 停止晃动动画
   }
 
   createDefaultAvatar(container, name, radius) {

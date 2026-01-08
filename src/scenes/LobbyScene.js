@@ -186,9 +186,9 @@ export default class LobbyScene extends BaseScene {
       // 3. 按钮区域
       const btnY = designHeight - 150;
       
-      // 快速匹配按钮
+      // 快速创建按钮
       const quickBtn = new Button({
-          text: '快速匹配', width: 240, height: 80, color: 0x27ae60,
+          text: '快速创建', width: 240, height: 80, color: 0x27ae60,
           onClick: () => {
               const randomRoom = Math.floor(1000 + Math.random() * 9000).toString();
               this.joinRoom(randomRoom);
@@ -251,7 +251,7 @@ export default class LobbyScene extends BaseScene {
 
   createKeypad(w, h) {
       const startY = 320;
-      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLR', '0', 'GO'];
+      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', '创建房间'];
       const keyW = 180;
       const keyH = 100;
       const gap = 20;
@@ -264,8 +264,8 @@ export default class LobbyScene extends BaseScene {
           const col = index % 3;
           
           let color = 0x34495e;
-          if (key === 'GO') color = 0x2980b9;
-          if (key === 'CLR') color = 0xc0392b;
+          if (key === '创建房间') color = 0x2980b9;
+          if (key === '清空') color = 0xc0392b;
 
           const btn = new Button({
               text: key, width: keyW, height: keyH, color: color,
@@ -278,9 +278,9 @@ export default class LobbyScene extends BaseScene {
   }
 
   onKeyPress(key) {
-      if (key === 'CLR') {
+      if (key === '清空') {
           this.roomNumber = "";
-      } else if (key === 'GO') {
+      } else if (key === '创建房间') {
           if (this.roomNumber.length === 4) {
               this.joinRoom(this.roomNumber);
           } else {
