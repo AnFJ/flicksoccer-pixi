@@ -578,7 +578,8 @@ export default class ResultScene extends BaseScene {
             rightColor = 0x27ae60;
             rightAction = () => {
                 // 复玩：保持连接，回到房间等待界面 (状态已重置)
-                SceneManager.changeScene(RoomScene, { roomId: this.params.roomId });
+                // [Change] 传递 autoReady: true，让 RoomScene 自动准备
+                SceneManager.changeScene(RoomScene, { roomId: this.params.roomId, autoReady: true });
             };
         }
         else if (this.params.gameMode === 'pve') {

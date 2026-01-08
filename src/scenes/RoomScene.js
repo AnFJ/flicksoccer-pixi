@@ -82,6 +82,18 @@ export default class RoomScene extends BaseScene {
     if (NetworkMgr.isConnected && NetworkMgr.socket) {
         this.statusText.text = "正在同步房间状态...";
         NetworkMgr.send({ type: NetMsg.GET_STATE });
+        
+        // [新增] 自动准备逻辑
+        if (params.autoReady) {
+            console.log('[RoomScene] Auto ready triggered');
+            this.isReady = true;
+            this.sendReady();
+            
+            // 预先更新按钮样式 (防止闪烁，虽然后续网络消息会覆盖)
+            const btnW = 300, btnH = 100;
+            this.readyBtn.bg.clear().beginFill(0xe67e22).drawRoundedRect(-btnW/2,-btnH/2,btnW,btnH,20);
+            this.readyBtn.label.text = '取消准备';
+        }
     }
   }
 

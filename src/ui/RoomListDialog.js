@@ -164,23 +164,32 @@ export default class RoomListDialog extends PIXI.Container {
       
       container.addChild(nameText, lvlText);
 
-      // 房间号
+      // 右侧操作区布局参数
+      const btnW = 140;
+      const btnH = 60;
+      const paddingRight = 30;
+      const gap = 20;
+
+      // 房间号 (在按钮左侧)
       const roomText = new PIXI.Text(`房间号: ${room.room_id}`, {
           fontFamily: 'Arial', fontSize: 28, fill: 0xcccccc
       });
       roomText.anchor.set(1, 0.5);
-      roomText.position.set(w/2 - 180, h/2);
+      // 位置：右边界(w/2) - 按钮宽 - 右边距 - 文字与按钮间距
+      roomText.position.set(w/2 - btnW - paddingRight - gap, h/2);
       container.addChild(roomText);
 
-      // 加入按钮
+      // 加入按钮 (靠右对齐)
       const joinBtn = new Button({
-          text: '加入', width: 140, height: 60, color: 0x27ae60, fontSize: 28,
+          text: '加入', width: btnW, height: btnH, color: 0x27ae60, fontSize: 28,
           onClick: () => {
               if (this.onJoin) this.onJoin(room.room_id);
               if (this.parent) this.parent.removeChild(this);
           }
       });
-      joinBtn.position.set(w/2 - 80, h/2 - 30); // Center relative to button size
+      // 位置：右边界(w/2) - 按钮宽 - 右边距
+      // Button 的锚点是 top-left，所以 set 的坐标是其左上角
+      joinBtn.position.set(w/2 - btnW - paddingRight, h/2 - btnH/2); 
       container.addChild(joinBtn);
 
       return container;
