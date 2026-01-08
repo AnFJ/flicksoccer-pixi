@@ -593,16 +593,19 @@ export default class GameScene extends BaseScene {
         if (data.winner === TeamId.RIGHT) { // AI 赢
             this.triggerAIChat(ChatTrigger.AI_WIN);
         }
-        // 玩家赢的情况通常在 ResultScene 结算，或者这里也可以加一句不甘心的
     }
 
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
 
+    // [核心修改] 网络对战不在这里断开连接，而是发送 GAME_OVER 消息
+    // 保留连接以便复玩
+    if (this.gameMode === 'pvp_online') {
+        NetworkMgr.send({ type: NetMsg.GAME_OVER });
+    }
+
     setTimeout(() => {
-        if (this.gameMode === 'pvp_online') {
-            NetworkMgr.close();
-            Platform.removeStorage('last_room_id');
-        }
+        // [核心修改] 传递 roomId 给结果页，以便 "再来一局" 使用
+        const roomId = Platform.getStorage('last_room_id');
         
         SceneManager.changeScene(ResultScene, {
             winner: data.winner,
@@ -611,7 +614,8 @@ export default class GameScene extends BaseScene {
             score: this.rules.score,
             stats: this.matchStats,
             players: this.players,
-            myTeamId: this.myTeamId
+            myTeamId: this.myTeamId,
+            roomId: roomId // 传递房间号
         });
     }, 2000);
   }
@@ -628,13 +632,23 @@ export default class GameScene extends BaseScene {
     if (this.accumulator > this.fixedTimeStep * 5) {
         this.accumulator = this.fixedTimeStep * 5;
     }
+    
+    // [核心优化] 物理步进与视觉插值分离
     while (this.accumulator >= this.fixedTimeStep) {
+        // 1. 在物理步进前，保存当前状态为“上一帧”状态
+        this._saveEntityStates();
+        
+        // 2. 执行物理步进
         this._fixedUpdate(this.fixedTimeStep);
         this.accumulator -= this.fixedTimeStep;
     }
 
-    this.strikers.forEach(s => s.update(delta));
-    this.ball?.update(delta);
+    // 3. 计算插值系数 (alpha)，代表当前时间点位于上一次物理帧和下一次物理帧之间的比例 (0.0 ~ 1.0)
+    const alpha = this.accumulator / this.fixedTimeStep;
+
+    // 4. 使用插值系数更新视图
+    this.strikers.forEach(s => s.update(delta, alpha));
+    this.ball?.update(delta, alpha);
 
     // [新增] 检测玩家发呆
     if (this.gameMode === 'pve' && 
@@ -650,6 +664,12 @@ export default class GameScene extends BaseScene {
             }
         }
     }
+  }
+
+  // [新增] 保存所有实体的渲染状态
+  _saveEntityStates() {
+      this.strikers.forEach(s => s.saveRenderState());
+      if (this.ball) this.ball.saveRenderState();
   }
 
   _fixedUpdate(dt) {
@@ -702,6 +722,8 @@ export default class GameScene extends BaseScene {
                   Matter.Body.setAngularVelocity(b, 0);
               }
           });
+          // 强制同步视觉，避免插值产生的残影
+          this._saveEntityStates(); 
       }
   }
   

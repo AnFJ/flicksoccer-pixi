@@ -29,6 +29,13 @@ export default class Striker {
     this.body = Matter.Bodies.circle(x, y, this.radius, bodyOptions);
     this.body.entity = this;
 
+    // [新增] 视觉插值用的状态记录
+    this.renderState = {
+        x: x,
+        y: y,
+        angle: 0
+    };
+
     // 1. 根视图 (不再整体旋转，保证阴影方向固定)
     this.view = new PIXI.Container();
     this.view.interactive = true; 
@@ -269,20 +276,42 @@ export default class Striker {
     g.endFill();
   }
 
-  update(deltaMS = 16.66) {
+  // [新增] 保存当前物理状态
+  saveRenderState() {
+      if (this.body) {
+          this.renderState.x = this.body.position.x;
+          this.renderState.y = this.body.position.y;
+          this.renderState.angle = this.body.angle;
+      }
+  }
+
+  // [修改] update 接收插值系数 alpha
+  update(deltaMS = 16.66, alpha = 1.0) {
     if (this.body && this.view) {
-      this.view.position.x = this.body.position.x;
-      this.view.position.y = this.body.position.y;
+      // 1. 获取物理帧位置
+      const currX = this.body.position.x;
+      const currY = this.body.position.y;
+      const currAngle = this.body.angle;
+
+      // 2. 使用 alpha 进行插值
+      const prevX = this.renderState.x;
+      const prevY = this.renderState.y;
+      const prevAngle = this.renderState.angle;
+
+      const renderX = prevX + (currX - prevX) * alpha;
+      const renderY = prevY + (currY - prevY) * alpha;
+      const renderAngle = prevAngle + (currAngle - prevAngle) * alpha;
+
+      this.view.position.x = renderX;
+      this.view.position.y = renderY;
       
       // [关键修改]
-      // 以前：this.view.rotation = this.body.angle; (导致阴影乱转)
-      // 现在：只旋转 mainContainer，阴影保持不动
+      // 只旋转 mainContainer，阴影保持不动
       if (this.mainContainer) {
-          this.mainContainer.rotation = this.body.angle;
+          this.mainContainer.rotation = renderAngle;
       }
 
       // overlay 需要反向旋转以保持高光固定
-      // 现在的参照系是 mainContainer，所以取反 mainContainer 的旋转即可
       if (this.overlay && this.mainContainer) {
           this.overlay.rotation = -this.mainContainer.rotation;
       }

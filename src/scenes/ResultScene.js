@@ -4,11 +4,14 @@ import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
 import MenuScene from './MenuScene.js';
 import GameScene from './GameScene.js';
+import RoomScene from './RoomScene.js'; // [新增]
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
-import { TeamId, SkillType } from '../constants.js';
+import { TeamId, SkillType, NetMsg } from '../constants.js';
 import ResourceManager from '../managers/ResourceManager.js';
+import NetworkMgr from '../managers/NetworkMgr.js';
+import Platform from '../managers/Platform.js';
 
 export default class ResultScene extends BaseScene {
     constructor() {
@@ -551,32 +554,55 @@ export default class ResultScene extends BaseScene {
         const gap = 40;
         const startX = w / 2 - btnW - gap / 2;
 
+        let leftText = '返回主页';
+        let leftAction = () => SceneManager.changeScene(MenuScene);
+        let leftColor = 0x7f8c8d;
+
+        let rightText = "再来一局";
+        let rightAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
+        let rightColor = 0x27ae60;
+
+        // [核心修改] 针对 PVP Online 的按钮逻辑
+        if (this.params.gameMode === 'pvp_online') {
+            leftText = '结束游戏';
+            leftColor = 0xc0392b; // 红色
+            leftAction = () => {
+                // 彻底退出：发送 LEAVE 并断开连接
+                NetworkMgr.send({ type: NetMsg.LEAVE });
+                NetworkMgr.close();
+                Platform.removeStorage('last_room_id');
+                SceneManager.changeScene(MenuScene);
+            };
+
+            rightText = '再来一局';
+            rightColor = 0x27ae60;
+            rightAction = () => {
+                // 复玩：保持连接，回到房间等待界面 (状态已重置)
+                SceneManager.changeScene(RoomScene, { roomId: this.params.roomId });
+            };
+        }
+        else if (this.params.gameMode === 'pve') {
+            if (isWin) {
+                rightText = "下一关";
+                rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
+                rightColor = 0xF39C12;
+            } else {
+                rightText = "重新挑战";
+                rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                rightColor = 0x3498db;
+            }
+        }
+
         const menuBtn = new Button({
-            text: '返回主页', width: btnW, height: btnH, color: 0x7f8c8d,
-            onClick: () => SceneManager.changeScene(MenuScene)
+            text: leftText, width: btnW, height: btnH, color: leftColor,
+            onClick: leftAction
         });
         menuBtn.position.set(startX, btnY - btnH/2);
         this.container.addChild(menuBtn);
 
-        let nextText = "再来一局";
-        let nextAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
-        let btnColor = 0x27ae60;
-
-        if (this.params.gameMode === 'pve') {
-            if (isWin) {
-                nextText = "下一关";
-                nextAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
-                btnColor = 0xF39C12;
-            } else {
-                nextText = "重新挑战";
-                nextAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
-                btnColor = 0x3498db;
-            }
-        }
-
         const nextBtn = new Button({
-            text: nextText, width: btnW, height: btnH, color: btnColor,
-            onClick: nextAction
+            text: rightText, width: btnW, height: btnH, color: rightColor,
+            onClick: rightAction
         });
         nextBtn.position.set(startX + btnW + gap, btnY - btnH/2);
         this.container.addChild(nextBtn);

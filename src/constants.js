@@ -75,5 +75,6 @@ export const NetMsg = {
   LEAVE: 'LEAVE',      // 离开 (主动发送)
   PLAYER_LEFT_GAME: 'PLAYER_LEFT_GAME', // 广播：玩家主动离开对局
   PLAYER_OFFLINE: 'PLAYER_OFFLINE', // 玩家掉线/离线通知
-  GAME_RESUME: 'GAME_RESUME' // 断线重连恢复游戏
+  GAME_RESUME: 'GAME_RESUME', // 断线重连恢复游戏
+  GET_STATE: 'GET_STATE' // [新增] 请求房间当前状态
 };

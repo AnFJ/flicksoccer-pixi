@@ -33,6 +33,11 @@ export default class RoomScene extends BaseScene {
     this.roomId = params.roomId || "----";
     const { designWidth, designHeight } = GameConfig;
 
+    // [新增] 保存房间ID，方便异常中断后的恢复 (虽然游戏结束时会清理，但作为双重保险)
+    if (params.roomId) {
+        Platform.setStorage('last_room_id', params.roomId);
+    }
+
     const bg = new PIXI.Graphics().beginFill(0x2c3e50).drawRect(0, 0, designWidth, designHeight);
     this.container.addChild(bg);
 
@@ -42,7 +47,7 @@ export default class RoomScene extends BaseScene {
 
     const exitBtn = new Button({
         text: '离开', width: 160, height: 60, color: 0x95a5a6,
-        onClick: () => { NetworkMgr.close(); SceneManager.changeScene(LobbyScene); }
+        onClick: () => { NetworkMgr.send({ type: NetMsg.LEAVE }); NetworkMgr.close(); SceneManager.changeScene(LobbyScene); }
     });
     exitBtn.position.set(50, 50);
     this.container.addChild(exitBtn);
@@ -71,6 +76,13 @@ export default class RoomScene extends BaseScene {
     this.container.addChild(this.statusText);
 
     EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
+
+    // [核心新增] 如果是从结算页"再来一局"回来的，Socket 还是连接状态
+    // 此时不需要重新连接，而是主动请求刷新状态
+    if (NetworkMgr.isConnected && NetworkMgr.socket) {
+        this.statusText.text = "正在同步房间状态...";
+        NetworkMgr.send({ type: NetMsg.GET_STATE });
+    }
   }
 
   createPlayerSlot(x, y) {
@@ -161,8 +173,23 @@ export default class RoomScene extends BaseScene {
           this.updatePlayerSlot(this.p2Container, players.find(p=>p.teamId===1), players.find(p=>p.teamId===1)?.id === myId);
       } else if (msg.type === NetMsg.START) {
           SceneManager.changeScene(GameScene, { mode: 'pvp_online', players: this.players, startTurn: msg.payload.currentTurn });
+      } else if (msg.type === NetMsg.GAME_RESUME) {
+          // 处理断线重连或中途加入的情况
+          const { players, currentTurn, scores, positions } = msg.payload;
+          SceneManager.changeScene(GameScene, { 
+              mode: 'pvp_online', 
+              players: players, 
+              startTurn: currentTurn,
+              snapshot: { scores, positions }
+          });
       } else if (msg.type === 'ERROR') {
           Platform.showToast('进入房间失败'); SceneManager.changeScene(LobbyScene);
+      } else if (msg.type === NetMsg.PLAYER_LEFT_GAME) {
+          // 如果在等待界面有人离开了，更新UI
+          const leftId = msg.payload.userId;
+          this.players = this.players.filter(p => p.id !== leftId);
+          this.updatePlayerSlot(this.p1Container, this.players.find(p=>p.teamId===0), this.players.find(p=>p.teamId===0)?.id === AccountMgr.userInfo.id);
+          this.updatePlayerSlot(this.p2Container, this.players.find(p=>p.teamId===1), this.players.find(p=>p.teamId===1)?.id === AccountMgr.userInfo.id);
       }
   }
 

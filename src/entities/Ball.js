@@ -36,6 +36,13 @@ export default class Ball {
     this.body = Matter.Bodies.circle(x, y, this.radius, bodyOptions);
     this.body.entity = this;
 
+    // [新增] 视觉插值用的状态记录
+    this.renderState = {
+        x: x,
+        y: y,
+        angle: 0
+    };
+
     // 2. 视图容器
     this.view = new PIXI.Container();
     
@@ -268,30 +275,47 @@ export default class Ball {
       return PIXI.Texture.EMPTY; 
   }
 
-  update(deltaMS = 16.66) {
+  // [新增] 保存当前物理状态（作为上一帧状态）
+  saveRenderState() {
+      if (this.body) {
+          this.renderState.x = this.body.position.x;
+          this.renderState.y = this.body.position.y;
+          this.renderState.angle = this.body.angle;
+      }
+  }
+
+  // [修改] update 接收插值系数 alpha
+  update(deltaMS = 16.66, alpha = 1.0) {
     if (this.body && this.view) {
-      // 1. 同步位置
-      const curX = this.body.position.x;
-      const curY = this.body.position.y;
-      
-      this.view.position.x = curX;
-      this.view.position.y = curY;
+      // 1. 获取物理帧位置
+      const currX = this.body.position.x;
+      const currY = this.body.position.y;
+      const currAngle = this.body.angle;
+
+      // 2. 使用 alpha 进行插值
+      const prevX = this.renderState.x;
+      const prevY = this.renderState.y;
+      const prevAngle = this.renderState.angle;
+
+      // 简单的线性插值
+      const renderX = prevX + (currX - prevX) * alpha;
+      const renderY = prevY + (currY - prevY) * alpha;
+      const renderAngle = prevAngle + (currAngle - prevAngle) * alpha;
+
+      this.view.position.x = renderX;
+      this.view.position.y = renderY;
       
       // [修复] 旋转逻辑：不再旋转 ballTexture，而是旋转 ballContainer
-      // 这样可以确保视觉中心点始终是 (0,0)，解决偏心摆动问题
-      this.ballContainer.rotation = this.body.angle;
+      this.ballContainer.rotation = renderAngle;
 
-      // 2. 计算速度 (用于特效)
+      // 2. 计算速度 (用于特效) - 速度直接取物理速度即可，不需要插值
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
       
       // [修复] 自转物理阻尼：模拟草地对旋转的强摩擦力
-      // MatterJS 默认摩擦力对角速度衰减不够，导致球停下来了还在转
       if (Math.abs(this.body.angularVelocity) > 0.001) {
-          // 每一帧衰减 8%，让自转能符合直觉地快速停下
           Matter.Body.setAngularVelocity(this.body, this.body.angularVelocity * 0.92);
       } else if (this.body.angularVelocity !== 0) {
-          // 低于阈值直接置零，防止微小抖动
           Matter.Body.setAngularVelocity(this.body, 0);
       }
 
@@ -306,37 +330,34 @@ export default class Ball {
       }
 
       // 4. [核心修复] 纹理滚动计算
-      // 使用“实际移动距离”而非“瞬时速度”来滚动纹理，消除抖动
-      const dx = curX - this.prevPos.x;
-      const dy = curY - this.prevPos.y;
+      // 使用插值后的渲染位置差来滚动纹理
+      const dx = renderX - this.prevPos.x;
+      const dy = renderY - this.prevPos.y;
       const distMoved = Math.sqrt(dx * dx + dy * dy);
 
       // 只有发生实质性移动时才更新纹理
       if (distMoved > 0.05) {
-          // 将世界坐标系的位移 (dx, dy) 转换到球体的局部坐标系
-          // 球体容器有旋转 (body.angle)，导致纹理坐标轴旋转，所以要逆向投影
-          const angle = -this.body.angle; 
+          // 渲染角度
+          const angle = -renderAngle; 
           const cos = Math.cos(angle), sin = Math.sin(angle);
           
-          // 投影到局部轴
           const localDx = dx * cos - dy * sin;
           const localDy = dx * sin + dy * cos;
           
-          // 更新 TilingSprite 的偏移
           this.ballTexture.tilePosition.x += localDx * 0.5;
           this.ballTexture.tilePosition.y += localDy * 0.5;
           
-          // 防止数值过大导致精度丢失或抖动
           if (Math.abs(this.ballTexture.tilePosition.x) > 10000) this.ballTexture.tilePosition.x %= this.ballTexture.texture.width;
           if (Math.abs(this.ballTexture.tilePosition.y) > 10000) this.ballTexture.tilePosition.y %= this.ballTexture.texture.height;
       }
 
-      // 更新上一帧位置
-      this.prevPos.x = curX;
-      this.prevPos.y = curY;
+      // 更新上一帧位置 (渲染位置)
+      this.prevPos.x = renderX;
+      this.prevPos.y = renderY;
 
       // 5. 更新特效
-      this.updatePathHistory();
+      // 特效通常基于当前位置，使用渲染位置即可
+      this.updatePathHistory(renderX, renderY);
 
       if (this.skillStates.fire) {
           this.skillStates.fireTimer -= deltaMS;
@@ -378,13 +399,10 @@ export default class Ball {
     }
   }
 
-  updatePathHistory() {
-      const curX = this.body.position.x;
-      const curY = this.body.position.y;
-      
+  updatePathHistory(curX, curY) {
+      // 传入的已经是渲染位置
       const dist = Math.sqrt(Math.pow(curX - this.lastRecordPos.x, 2) + Math.pow(curY - this.lastRecordPos.y, 2));
       
-      // 记录阈值：移动距离超过阈值才记录，防止静止时堆积
       if (dist > this.historyRecordThreshold || this.pathHistory.length === 0) {
           this.pathHistory.unshift({ x: curX, y: curY });
           if (this.pathHistory.length > this.maxPathLen) {
@@ -392,67 +410,48 @@ export default class Ball {
           }
           this.lastRecordPos = { x: curX, y: curY };
       } else {
-          // 实时更新第一个点，保证拖尾紧贴球体
           if (this.pathHistory.length > 0) {
               this.pathHistory[0] = { x: curX, y: curY };
           }
       }
   }
 
-  /**
-   * [核心算法优化] 重采样路径点
-   * 无论历史点如何分布，通过距离插值生成均匀的 Rope 点
-   * 解决转弯时拖尾拉伸、变形的问题
-   */
   getResampledPath(speed) {
       if (this.pathHistory.length < 2) return [];
 
-      // 1. 计算目标拖尾长度 (根据速度动态变化)
-      // [调整] 减少空气拖尾长度 (系数 25->12, 上限 300->150)
       const targetLength = Math.min(speed * 12, 150); 
-      
-      // 每一段 Rope 的理想物理长度
       const segmentLen = targetLength / (this.ropeSegmentCount - 1);
 
       const resultPoints = [];
-      const currentX = this.body.position.x;
-      const currentY = this.body.position.y;
+      const currentX = this.view.position.x; // 使用渲染位置
+      const currentY = this.view.position.y;
 
-      // 第一个点总是当前球的位置 (局部坐标 0,0)
       resultPoints.push({ x: 0, y: 0 });
 
-      // 开始沿路径回溯
       let historyIndex = 0;
-      let consumedDistInSegment = 0; // 当前历史线段已经走过的距离
+      let consumedDistInSegment = 0; 
       
-      // 我们需要找 N-1 个后续点
       for (let i = 1; i < this.ropeSegmentCount; i++) {
           let distanceToTravel = segmentLen;
           let foundPoint = null;
 
-          // 在历史记录中寻找下一个距离点
           while (historyIndex < this.pathHistory.length - 1) {
               const p1 = this.pathHistory[historyIndex];
               const p2 = this.pathHistory[historyIndex + 1];
               
-              // 计算这段历史记录的长度
               const segDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
               const remainingDistInHistorySeg = segDist - consumedDistInSegment;
 
               if (remainingDistInHistorySeg >= distanceToTravel) {
-                  // 目标点在当前历史线段内 (插值)
                   const t = (consumedDistInSegment + distanceToTravel) / segDist;
                   const targetX = p1.x + (p2.x - p1.x) * t;
                   const targetY = p1.y + (p2.y - p1.y) * t;
                   
-                  // 转换为局部坐标
                   foundPoint = { x: targetX - currentX, y: targetY - currentY };
                   
-                  // 更新由于插值消耗的距离
                   consumedDistInSegment += distanceToTravel;
                   break; 
               } else {
-                  // 走完这段历史还不够，继续下一段
                   distanceToTravel -= remainingDistInHistorySeg;
                   consumedDistInSegment = 0;
                   historyIndex++;
@@ -462,8 +461,6 @@ export default class Ball {
           if (foundPoint) {
               resultPoints.push(foundPoint);
           } else {
-              // 历史记录耗尽了，剩下的点都聚在最后
-              // 这通常发生在起步阶段
               const last = this.pathHistory[this.pathHistory.length - 1];
               resultPoints.push({ x: last.x - currentX, y: last.y - currentY });
           }
@@ -475,14 +472,15 @@ export default class Ball {
   updateRopeTrail(speed) {
       const smoothPoints = this.getResampledPath(speed);
       
-      // 将计算出的点赋给 Rope
+      // [修复] 防止 pathHistory 不足时数组为空导致访问 undefined
+      if (smoothPoints.length === 0) return;
+
       for (let i = 0; i < this.ropePoints.length; i++) {
           const p = this.ropePoints[i];
           if (i < smoothPoints.length) {
               p.x = smoothPoints[i].x;
               p.y = smoothPoints[i].y;
           } else {
-              // 理论上 getResampledPath 会返回足够数量的点，这里兜底
               const last = smoothPoints[smoothPoints.length - 1];
               p.x = last.x;
               p.y = last.y;
@@ -494,15 +492,12 @@ export default class Ball {
     const g = this.lightningTrail;
     g.clear();
 
-    // 同样使用重采样后的点，保证闪电路径和物理运动一致且平滑
     const points = this.getResampledPath(speed);
     if (points.length < 2) return;
 
-    // 绘制主干
-    this.drawLightningBranch(g, points, 15, 0.3, 0x0055FF, 12); // 外发光
-    this.drawLightningBranch(g, points, 5, 0.9, 0xFFFFFF, 3);   // 内核
+    this.drawLightningBranch(g, points, 15, 0.3, 0x0055FF, 12); 
+    this.drawLightningBranch(g, points, 5, 0.9, 0xFFFFFF, 3);   
 
-    // 绘制分叉
     for (let i = 1; i < points.length - 1; i++) {
         if (Math.random() > 0.7) { 
             const startP = points[i];
@@ -590,7 +585,6 @@ export default class Ball {
           p.vx += vx * 0.1;
           p.vy += vy * 0.1;
 
-          // [调整] 增加火焰长度：减小 alphaDecay，让粒子存活时间翻倍 (原 0.03 -> 0.015)
           p.alphaDecay = 0.015 + Math.random() * 0.02;
           
           this.fireContainer.addChild(p);
@@ -603,7 +597,6 @@ export default class Ball {
           p.x += p.vx;
           p.y += p.vy;
           p.alpha -= p.alphaDecay;
-          // [调整] 减缓缩放衰减，让粒子在更长的生命周期内慢慢变小 (原 0.94 -> 0.96)
           p.scale.x *= 0.96;
           p.scale.y *= 0.96;
           if (p.alpha <= 0 || p.scale.x < 0.1) {
