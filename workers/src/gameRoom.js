@@ -2,8 +2,15 @@
 /**
  * Cloudflare Worker + Durable Objects (GameRoom)
  * 优化版：支持断线重连、自动清理僵尸玩家、节省流量
- * [新增] D1 数据库同步功能，用于大厅列表展示
+ * [新增] D1 数据库同步功能，支持房间状态标记 (Waiting/Playing/Unused) 而非物理删除
  */
+
+// 数据库状态枚举
+const DB_STATUS = {
+    WAITING: 0,
+    PLAYING: 1,
+    UNUSED: 2
+};
 
 export class GameRoom {
   constructor(state, env) {
@@ -14,12 +21,12 @@ export class GameRoom {
     // 房间内存数据
     this.roomData = {
       players: [], // { id, nickname, avatar, level, theme, formationId, ready, teamId, socket, disconnectedAt, lastSeen }
-      status: 'WAITING', // WAITING, PLAYING
+      status: 'UNUSED', // 内部状态: UNUSED, WAITING, PLAYING
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
       positions: null, // 记录上一回合结束时的棋子位置 (用于恢复)
-      matchCount: 0, // [新增] 累计对局数
-      roomId: null // [新增] 缓存房间号
+      matchCount: 0, // [保留] 累计对局数
+      roomId: null // [保留] 缓存房间号
     };
 
     // 尝试从持久化存储中恢复之前的状态 (如果存在)
@@ -53,6 +60,7 @@ export class GameRoom {
     // --- 1. 处理 HTTP 检查请求 ---
     if (url.pathname.endsWith('/check')) {
         // 只有当房间处于游戏进行中，或者有人在等且未满时，才认为房间有效可连
+        // 注意：UNUSED 状态视为无效
         const isValid = this.roomData.status === 'PLAYING' || (this.roomData.status === 'WAITING' && this.roomData.players.length > 0);
         return new Response(JSON.stringify({ 
             exists: isValid,
@@ -130,7 +138,7 @@ export class GameRoom {
           // 2. 如果游戏进行中 (PLAYING)，保留一段时间 (如 60秒) 等待重连
           if (this.roomData.status === 'PLAYING') {
               if (!p.disconnectedAt) p.disconnectedAt = now;
-              // 超过 60秒 未重连，视为放弃
+              // 超过 180秒 未重连，视为放弃
               if (now - p.disconnectedAt > 180000) return false;
               return true;
           }
@@ -142,11 +150,10 @@ export class GameRoom {
       if (this.roomData.players.length !== initialCount) {
           // 如果人全没了
           if (this.roomData.players.length === 0) {
-              // 立即销毁数据，防止占用
-              await this.state.storage.deleteAll();
-              await this.deleteFromDb(); // [新增] 从数据库移除
-              this.roomData.status = 'WAITING'; // Reset local state
-              this.roomData.scores = { 0: 0, 1: 0 };
+              // [修改] 不再 deleteAll，而是重置为 UNUSED 并保留 matchCount
+              console.log(`[GameRoom] Room empty. Resetting to UNUSED.`);
+              await this.resetRoomState();
+              await this.closeRoomInDb(); // [新增] 标记数据库为 UNUSED
               return;
           } else if (this.roomData.players.length < 2 && this.roomData.status === 'PLAYING') {
               // 如果游戏中有人彻底超时被踢，理论上应该结束游戏，这里暂时保持状态
@@ -156,8 +163,26 @@ export class GameRoom {
       }
   }
 
+  // [新增] 重置房间状态 (保留 ID 和 局数)
+  async resetRoomState() {
+      // 保留 matchCount 和 roomId
+      this.roomData.players = [];
+      this.roomData.status = 'UNUSED';
+      this.roomData.scores = { 0: 0, 1: 0 };
+      this.roomData.positions = null;
+      this.roomData.currentTurn = 0;
+      
+      // 保存重置后的状态到 Durable Object 存储
+      await this.saveState();
+  }
+
   async handleSession(webSocket, userId, nickname, avatar, level, theme, formationId) {
     webSocket.accept();
+
+    // 如果房间当前是 UNUSED 状态，说明是新开局/复用，切换为 WAITING
+    if (this.roomData.status === 'UNUSED') {
+        this.roomData.status = 'WAITING';
+    }
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
     
@@ -351,7 +376,7 @@ export class GameRoom {
           this.roomData.status = 'WAITING';
           this.roomData.scores = { 0: 0, 1: 0 };
           this.roomData.positions = null;
-          // [新增] 累计局数
+          // [新增] 累计局数 (Accumulate)
           this.roomData.matchCount = (this.roomData.matchCount || 0) + 1;
           
           // 重置所有玩家准备状态
@@ -372,12 +397,9 @@ export class GameRoom {
           this.roomData.players = this.roomData.players.filter(p => p.id !== userId);
           
           if (this.roomData.players.length === 0) {
-              // 人走光了，重置
-              this.roomData.status = 'WAITING';
-              this.roomData.scores = { 0: 0, 1: 0 };
-              // 立即销毁
-              await this.state.storage.deleteAll();
-              await this.deleteFromDb(); // [新增] 删除记录
+              // 人走光了，关闭房间
+              await this.resetRoomState();
+              await this.closeRoomInDb(); // [修改] 标记为 UNUSED
           } else {
               this.roomData.status = 'WAITING'; 
               this.roomData.players.forEach(p => p.ready = false);
@@ -477,13 +499,13 @@ export class GameRoom {
     if (this.sessions.length === 0) {
       // 房间没人了
       if (this.roomData.status === 'WAITING') {
-          // 如果是等待状态且没人，立即销毁数据，避免僵尸房间
-          console.log(`[GameRoom] Room empty (WAITING). Destroying immediately.`);
-          await this.state.storage.deleteAll();
-          await this.deleteFromDb(); // [新增]
+          // 如果是等待状态且没人，立即重置并关闭
+          console.log(`[GameRoom] Room empty (WAITING). Closing immediately.`);
+          await this.resetRoomState();
+          await this.closeRoomInDb(); // [修改]
       } else {
-          // 如果是游戏状态，设置 1 分钟销毁闹钟 (快速回收，同时给短时重连机会)
-          console.log(`[GameRoom] Room empty (PLAYING). Schedule destruction in 180s.`);
+          // 如果是游戏状态，设置 3 分钟销毁闹钟 (快速回收，同时给短时重连机会)
+          console.log(`[GameRoom] Room empty (PLAYING). Schedule close in 180s.`);
           await this.state.storage.setAlarm(Date.now() + 180000);
       }
     }
@@ -491,11 +513,11 @@ export class GameRoom {
 
   async alarm() {
     if (this.sessions.length === 0) {
-      console.log(`[GameRoom] Executing auto-destruction due to inactivity.`);
-      await this.state.storage.deleteAll();
-      await this.deleteFromDb(); // [新增]
+      console.log(`[GameRoom] Executing auto-close due to inactivity.`);
+      await this.resetRoomState();
+      await this.closeRoomInDb(); // [修改]
     } else {
-      console.log(`[GameRoom] Destruction cancelled, players returned.`);
+      console.log(`[GameRoom] Close cancelled, players returned.`);
     }
   }
 
@@ -521,41 +543,46 @@ export class GameRoom {
       const hostInfo = p1 ? JSON.stringify({ id: p1.id, nickname: p1.nickname, avatar: p1.avatar, level: p1.level }) : null;
       const guestInfo = p2 ? JSON.stringify({ id: p2.id, nickname: p2.nickname, avatar: p2.avatar, level: p2.level }) : null;
       
-      const statusInt = this.roomData.status === 'PLAYING' ? 1 : 0;
-      const now = Date.now();
+      let statusInt = DB_STATUS.WAITING;
+      if (this.roomData.status === 'PLAYING') statusInt = DB_STATUS.PLAYING;
+      else if (this.roomData.status === 'UNUSED') statusInt = DB_STATUS.UNUSED;
 
       try {
+          // [修复] 适配新的 DB Schema: created_at/updated_at 使用数据库默认值 datetime('now', '+8 hours')
+          // INSERT 时不传递时间，UPDATE 时显式更新 updated_at
           await this.env.DB.prepare(`
-            INSERT INTO room_records (room_id, status, host_info, guest_info, match_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO room_records (room_id, status, host_info, guest_info, match_count)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(room_id) DO UPDATE SET
             status = excluded.status,
             host_info = excluded.host_info,
             guest_info = excluded.guest_info,
             match_count = excluded.match_count,
-            updated_at = excluded.updated_at
+            updated_at = datetime('now', '+8 hours')
           `).bind(
               this.roomData.roomId,
               statusInt,
               hostInfo,
               guestInfo,
-              this.roomData.matchCount || 0,
-              now, // created_at (only used on insert)
-              now  // updated_at
+              this.roomData.matchCount || 0
           ).run();
       } catch (e) {
           console.error('[GameRoom] Sync DB failed', e);
       }
   }
 
-  // [新增] 从数据库删除房间记录
-  async deleteFromDb() {
+  // [修改] 关闭数据库中的房间 (标记为 UNUSED，不清空行)
+  async closeRoomInDb() {
       if (!this.roomData.roomId || !this.env.DB) return;
       try {
-          await this.env.DB.prepare('DELETE FROM room_records WHERE room_id = ?')
-              .bind(this.roomData.roomId).run();
+          await this.env.DB.prepare(`
+            UPDATE room_records 
+            SET status = ?, host_info = NULL, guest_info = NULL, updated_at = datetime('now', '+8 hours') 
+            WHERE room_id = ?
+          `).bind(DB_STATUS.UNUSED, this.roomData.roomId).run();
+          console.log(`[GameRoom] Room ${this.roomData.roomId} closed in DB.`);
       } catch (e) {
-          console.error('[GameRoom] Delete DB failed', e);
+          console.error('[GameRoom] Close Room DB failed', e);
       }
   }
 }

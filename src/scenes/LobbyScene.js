@@ -9,6 +9,7 @@ import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import Platform from '../managers/Platform.js';
+import RoomListDialog from '../ui/RoomListDialog.js'; // [新增]
 
 export default class LobbyScene extends BaseScene {
   constructor() {
@@ -182,24 +183,50 @@ export default class LobbyScene extends BaseScene {
       // 2. 数字键盘
       this.createKeypad(designWidth, designHeight);
 
-      // 3. 快速开始按钮 (模拟匹配) & 返回
+      // 3. 按钮区域
+      const btnY = designHeight - 150;
+      
+      // 快速匹配按钮
       const quickBtn = new Button({
-          text: '快速匹配', width: 300, height: 80, color: 0x27ae60,
+          text: '快速匹配', width: 240, height: 80, color: 0x27ae60,
           onClick: () => {
-              // 随机生成一个房间号 1000~9999
               const randomRoom = Math.floor(1000 + Math.random() * 9000).toString();
               this.joinRoom(randomRoom);
           }
       });
-      quickBtn.position.set(designWidth / 2 - 320, designHeight - 150);
+      quickBtn.position.set(designWidth / 2 - 380, btnY);
       this.container.addChild(quickBtn);
 
+      // [新增] 查看房间列表按钮
+      const listBtn = new Button({
+          text: '房间列表', width: 240, height: 80, color: 0xe67e22,
+          onClick: () => {
+              this.openRoomListDialog();
+          }
+      });
+      listBtn.position.set(designWidth / 2 - 120, btnY);
+      this.container.addChild(listBtn);
+
+      // 返回按钮
       const backBtn = new Button({
-        text: '返回', width: 300, height: 80, color: 0x95a5a6,
+        text: '返回', width: 240, height: 80, color: 0x95a5a6,
         onClick: () => SceneManager.changeScene(MenuScene)
       });
-      backBtn.position.set(designWidth / 2 + 20, designHeight - 150);
+      backBtn.position.set(designWidth / 2 + 140, btnY);
       this.container.addChild(backBtn);
+  }
+
+  // [新增] 打开房间列表弹窗
+  openRoomListDialog() {
+      const dialog = new RoomListDialog(
+          // On Join
+          (roomId) => {
+              this.joinRoom(roomId);
+          },
+          // On Close
+          () => {}
+      );
+      this.container.addChild(dialog);
   }
 
   createInputDisplay(w, h) {

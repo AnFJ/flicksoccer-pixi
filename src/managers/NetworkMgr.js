@@ -15,7 +15,8 @@ class NetworkMgr {
     this.pingTime = 5000; // 3秒一次心跳
 
     // 监听网页关闭/刷新事件，强制断开连接，确保服务器立即收到 Close Frame
-    if (typeof window !== 'undefined') {
+    // [修复] 增加对 addEventListener 的类型检查
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('beforeunload', () => {
             this.close();
         });
@@ -57,6 +58,42 @@ class NetworkMgr {
   }
 
   /**
+   * 发送 GET 请求
+   */
+  async get(endpoint) {
+      const baseUrl = this.baseUrl.replace(/\/$/, '');
+      const url = `${baseUrl}${endpoint}`;
+      console.log(`[Network] GET ${url}`);
+
+      try {
+          let resData;
+          const provider = Platform.getProvider();
+
+          if (provider) {
+              resData = await new Promise((resolve, reject) => {
+                  provider.request({
+                      url: url,
+                      method: 'GET',
+                      success: (res) => {
+                          if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.data);
+                          else reject(new Error(`HTTP Error: ${res.statusCode}`));
+                      },
+                      fail: (err) => reject(err)
+                  });
+              });
+          } else {
+              const response = await fetch(url);
+              if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+              resData = await response.json();
+          }
+          return resData;
+      } catch (err) {
+          console.error(`[Network] GET request failed: ${url}`, err);
+          return null;
+      }
+  }
+
+  /**
    * 检查房间状态 (用于断线重连检测)
    * @param {string} roomId 
    */
@@ -66,6 +103,12 @@ class NetworkMgr {
       const res = await this.post('/api/room/check', { roomId });
       // 模拟数据：如果后端没实现该接口，这里临时返回 null 让上层处理
       return res;
+  }
+
+  // [新增] 获取可用的房间列表
+  async getRoomList() {
+      const res = await this.get('/api/rooms/list');
+      return res ? res.rooms : [];
   }
 
   _requestMinigame(provider, url, data) {
