@@ -66,7 +66,7 @@ export const GameConfig = {
     // [优化] 低速急停配置 - 调整参数以减少卡顿感
     stoppingFriction: {
         enabled: true,
-        threshold: 0.5,      // [降低] 只有速度非常慢时才介入阻尼 (原 1.2)，避免正常低速滑行被打断
+        threshold: 0.8,      // [降低] 只有速度非常慢时才介入阻尼 (原 1.2)，避免正常低速滑行被打断
         damping: 0.90,       // [降低] 阻尼系数稍微温和一点 (原 0.95)，让停下来的过程更线性
         minSpeed: 0.08       // [提高] 强制静止的阈值 (原 0.001)，避免肉眼不可见的微小抖动持续计算
     },
@@ -80,6 +80,8 @@ export const GameConfig = {
     ballDensity: 0.0028,      
 
     wallFriction: 0.0,       
+    // [新增] 墙壁静摩擦力设为0。MatterJS 默认为 0.5，这会导致球贴墙时被"粘住"。
+    wallFrictionStatic: 0.05, 
     wallRestitution: 1.0,    
     wallThickness: 100       
   },

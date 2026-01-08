@@ -116,10 +116,12 @@ export default class GameLayout {
         const goalOpening = GameConfig.dimensions.goalOpening;
         const sideWallLen = (h - goalOpening) / 2;
 
+        // [修复] 应用 wallFrictionStatic，防止球贴墙时因为静摩擦力而停住
         const wallOptions = {
             isStatic: true,
             restitution: GameConfig.physics.wallRestitution,
             friction: GameConfig.physics.wallFriction,
+            frictionStatic: GameConfig.physics.wallFrictionStatic, // [New] 0.0
             collisionFilter: { category: CollisionCategory.WALL }
         };
 
