@@ -238,10 +238,13 @@ export default class GameRules {
       EventBus.emit(Events.GAME_OVER, { winner: scoreTeam });
     }
 
-    // 重置状态防止重复触发 (通常会等待几秒重置场景)
-    setTimeout(() => {
+    // [修复] 移除自动重置，由 GameScene 在 setupFormation 时手动调用 resetProcessingState
+    // 这样可以避免慢速进球时，定时器先结束导致二次触发进球
+  }
+
+  // [新增] 手动重置进球处理状态 (供 GameScene 在重置球场时调用)
+  resetProcessingState() {
       this.isGoalProcessing = false;
-    }, 2000);
   }
 
   reset() {

@@ -372,6 +372,9 @@ export class GameRoom {
           break;
 
       case 'GAME_OVER':
+          // [修复] 防止双端发送导致的重复结算
+          if (this.roomData.status !== 'PLAYING') return;
+
           // 客户端通知游戏结束，重置房间状态为等待中
           this.roomData.status = 'WAITING';
           this.roomData.scores = { 0: 0, 1: 0 };

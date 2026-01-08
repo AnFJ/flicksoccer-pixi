@@ -268,6 +268,12 @@ export default class GameScene extends BaseScene {
   }
 
   setupFormation() {
+    // [修复] 每次重新布局时，重置进球处理锁
+    // 确保之前的球已经被清理或移动了，不会再触发碰撞
+    if (this.rules) {
+        this.rules.resetProcessingState();
+    }
+
     if (this.strikers.length > 0 && this.ball) {
         this._animateReset();
         return;

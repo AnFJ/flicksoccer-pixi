@@ -163,6 +163,8 @@ export default class OnlineMatchController {
             const { newScore } = frame.payload;
             this.scene.rules.score = newScore;
             this.scene._playGoalEffects(newScore);
+            // [修复] 更新分数后立即检查是否满足结束条件
+            this._checkRemoteGameOver(newScore);
         } else if (frame.eventType === 'SOUND') {
             // [新增] 播放同步的碰撞音效
             AudioManager.playSFX(frame.key);
@@ -288,6 +290,8 @@ export default class OnlineMatchController {
                     const newScore = msg.payload.newScore;
                     scene.rules.score = newScore;
                     scene._playGoalEffects(newScore);
+                    // [修复] 如果是非回放状态下收到GOAL (通常不常见，但为了稳健)，也检查结束条件
+                    this._checkRemoteGameOver(newScore);
                 }
                 break;
 
@@ -313,6 +317,21 @@ export default class OnlineMatchController {
             case NetMsg.GAME_OVER:
                 Platform.removeStorage('last_room_id');
                 break;
+        }
+    }
+
+    // [新增] 检查远程同步的分数是否触发游戏结束
+    _checkRemoteGameOver(score) {
+        const maxScore = GameConfig.gameplay.maxScore;
+        let winner = -1;
+        
+        // score 对象可能是 { "0": 2, "1": 0 }
+        if (score[TeamId.LEFT] >= maxScore) winner = TeamId.LEFT;
+        else if (score[TeamId.RIGHT] >= maxScore) winner = TeamId.RIGHT;
+
+        // 如果达到胜利条件，手动触发本地的 GameOver 逻辑
+        if (winner !== -1) {
+            this.scene.onGameOver({ winner });
         }
     }
 
