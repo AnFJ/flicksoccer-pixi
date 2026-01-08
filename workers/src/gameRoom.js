@@ -252,6 +252,11 @@ export class GameRoom {
         await this.saveState();
         break;
 
+      case 'GET_STATE':
+        // 响应客户端的状态查询请求
+        this.broadcastState();
+        break;
+
       case 'MOVE':
         if (this.roomData.status === 'PLAYING' && this.roomData.currentTurn === player.teamId) {
           this.roomData.currentTurn = player.teamId === 0 ? 1 : 0;
@@ -326,6 +331,18 @@ export class GameRoom {
               });
               await this.saveState();
           }
+          break;
+
+      case 'GAME_OVER':
+          // 客户端通知游戏结束，重置房间状态为等待中
+          this.roomData.status = 'WAITING';
+          this.roomData.scores = { 0: 0, 1: 0 };
+          this.roomData.positions = null;
+          // 重置所有玩家准备状态
+          this.roomData.players.forEach(p => p.ready = false);
+          
+          await this.saveState();
+          this.broadcastState(); // 广播新状态给所有客户端，以便UI刷新
           break;
 
       case 'LEAVE':
