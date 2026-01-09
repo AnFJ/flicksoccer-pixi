@@ -19,7 +19,7 @@ class AudioManager {
     // 注册物理碰撞音效 (保留通用，新增分级)
     this.registerSound('hit_ball', 'assets/sounds/hit_ball.mp3');
     this.registerSound('hit_wall', 'assets/sounds/hit_wall.mp3');
-    this.registerSound('hit_striker', 'assets/sounds/hit_striker.mp3');
+    this.registerSound('hit_striker', 'assets/sounds/hit_striker.mp3'); // 保留作为兜底
     this.registerSound('hit_post', 'assets/sounds/hit_post.mp3');
 
     // [新增] 1. 群众背景循环音
@@ -30,17 +30,29 @@ class AudioManager {
     this.registerSound('ball_hit_striker_2', 'assets/sounds/ball_hit_striker_2.mp3');
     this.registerSound('ball_hit_striker_3', 'assets/sounds/ball_hit_striker_3.mp3');
 
-    // [新增] 3. 群众加油呼声 (僵持局)
+    // [新增] 3. 棋子碰撞棋子分级音效 (1=大, 2=中, 3=小)
+    this.registerSound('striker_hit_striker_1', 'assets/sounds/striker_hit_striker_1.mp3');
+    this.registerSound('striker_hit_striker_2', 'assets/sounds/striker_hit_striker_2.mp3');
+    this.registerSound('striker_hit_striker_3', 'assets/sounds/striker_hit_striker_3.mp3');
+
+    // [新增] 4. 棋子撞墙音效
+    this.registerSound('striker_hit_edge', 'assets/sounds/striker_hit_edge.mp3');
+
+    // [新增] 5. 技能释放音效
+    this.registerSound('skill_fire', 'assets/sounds/skill_fire.mp3'); // 无敌战车
+    this.registerSound('skill_lightning', 'assets/sounds/skill_lightning.mp3'); // 大力水手
+
+    // [新增] 6. 群众加油呼声 (僵持局)
     this.registerSound('crowd_cheer_1', 'assets/sounds/crowd_cheer_1.mp3');
     this.registerSound('crowd_cheer_2', 'assets/sounds/crowd_cheer_2.mp3');
     this.registerSound('crowd_cheer_3', 'assets/sounds/crowd_cheer_3.mp3');
 
-    // [新增] 4. 射门预判反应 - 失望 (臭脚)
+    // [新增] 7. 射门预判反应 - 失望 (臭脚)
     this.registerSound('crowd_sigh_1', 'assets/sounds/crowd_sigh_1.mp3');
     this.registerSound('crowd_sigh_2', 'assets/sounds/crowd_sigh_2.mp3');
     this.registerSound('crowd_sigh_3', 'assets/sounds/crowd_sigh_3.mp3');
 
-    // [新增] 5. 射门预判反应 - 激动 (有戏)
+    // [新增] 8. 射门预判反应 - 激动 (有戏)
     this.registerSound('crowd_anticipation_1', 'assets/sounds/crowd_anticipation_1.mp3');
     this.registerSound('crowd_anticipation_2', 'assets/sounds/crowd_anticipation_2.mp3');
   }

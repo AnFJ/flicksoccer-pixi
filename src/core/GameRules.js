@@ -72,6 +72,7 @@ export default class GameRules {
           return;
       }
 
+      // 1. 足球撞墙
       if (labels.includes('Ball')) {
           const other = bodyA.label === 'Ball' ? bodyB : bodyA;
           if (other.label && other.label.includes('Wall')) {
@@ -80,11 +81,29 @@ export default class GameRules {
           }
       }
 
+      // 2. 棋子撞墙 (新增)
+      if (labels.includes('Striker')) {
+          const other = bodyA.label === 'Striker' ? bodyB : bodyA;
+          // 检查是否撞到了墙壁 (WallTop, WallBottom, GoalNet 等)
+          if (other.label && (other.label.includes('Wall') || other.label.includes('GoalNet'))) {
+              EventBus.emit(Events.PLAY_SOUND, 'striker_hit_edge');
+              return;
+          }
+      }
+
+      // 3. 棋子撞棋子 (新增分级音效)
       if (bodyA.label === 'Striker' && bodyB.label === 'Striker') {
-          EventBus.emit(Events.PLAY_SOUND, 'hit_striker');
+          let soundKey = 'striker_hit_striker_3'; // 默认小声
+          if (intensity > 12) {
+              soundKey = 'striker_hit_striker_1'; // 大速度 (强力碰撞)
+          } else if (intensity > 6) {
+              soundKey = 'striker_hit_striker_2'; // 中速度
+          }
+          EventBus.emit(Events.PLAY_SOUND, soundKey);
           return;
       }
 
+      // 4. 足球撞门柱
       if (labels.includes('Ball') && labels.includes('GoalPost')) {
            EventBus.emit(Events.PLAY_SOUND, 'hit_post');
            return;
