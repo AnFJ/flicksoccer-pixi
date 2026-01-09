@@ -18,7 +18,7 @@ import { TeamId, Events, NetMsg, SkillType } from '../constants.js';
 import { getFormation } from '../config/FormationConfig.js'; 
 
 import LeaveButton from '../ui/LeaveButton.js';
-import FormationButton from '../ui/FormationButton.js'; // [新增]
+import FormationButton from '../ui/FormationButton.js'; 
 import GameHUD from '../ui/GameHUD.js';
 import GoalBanner from '../ui/GoalBanner.js';
 import SparkSystem from '../vfx/SparkSystem.js';
@@ -35,8 +35,9 @@ import TurnManager from '../core/TurnManager.js';
 import OnlineMatchController from '../core/OnlineMatchController.js';
 import SkillManager from '../core/SkillManager.js'; 
 
-import AIChatBubble from '../ui/AIChatBubble.js';
-import { AIPersonas, AIChatTexts, ChatTrigger } from '../config/AIChatConfig.js';
+// [修改] 引入新的控制器
+import AIChatController from '../core/AIChatController.js';
+import AtmosphereController from '../core/AtmosphereController.js';
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -46,7 +47,12 @@ export default class GameScene extends BaseScene {
     this.layout = new GameLayout(this);
     this.input = new InputController(this);
     this.turnMgr = new TurnManager(this);
-    this.skillMgr = new SkillManager(this); 
+    this.skillMgr = new SkillManager(this);
+    
+    // [新增] 实例化新的控制器
+    this.aiChatCtrl = new AIChatController(this);
+    this.atmosphereCtrl = new AtmosphereController(this);
+
     this.networkCtrl = null; 
     
     this.gameMode = 'pve'; 
@@ -80,9 +86,6 @@ export default class GameScene extends BaseScene {
     this.moveTimer = 0;
     this.MAX_MOVE_TIME = 15000; 
 
-    this.aiPersona = null;
-    this.aiChatBubble = null;
-    this.lastChatTime = 0;
     this.turnStartScores = { [TeamId.LEFT]: 0, [TeamId.RIGHT]: 0 }; 
 
     this.matchStats = {
@@ -91,14 +94,6 @@ export default class GameScene extends BaseScene {
         [TeamId.LEFT]: { shots: 0, skills: {} },
         [TeamId.RIGHT]: { shots: 0, skills: {} }
     };
-
-    // [新增] 氛围系统状态
-    this.totalTurns = 0; 
-    this.hasPlayedClimaxCheer = false; // 僵持局加油标记
-    
-    // [新增] 射门反应状态
-    this.isShooting = false;        // 当前是否属于击球后的射门阶段
-    this.shotReactionPlayed = false; // 本次射门是否已经触发过反应
   }
 
   async onEnter(params = {}) {
@@ -111,20 +106,9 @@ export default class GameScene extends BaseScene {
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
 
-    // [新增] 重置状态
-    this.totalTurns = 0;
-    this.hasPlayedClimaxCheer = false;
-    this.isShooting = false;
-    this.shotReactionPlayed = false;
-
-    // [修改] 移除在此处立即播放背景音，移至 initGame 中横幅动画开始时播放
-    // AudioManager.playBGM('crowd_bg_loop');
-
-    if (this.gameMode === 'pve') {
-        const randomIndex = Math.floor(Math.random() * AIPersonas.length);
-        this.aiPersona = AIPersonas[randomIndex];
-        console.log(`[AIChat] Selected Persona: ${this.aiPersona.name}`);
-    }
+    // [新增] 初始化控制器
+    this.aiChatCtrl.init(this.gameMode);
+    this.atmosphereCtrl.reset();
 
     if (this.gameMode === 'pvp_online') {
         this.players = params.players || []; 
@@ -197,15 +181,12 @@ export default class GameScene extends BaseScene {
     }
 
     setTimeout(() => {
-        // [修复] 增加 destroyed 检查，防止场景退出后仍然播放音乐
         if (!this.isGameOver && this.container && !this.container.destroyed) {
             let startText = "游戏开始";
             if (this.gameMode === 'pve') {
                 startText = `第 ${this.currentLevel} 关 开始`;
             }
             this.goalBanner?.play(startText);
-            
-            // [新增] 在横幅出现时才开始播放群众背景音
             AudioManager.playBGM('crowd_bg_loop'); 
         }
     }, 500);
@@ -223,7 +204,8 @@ export default class GameScene extends BaseScene {
     const extraData = {
         currentLevel: this.currentLevel,
         players: this.gameMode === 'pvp_online' ? this.players : [],
-        aiInfo: this.aiPersona 
+        // [修改] 从控制器获取 Persona
+        aiInfo: this.aiChatCtrl.getPersona() 
     };
 
     this.hud = new GameHUD(
@@ -236,23 +218,17 @@ export default class GameScene extends BaseScene {
     );
     this.layout.layers.ui.addChild(this.hud);
 
-    if (this.gameMode === 'pve' && this.hud) {
-        this.aiChatBubble = new AIChatBubble();
-        const centerX = GameConfig.designWidth / 2;
-        this.aiChatBubble.position.set(centerX + 480, 125); 
-        this.hud.addChild(this.aiChatBubble);
-    }
+    // [修改] 让控制器创建 Chat Bubble
+    this.aiChatCtrl.createUI(this.hud);
 
     this.goalBanner = new GoalBanner();
     this.layout.layers.ui.addChild(this.goalBanner);
 
-    // [修改] 使用 LeaveButton 替换 GameMenuButton
     const leaveBtn = new LeaveButton(this.app, this.layout.layers.ui, () => {
         this.onMenuBtnClick();
     });
     this.layout.layers.ui.addChild(leaveBtn);
 
-    // [修改] 使用 FormationButton 替换原来的创建逻辑
     const formationBtn = new FormationButton(this.app, this.layout.layers.ui, () => {
         this.openIngameFormation();
     });
@@ -266,10 +242,7 @@ export default class GameScene extends BaseScene {
 
   // [新增] 打开游戏内阵型调整
   openIngameFormation() {
-      // 模式判断
-      // PVP Local: 双人换
-      // PVP Online / PVE: 单人换 (P1)
-      let mode = 'single_online'; // 默认为只换自己的模式
+      let mode = 'single_online'; 
       if (this.gameMode === 'pvp_local') {
           mode = 'dual'; 
       }
@@ -279,39 +252,33 @@ export default class GameScene extends BaseScene {
           (p1Id, p2Id) => {
               this.onFormationChanged(p1Id, p2Id);
           }, 
-          () => {}, // Cancel
-          "下一局生效" // 按钮文本
+          () => {}, 
+          "下一局生效" 
       );
       this.layout.layers.ui.addChild(dialog);
   }
 
-  // [新增] 阵型变更处理
   onFormationChanged(p1Id, p2Id) {
       if (this.gameMode === 'pvp_local') {
           this.p1FormationId = p1Id;
           this.p2FormationId = p2Id;
           Platform.showToast("阵型已调整，进球后生效");
       } else {
-          // PVE 或 Online，只改自己
-          // 如果我是 P1 (Left)
           if (this.myTeamId === TeamId.LEFT) {
               this.p1FormationId = p1Id;
           } else {
-              // 我是 P2 (Right)
-              this.p2FormationId = p1Id; // 注意 Dialog 单人模式下回传的是第一个参数
+              this.p2FormationId = p1Id; 
           }
           
-          AccountMgr.updateFormation(p1Id); // 保存偏好
+          AccountMgr.updateFormation(p1Id); 
           Platform.showToast("阵型已调整，进球后生效");
 
-          // 联网通知
           if (this.gameMode === 'pvp_online' && this.networkCtrl) {
               this.networkCtrl.sendFormationUpdate(p1Id);
           }
       }
   }
 
-  // [新增] 处理远程阵型更新
   handleRemoteFormationUpdate(teamId, formationId) {
       if (teamId === TeamId.LEFT) {
           this.p1FormationId = formationId;
@@ -453,13 +420,13 @@ export default class GameScene extends BaseScene {
     this.strikers.forEach(s => { 
         Matter.World.remove(this.physics.engine.world, s.body); 
         this.layout.layers.game.removeChild(s.view);
-        s.destroy(); // [新增]
+        s.destroy(); 
     });
     this.strikers = [];
     if (this.ball) { 
         Matter.World.remove(this.physics.engine.world, this.ball.body); 
         this.layout.layers.game.removeChild(this.ball.view);
-        this.ball.destroy(); // [新增]
+        this.ball.destroy(); 
         this.ball = null; 
     }
   }
@@ -470,10 +437,9 @@ export default class GameScene extends BaseScene {
       }
       AudioManager.playSFX(key);
 
-      if (key === 'hit_post' && this.gameMode === 'pve') {
-          if (this.turnMgr.currentTurn === TeamId.LEFT) {
-              this.triggerAIChat(ChatTrigger.PLAYER_MISS);
-          }
+      if (key === 'hit_post') {
+          // [修改] 通过控制器触发嘲讽
+          this.aiChatCtrl.onPlayerMiss();
       }
   }
 
@@ -520,9 +486,8 @@ export default class GameScene extends BaseScene {
     this.isMoving = true;
     this.moveTimer = 0; 
     
-    // [核心新增] 重置射门预判状态
-    this.isShooting = true;
-    this.shotReactionPlayed = false;
+    // [修改] 通知 AtmosphereController 击球开始
+    this.atmosphereCtrl.onTurnStart();
 
     if (!isRemote) {
         this.recordShot(this.turnMgr.currentTurn);
@@ -532,90 +497,24 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
-    // [新增] 进球后重置高潮标记
-    this.hasPlayedClimaxCheer = false;
-    this.isShooting = false; // 进球了就不再检测反应
+    // [修改] 通知 AtmosphereController 进球
+    this.atmosphereCtrl.onGoal();
 
     if (this.networkCtrl) {
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
     }
     
-    if (this.gameMode === 'pve') {
-        this.checkGoalChatTrigger(data.scoreTeam);
-    }
+    // [修改] 调用 Chat Controller 处理进球说话逻辑
+    // 传入：得分方, 回合开始时分数, 当前分数, 回合消耗时间
+    this.aiChatCtrl.onGoal(
+        data.scoreTeam, 
+        this.turnStartScores, 
+        this.rules.score,
+        this.moveTimer / 1000 // 已过秒数
+    );
 
     this._playGoalEffects(data.newScore, data.scoreTeam);
-  }
-
-  checkGoalChatTrigger(scoreTeam) {
-      const turnId = this.turnMgr.currentTurn;
-      const scoreId = scoreTeam;
-      const isOwnGoal = turnId !== scoreId;
-
-      const prevScoreP = this.turnStartScores[TeamId.LEFT];
-      const prevScoreAI = this.turnStartScores[TeamId.RIGHT];
-      
-      const newScoreP = scoreTeam === TeamId.LEFT ? prevScoreP + 1 : prevScoreP;
-      const newScoreAI = scoreTeam === TeamId.RIGHT ? prevScoreAI + 1 : prevScoreAI;
-
-      if (isOwnGoal) {
-          if (scoreId === TeamId.RIGHT) {
-              this.triggerAIChat(ChatTrigger.PLAYER_OWN_GOAL);
-          } else {
-              this.triggerAIChat(ChatTrigger.AI_OWN_GOAL);
-          }
-          return;
-      }
-
-      if (scoreId === TeamId.LEFT) {
-          if (prevScoreP < prevScoreAI && newScoreP === newScoreAI) {
-              this.triggerAIChat(ChatTrigger.PLAYER_EQUALIZER);
-          } 
-          else if (prevScoreP === prevScoreAI && newScoreP > newScoreAI) {
-              this.triggerAIChat(ChatTrigger.PLAYER_OVERTAKE);
-          }
-          else if (prevScoreP > prevScoreAI && newScoreP > newScoreAI) {
-              this.triggerAIChat(ChatTrigger.PLAYER_LEAD_EXTEND);
-          }
-          else if (this.turnMgr.timer < 2) { 
-              this.triggerAIChat(ChatTrigger.PLAYER_INSTANT_GOAL);
-          }
-          else {
-              this.triggerAIChat(ChatTrigger.PLAYER_GOAL);
-          }
-
-      } else {
-          if (prevScoreAI < prevScoreP && newScoreAI === newScoreP) {
-              this.triggerAIChat(ChatTrigger.AI_EQUALIZER);
-          }
-          else if (prevScoreAI === prevScoreP && newScoreAI > newScoreP) {
-              this.triggerAIChat(ChatTrigger.AI_OVERTAKE);
-          }
-          else if (prevScoreAI > prevScoreP && newScoreAI > newScoreP) {
-              this.triggerAIChat(ChatTrigger.AI_LEAD_EXTEND);
-          }
-          else {
-              this.triggerAIChat(ChatTrigger.AI_GOAL);
-          }
-      }
-  }
-
-  triggerAIChat(triggerType) {
-      if (!this.aiPersona || !this.aiChatBubble) return;
-      
-      const now = Date.now();
-      if (now - this.lastChatTime < 2000) return;
-      this.lastChatTime = now;
-
-      const personaTexts = AIChatTexts[this.aiPersona.id];
-      if (!personaTexts) return;
-      
-      const lines = personaTexts[triggerType];
-      if (lines && lines.length > 0) {
-          const text = lines[Math.floor(Math.random() * lines.length)];
-          this.aiChatBubble.show(text);
-      }
   }
 
   _playGoalEffects(newScore, scoreTeam) {
@@ -658,11 +557,8 @@ export default class GameScene extends BaseScene {
         this.resetTimerId = null;
     }
 
-    if (this.gameMode === 'pve') {
-        if (data.winner === TeamId.RIGHT) { 
-            this.triggerAIChat(ChatTrigger.AI_WIN);
-        }
-    }
+    // [修改] AI 胜利聊天
+    this.aiChatCtrl.onGameOver(data.winner);
 
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
 
@@ -710,20 +606,11 @@ export default class GameScene extends BaseScene {
     this.strikers.forEach(s => s.update(delta, alpha));
     this.ball?.update(delta, alpha);
 
-    if (this.gameMode === 'pve' && 
-        this.turnMgr.currentTurn === TeamId.LEFT && 
-        !this.isMoving && 
-        !this.isGameOver) {
-        
-        if (this.turnMgr.timer < (this.turnMgr.maxTime - 10)) {
-            if (Math.random() < 0.005) { 
-                this.triggerAIChat(ChatTrigger.IDLE);
-            }
-        }
-    }
+    // [修改] 调用 Chat Controller 更新 (闲置检测)
+    this.aiChatCtrl.update();
 
-    // [新增] 检测射门反应
-    this._checkShotReaction();
+    // [修改] 调用 Atmosphere Controller 更新 (射门预判)
+    this.atmosphereCtrl.update();
   }
 
   _saveEntityStates() {
@@ -786,32 +673,28 @@ export default class GameScene extends BaseScene {
   }
   
   _endTurn(force = false) {
-      // [修复] 增加 force 参数，允许强制结束回合 (用于处理 TURN_SYNC 乱序或 MOVE 丢失的情况)
       if (!this.isMoving && !force) return;
 
-      // [新增] 回合计数增加
-      this.totalTurns++;
+      // [修改] 通知 Atmosphere 回合结束
+      this.atmosphereCtrl.onTurnEnd();
 
       if (this.gameMode === 'pve' && 
           this.turnMgr.currentTurn === TeamId.LEFT &&
           this.turnStartScores[TeamId.LEFT] === this.rules.score[TeamId.LEFT]) {
           
           if (Math.random() < 0.3) {
-              this.triggerAIChat(ChatTrigger.PLAYER_BAD);
+              // [修改] 通知 Chat Controller 玩家失误
+              this.aiChatCtrl.onPlayerBadMove();
           }
       }
 
       this.isMoving = false;
-      this.isShooting = false; // 回合结束，重置射门状态
       this.moveTimer = 0; 
       
       if (this.ball) {
           this.ball.setLightningMode(false);
           this.ball.resetStates(); 
       }
-
-      // [核心新增] 检查是否触发僵持局加油 (回合切换时判断)
-      this._checkEncouragementCheer();
 
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {
           this.networkCtrl.syncAllPositions();
@@ -824,111 +707,12 @@ export default class GameScene extends BaseScene {
           if (pending !== null && pending !== undefined) {
               this.turnMgr.currentTurn = pending;
           } else {
-              // [修复] 兜底策略：如果 pendingTurn 缺失（例如 MOVE 消息丢失），强制切换回合
-              // 这确保了接收方不会卡在发送方的回合中
               this.turnMgr.switchTurn();
           }
           this.turnMgr.resetTimer();
       }
   }
 
-  // [新增] 射门反应检测逻辑
-  _checkShotReaction() {
-      // 1. 基础条件：正在射门阶段且未播放过反应
-      if (!this.isShooting || this.shotReactionPlayed || !this.ball || !this.ball.body) return;
-
-      const ballBody = this.ball.body;
-      const speed = ballBody.speed;
-
-      // 2. 速度门槛：必须是“射门”级别的速度 (比如 > 8)
-      if (speed < 8) return;
-
-      const { x, y, w, h } = this.layout.fieldRect;
-      const bX = ballBody.position.x;
-      const bY = ballBody.position.y;
-      
-      // 3. 区域检测：进入对方禁区深处 (距离底线 1/4 场地长度)
-      const zoneDepth = w * 0.25; 
-      const currentTurn = this.turnMgr.currentTurn;
-      
-      // 假设当前回合是 LEFT，目标是右边球门 (x > w - zoneDepth)
-      // 假设当前回合是 RIGHT，目标是左边球门 (x < zoneDepth)
-      let inDangerZone = false;
-      let targetGoalX = 0; // 目标球门X坐标
-
-      if (currentTurn === TeamId.LEFT) {
-          if (bX > (x + w - zoneDepth) && ballBody.velocity.x > 0) {
-              inDangerZone = true;
-              targetGoalX = x + w + GameConfig.dimensions.goalWidth / 2; // 略微修正到球门内部
-          }
-      } else {
-          if (bX < (x + zoneDepth) && ballBody.velocity.x < 0) {
-              inDangerZone = true;
-              targetGoalX = x - GameConfig.dimensions.goalWidth / 2;
-          }
-      }
-
-      if (inDangerZone) {
-          // 4. 轨迹预测：线性推算球到达球门线时的 Y 坐标
-          // Y_pred = Y + Vy * (TargetX - X) / Vx
-          const timeToImpact = (targetGoalX - bX) / ballBody.velocity.x;
-          if (timeToImpact < 0) return; // 已经飞过了或者反向
-
-          const predictedY = bY + ballBody.velocity.y * timeToImpact;
-          
-          const fieldCenterY = y + h / 2;
-          const goalH = GameConfig.dimensions.goalOpening;
-          
-          // 判定范围：球门开口上下各宽容一点 (例如 20px)
-          const topPostY = fieldCenterY - goalH / 2;
-          const bottomPostY = fieldCenterY + goalH / 2;
-          const margin = 30; // 宽容度
-
-          // 触发反应
-          this.shotReactionPlayed = true;
-
-          // [逻辑分支]
-          // A: 预测进球 (或者非常接近，打中门柱也算激动)
-          if (predictedY > (topPostY - margin) && predictedY < (bottomPostY + margin)) {
-              // 随机播放 1 或 2
-              const idx = Math.floor(Math.random() * 2) + 1;
-              AudioManager.playClimaxCheer(`crowd_anticipation_${idx}`);
-              console.log("[Audio] Crowd Anticipation: Close call!");
-          } 
-          // B: 臭脚 (严重偏出)
-          else {
-              // 随机播放 1, 2, 3
-              const idx = Math.floor(Math.random() * 3) + 1;
-              // 这里用 playSFX 播放叹息，不需要 ducking 背景音，或者也可以用 playClimaxCheer
-              // 为了统一管理淡入淡出，复用 playClimaxCheer 逻辑，但传入 sigh key
-              AudioManager.playClimaxCheer(`crowd_sigh_${idx}`);
-              console.log("[Audio] Crowd Sigh: Bad shot.");
-          }
-      }
-  }
-
-  // [新增] 僵持局加油判断逻辑
-  _checkEncouragementCheer() {
-      // 1. 如果本局已经触发过，则不再触发
-      if (this.hasPlayedClimaxCheer) return;
-
-      // 2. 回合数检测：5-10 回合之间
-      if (this.totalTurns >= 5 && this.totalTurns <= 10) {
-          // 3. 局势判断：分差 <= 1 (僵持/胶着状态)
-          const scoreDiff = Math.abs(this.rules.score[TeamId.LEFT] - this.rules.score[TeamId.RIGHT]);
-          
-          if (scoreDiff <= 1) {
-              // 4. 随机触发 (约30%概率)
-              if (Math.random() < 0.3) {
-                  console.log(`[Audio] Trigger Encouragement Cheer at turn ${this.totalTurns}`);
-                  this.hasPlayedClimaxCheer = true;
-                  // 不传参，随机播放 cheer 1-3
-                  AudioManager.playClimaxCheer();
-              }
-          }
-      }
-  }
-  
   _enforceFairPlay() {
     if (this.networkCtrl && this.turnMgr.currentTurn !== this.myTeamId) {
         return false;
@@ -1067,17 +851,14 @@ export default class GameScene extends BaseScene {
   }
 
   onExit() {
-      // 1. 先清理逻辑和事件监听
       Platform.hideGameAds();
       if (this.resetTimerId) {
           clearTimeout(this.resetTimerId);
           this.resetTimerId = null;
       }
 
-      // [新增] 停止背景音
       AudioManager.stopBGM();
       
-      // 移除事件监听 (EventBus 已修复支持传 context)
       EventBus.off(Events.GOAL_SCORED, this);
       EventBus.off(Events.GAME_OVER, this);
       EventBus.off(Events.COLLISION_HIT, this);
@@ -1099,7 +880,6 @@ export default class GameScene extends BaseScene {
       this.turnMgr.clear();
       this.physics.clear();
 
-      // 2. 最后再销毁显示对象容器
       super.onExit();
   }
 }
