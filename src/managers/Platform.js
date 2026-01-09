@@ -8,12 +8,108 @@ class Platform {
     
     this._gameAds = []; // 存储游戏场景内的多个Banner/Custom广告实例
     this._rewardedAds = {}; // [新增] 缓存激励视频广告实例 (key: adUnitId)
+    
+    // [新增] 存储待处理的邀请信息 (从小游戏启动参数获取)
+    this.pendingInvite = null; 
+    
+    // 初始化时立即检查启动参数
+    this.checkLaunchOptions();
   }
 
   detectEnv() {
     if (typeof tt !== 'undefined') return 'douyin';
     if (typeof wx !== 'undefined') return 'wechat';
     return 'web';
+  }
+
+  /**
+   * [新增] 检查小游戏启动参数
+   */
+  checkLaunchOptions() {
+      const provider = this.getProvider();
+      if (provider && provider.getLaunchOptionsSync) {
+          try {
+              const options = provider.getLaunchOptionsSync();
+              console.log('[Platform] Launch Options:', options);
+              
+              if (options && options.query && options.query.roomId) {
+                  this.pendingInvite = {
+                      roomId: options.query.roomId,
+                      fromUser: options.query.fromUser
+                  };
+                  console.log('[Platform] Found pending invite:', this.pendingInvite);
+              }
+          } catch (e) {
+              console.warn('[Platform] Get launch options failed', e);
+          }
+      } else if (this.env === 'web') {
+          // Web 端测试逻辑：解析 URL 参数
+          const urlParams = new URLSearchParams(window.location.search);
+          const roomId = urlParams.get('roomId');
+          if (roomId) {
+              this.pendingInvite = { roomId };
+          }
+      }
+  }
+
+  /**
+   * [新增] 分享房间邀请
+   * @param {string} roomId 
+   */
+  shareRoom(roomId) {
+      const provider = this.getProvider();
+      const title = "来《弹指足球》和我一决高下！";
+      // 封面图可以使用截图或者固定图片，这里暂未指定 imageUrl，使用默认截图
+      const query = `roomId=${roomId}&fromUser=share`; 
+
+      if (this.env === 'wechat') {
+          // 微信小游戏：主动拉起转发（通常需要通过按钮 open-type="share"，但在 Canvas 只能调用 API）
+          // 注意：wx.shareAppMessage 在较新版本通常需要并在 onShareAppMessage 中配置
+          // 我们这里尝试主动调用，如果失败则提示用户点击右上角
+          
+          // 1. 设置被动转发配置 (右上角菜单转发)
+          provider.onShareAppMessage(() => {
+              return {
+                  title: title,
+                  query: query
+              };
+          });
+
+          // 2. 尝试主动拉起 (部分基础库支持，或提示)
+          if (provider.shareAppMessage) {
+              provider.shareAppMessage({
+                  title: title,
+                  query: query
+              });
+          } else {
+              this.showToast("请点击右上角 '...' 发送给朋友");
+          }
+
+      } else if (this.env === 'douyin') {
+          // 抖音小游戏
+          if (provider.shareAppMessage) {
+              provider.shareAppMessage({
+                  title: title,
+                  query: query,
+                  success() {
+                      console.log('Share success');
+                  },
+                  fail(e) {
+                      console.log('Share failed', e);
+                  }
+              });
+          }
+      } else {
+          // Web 环境：复制链接
+          const url = `${window.location.origin}${window.location.pathname}?roomId=${roomId}`;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(url).then(() => {
+                  this.showToast('房间链接已复制！');
+              });
+          } else {
+              this.showToast('请复制链接分享: ' + url);
+          }
+      }
   }
 
   /**

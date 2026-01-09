@@ -1,3 +1,4 @@
+
 class EventBus {
   constructor() {
     this.events = {};
@@ -19,12 +20,12 @@ class EventBus {
   /**
    * 取消监听
    * @param {string} eventName 
-   * @param {Function} callback 
+   * @param {Function|Object} callbackOrContext 回调函数 或 上下文对象(this)
    */
-  off(eventName, callback) {
+  off(eventName, callbackOrContext) {
     if (!this.events[eventName]) return;
     this.events[eventName] = this.events[eventName].filter(
-      listener => listener.callback !== callback
+      listener => listener.callback !== callbackOrContext && listener.context !== callbackOrContext
     );
   }
 

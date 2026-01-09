@@ -34,7 +34,6 @@ import TurnManager from '../core/TurnManager.js';
 import OnlineMatchController from '../core/OnlineMatchController.js';
 import SkillManager from '../core/SkillManager.js'; 
 
-// [新增] 引入聊天相关
 import AIChatBubble from '../ui/AIChatBubble.js';
 import { AIPersonas, AIChatTexts, ChatTrigger } from '../config/AIChatConfig.js';
 
@@ -59,7 +58,6 @@ export default class GameScene extends BaseScene {
     this.isGamePaused = false; 
     this.myTeamId = TeamId.LEFT;
 
-    // [新增] 进球重置状态锁，防止物理静止检测干扰进球重置流程
     this.isGoalResetting = false;
 
     this.hud = null;
@@ -81,11 +79,10 @@ export default class GameScene extends BaseScene {
     this.moveTimer = 0;
     this.MAX_MOVE_TIME = 15000; 
 
-    // [新增] AI 聊天相关状态
     this.aiPersona = null;
     this.aiChatBubble = null;
     this.lastChatTime = 0;
-    this.turnStartScores = { [TeamId.LEFT]: 0, [TeamId.RIGHT]: 0 }; // 记录回合开始时比分
+    this.turnStartScores = { [TeamId.LEFT]: 0, [TeamId.RIGHT]: 0 }; 
 
     this.matchStats = {
         startTime: 0,
@@ -93,6 +90,10 @@ export default class GameScene extends BaseScene {
         [TeamId.LEFT]: { shots: 0, skills: {} },
         [TeamId.RIGHT]: { shots: 0, skills: {} }
     };
+
+    // [新增] 高潮系统状态
+    this.totalTurns = 0; // 累计回合数
+    this.hasPlayedClimaxCheer = false; // 本局是否播放过加油欢呼
   }
 
   async onEnter(params = {}) {
@@ -105,7 +106,13 @@ export default class GameScene extends BaseScene {
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
 
-    // [新增] PVE模式下，随机选择一个AI人格
+    // [新增] 重置高潮状态
+    this.totalTurns = 0;
+    this.hasPlayedClimaxCheer = false;
+
+    // [新增] 播放比赛氛围音效
+    AudioManager.playBGM('crowd_bg_loop');
+
     if (this.gameMode === 'pve') {
         const randomIndex = Math.floor(Math.random() * AIPersonas.length);
         this.aiPersona = AIPersonas[randomIndex];
@@ -205,7 +212,6 @@ export default class GameScene extends BaseScene {
     const extraData = {
         currentLevel: this.currentLevel,
         players: this.gameMode === 'pvp_online' ? this.players : [],
-        // [新增] 传入 AI 人格数据，以便 HUD 显示对应头像和名字
         aiInfo: this.aiPersona 
     };
 
@@ -219,19 +225,10 @@ export default class GameScene extends BaseScene {
     );
     this.layout.layers.ui.addChild(this.hud);
 
-    // [新增] 初始化 AI 聊天气泡
     if (this.gameMode === 'pve' && this.hud) {
         this.aiChatBubble = new AIChatBubble();
-        
-        // 调整位置：
-        // 右侧头像中心 X = designWidth/2 + 480
-        // 头像 Y = 60，半径 50 -> 底部 Y = 110
-        // 将气泡尖端对准头像底部，稍微下移留点空隙
         const centerX = GameConfig.designWidth / 2;
-        // x: 对齐右侧头像 (1200 + 480 = 1680)
-        // y: 头像下方 (60 + 50 + 15 = 125)
         this.aiChatBubble.position.set(centerX + 480, 125); 
-        
         this.hud.addChild(this.aiChatBubble);
     }
 
@@ -243,10 +240,112 @@ export default class GameScene extends BaseScene {
     });
     this.layout.layers.ui.addChild(menuBtn);
 
+    // [新增] 阵型调整按钮 (右下角)
+    // 逻辑上支持所有模式玩家换自己的阵型。
+    this.createFormationButton();
+
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
     
     this.turnMgr.resetTimer();
+  }
+
+  // [新增] 创建右下角阵型按钮
+  createFormationButton() {
+      // 样式参考 GameMenuButton，但颜色为黄色
+      const btnSize = 100;
+      const btn = new Button({
+          text: '阵型', 
+          width: btnSize, 
+          height: btnSize, 
+          color: 0xF1C40F, // 黄色
+          texture: ResourceManager.get('icon_theme'), // 尝试使用图标
+          fontSize: 24,
+          textColor: 0x333333,
+          onClick: () => this.openIngameFormation()
+      });
+
+      // 如果有图标，隐藏文字
+      if (ResourceManager.get('icon_theme')) {
+          btn.label.visible = false;
+      }
+
+      // 添加阴影和圆角效果 (手动绘制以匹配 GameMenuButton 风格)
+      // Button 类内部是一个 Container，我们可以在 btn.inner 下添加修饰
+      const bg = new PIXI.Graphics();
+      // 阴影
+      bg.beginFill(0xC27C0E); // 深黄
+      bg.drawRoundedRect(-btnSize/2, -btnSize/2 + 6, btnSize, btnSize, 20);
+      bg.endFill();
+      // 实体覆盖 (Button 内部已有 bg，这里是为了做立体感)
+      // 由于 Button 内部实现较简单，我们直接调整位置即可
+      
+      // 定位：屏幕右下角
+      const screenMargin = 30;
+      const globalX = this.app.screen.width - screenMargin - btnSize / 4;
+      const globalY = this.app.screen.height - screenMargin;
+      
+      const localPos = this.layout.layers.ui.toLocal(new PIXI.Point(globalX, globalY));
+      btn.position.set(localPos.x, localPos.y);
+
+      this.layout.layers.ui.addChild(btn);
+  }
+
+  // [新增] 打开游戏内阵型调整
+  openIngameFormation() {
+      // 模式判断
+      // PVP Local: 双人换
+      // PVP Online / PVE: 单人换 (P1)
+      let mode = 'single_online'; // 默认为只换自己的模式
+      if (this.gameMode === 'pvp_local') {
+          mode = 'dual'; 
+      }
+
+      const dialog = new FormationSelectionDialog(
+          mode, 
+          (p1Id, p2Id) => {
+              this.onFormationChanged(p1Id, p2Id);
+          }, 
+          () => {}, // Cancel
+          "下一局生效" // 按钮文本
+      );
+      this.layout.layers.ui.addChild(dialog);
+  }
+
+  // [新增] 阵型变更处理
+  onFormationChanged(p1Id, p2Id) {
+      if (this.gameMode === 'pvp_local') {
+          this.p1FormationId = p1Id;
+          this.p2FormationId = p2Id;
+          Platform.showToast("阵型已调整，进球后生效");
+      } else {
+          // PVE 或 Online，只改自己
+          // 如果我是 P1 (Left)
+          if (this.myTeamId === TeamId.LEFT) {
+              this.p1FormationId = p1Id;
+          } else {
+              // 我是 P2 (Right)
+              this.p2FormationId = p1Id; // 注意 Dialog 单人模式下回传的是第一个参数
+          }
+          
+          AccountMgr.updateFormation(p1Id); // 保存偏好
+          Platform.showToast("阵型已调整，进球后生效");
+
+          // 联网通知
+          if (this.gameMode === 'pvp_online' && this.networkCtrl) {
+              this.networkCtrl.sendFormationUpdate(p1Id);
+          }
+      }
+  }
+
+  // [新增] 处理远程阵型更新
+  handleRemoteFormationUpdate(teamId, formationId) {
+      if (teamId === TeamId.LEFT) {
+          this.p1FormationId = formationId;
+      } else {
+          this.p2FormationId = formationId;
+      }
+      Platform.showToast("对方调整了阵型，下一局生效");
   }
 
   _setupEvents() {
@@ -272,8 +371,6 @@ export default class GameScene extends BaseScene {
   }
 
   setupFormation() {
-    // [修复] 每次重新布局时，重置进球处理锁
-    // 确保之前的球已经被清理或移动了，不会再触发碰撞
     if (this.rules) {
         this.rules.resetProcessingState();
     }
@@ -327,7 +424,7 @@ export default class GameScene extends BaseScene {
               duration: duration
           });
           this.ball.setLightningMode(false);
-          this.ball.resetStates(); // [核心修改]
+          this.ball.resetStates(); 
       }
 
       const fmtLeft = getFormation(this.p1FormationId);
@@ -382,12 +479,14 @@ export default class GameScene extends BaseScene {
     if (!this.physics || !this.physics.engine) return;
     this.strikers.forEach(s => { 
         Matter.World.remove(this.physics.engine.world, s.body); 
-        this.layout.layers.game.removeChild(s.view); 
+        this.layout.layers.game.removeChild(s.view);
+        s.destroy(); // [新增]
     });
     this.strikers = [];
     if (this.ball) { 
         Matter.World.remove(this.physics.engine.world, this.ball.body); 
-        this.layout.layers.game.removeChild(this.ball.view); 
+        this.layout.layers.game.removeChild(this.ball.view);
+        this.ball.destroy(); // [新增]
         this.ball = null; 
     }
   }
@@ -398,9 +497,7 @@ export default class GameScene extends BaseScene {
       }
       AudioManager.playSFX(key);
 
-      // [新增] 监听撞门柱音效，触发聊天
       if (key === 'hit_post' && this.gameMode === 'pve') {
-          // 只在玩家回合撞柱时触发嘲讽/遗憾
           if (this.turnMgr.currentTurn === TeamId.LEFT) {
               this.triggerAIChat(ChatTrigger.PLAYER_MISS);
           }
@@ -436,8 +533,6 @@ export default class GameScene extends BaseScene {
 
   onMenuBtnClick() {
       if (this.gameMode === 'pvp_online' && !this.isGameOver) {
-          // [修改] 发送 LEAVE 消息，让服务端知道是主动离开
-          // 服务端根据当前游戏状态(PLAYING)决定是保留房间(标记Offline)还是销毁房间
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
       }
@@ -452,22 +547,22 @@ export default class GameScene extends BaseScene {
     this.isMoving = true;
     this.moveTimer = 0; 
     if (!isRemote) {
-        AudioManager.playSFX('collision'); 
+        // [修改] 移除通用的 collision 音效，因为现在由 GameRules 触发分级音效
+        // AudioManager.playSFX('collision'); 
         this.recordShot(this.turnMgr.currentTurn);
     }
     this.turnMgr.timer = 0; 
-    
-    // [新增] 记录回合开始时的比分，用于检测是否进球和判断乌龙球
     this.turnStartScores = { ...this.rules.score };
   }
 
   onGoal(data) {
+    // [注意] 此处不再重置 hasPlayedClimaxCheer，确保整局只触发一次加油欢呼（针对5-10回合的僵持）
+    
     if (this.networkCtrl) {
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
     }
     
-    // [新增] 触发进球相关聊天
     if (this.gameMode === 'pve') {
         this.checkGoalChatTrigger(data.scoreTeam);
     }
@@ -475,14 +570,9 @@ export default class GameScene extends BaseScene {
     this._playGoalEffects(data.newScore, data.scoreTeam);
   }
 
-  // [新增] 进球聊天判断逻辑 (优化版：支持乌龙球和复杂比分场景)
   checkGoalChatTrigger(scoreTeam) {
-      // 谁踢的球？(回合方)
       const turnId = this.turnMgr.currentTurn;
-      // 谁得了分？
       const scoreId = scoreTeam;
-
-      // 判断是否是乌龙球 (踢球方 != 得分方)
       const isOwnGoal = turnId !== scoreId;
 
       const prevScoreP = this.turnStartScores[TeamId.LEFT];
@@ -491,57 +581,40 @@ export default class GameScene extends BaseScene {
       const newScoreP = scoreTeam === TeamId.LEFT ? prevScoreP + 1 : prevScoreP;
       const newScoreAI = scoreTeam === TeamId.RIGHT ? prevScoreAI + 1 : prevScoreAI;
 
-      // 1. 处理乌龙球
       if (isOwnGoal) {
           if (scoreId === TeamId.RIGHT) {
-              // 玩家乌龙 (AI得分)
               this.triggerAIChat(ChatTrigger.PLAYER_OWN_GOAL);
           } else {
-              // AI乌龙 (玩家得分)
               this.triggerAIChat(ChatTrigger.AI_OWN_GOAL);
           }
           return;
       }
 
-      // 2. 处理正常进球
       if (scoreId === TeamId.LEFT) {
-          // --- 玩家进球 ---
-          
-          // 场景判定
           if (prevScoreP < prevScoreAI && newScoreP === newScoreAI) {
-              // 追平 (例如 0-1 -> 1-1)
               this.triggerAIChat(ChatTrigger.PLAYER_EQUALIZER);
           } 
           else if (prevScoreP === prevScoreAI && newScoreP > newScoreAI) {
-              // 反超 (例如 1-1 -> 2-1)
               this.triggerAIChat(ChatTrigger.PLAYER_OVERTAKE);
           }
           else if (prevScoreP > prevScoreAI && newScoreP > newScoreAI) {
-              // 扩大领先 (例如 1-0 -> 2-0)
               this.triggerAIChat(ChatTrigger.PLAYER_LEAD_EXTEND);
           }
           else if (this.turnMgr.timer < 2) { 
-              // 秒进 (备选，优先级较低)
               this.triggerAIChat(ChatTrigger.PLAYER_INSTANT_GOAL);
           }
           else {
-              // 普通进球 (例如 0-0 -> 1-0 也算开局领先，或者默认)
               this.triggerAIChat(ChatTrigger.PLAYER_GOAL);
           }
 
       } else {
-          // --- AI 进球 ---
-          
           if (prevScoreAI < prevScoreP && newScoreAI === newScoreP) {
-              // AI 追平
               this.triggerAIChat(ChatTrigger.AI_EQUALIZER);
           }
           else if (prevScoreAI === prevScoreP && newScoreAI > newScoreP) {
-              // AI 反超
               this.triggerAIChat(ChatTrigger.AI_OVERTAKE);
           }
           else if (prevScoreAI > prevScoreP && newScoreAI > newScoreP) {
-              // AI 扩大领先
               this.triggerAIChat(ChatTrigger.AI_LEAD_EXTEND);
           }
           else {
@@ -550,22 +623,18 @@ export default class GameScene extends BaseScene {
       }
   }
 
-  // [新增] 触发 AI 聊天
   triggerAIChat(triggerType) {
       if (!this.aiPersona || !this.aiChatBubble) return;
       
-      // 简单的防刷屏：2秒冷却
       const now = Date.now();
       if (now - this.lastChatTime < 2000) return;
       this.lastChatTime = now;
 
-      // 获取该人格、该类型下的文案列表
       const personaTexts = AIChatTexts[this.aiPersona.id];
       if (!personaTexts) return;
       
       const lines = personaTexts[triggerType];
       if (lines && lines.length > 0) {
-          // 随机一句
           const text = lines[Math.floor(Math.random() * lines.length)];
           this.aiChatBubble.show(text);
       }
@@ -577,12 +646,11 @@ export default class GameScene extends BaseScene {
     this.goalBanner?.play("进球！"); 
     Platform.vibrateShort();
     
-    // [核心修改] 锁定状态，阻止物理静止检测自动切换回合
     this.isGoalResetting = true;
 
     if (this.ball) {
         this.ball.setLightningMode(false);
-        this.ball.resetStates(); // [核心修改] 进球后立即重置状态，防止无限滑行
+        this.ball.resetStates(); 
     }
     
     if (this.resetTimerId) clearTimeout(this.resetTimerId);
@@ -591,14 +659,12 @@ export default class GameScene extends BaseScene {
         if (!this.isGameOver && this.physics && this.physics.engine) {
             this.setupFormation(); 
             
-            // [核心修改] 进球后，由失分方（scoreTeam 的对方）开球
             if (scoreTeam !== undefined && scoreTeam !== null) {
                 const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
                 this.turnMgr.currentTurn = nextTurn;
                 this.turnMgr.resetTimer();
             }
 
-            // 重置完成，解锁状态
             this.isGoalResetting = false;
             this.isMoving = false;
         }
@@ -614,23 +680,19 @@ export default class GameScene extends BaseScene {
         this.resetTimerId = null;
     }
 
-    // [新增] 触发胜负聊天
     if (this.gameMode === 'pve') {
-        if (data.winner === TeamId.RIGHT) { // AI 赢
+        if (data.winner === TeamId.RIGHT) { 
             this.triggerAIChat(ChatTrigger.AI_WIN);
         }
     }
 
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
 
-    // [核心修改] 网络对战不在这里断开连接，而是发送 GAME_OVER 消息
-    // 保留连接以便复玩
     if (this.gameMode === 'pvp_online') {
         NetworkMgr.send({ type: NetMsg.GAME_OVER });
     }
 
     setTimeout(() => {
-        // [核心修改] 传递 roomId 给结果页，以便 "再来一局" 使用
         const roomId = Platform.getStorage('last_room_id');
         
         SceneManager.changeScene(ResultScene, {
@@ -641,7 +703,7 @@ export default class GameScene extends BaseScene {
             stats: this.matchStats,
             players: this.players,
             myTeamId: this.myTeamId,
-            roomId: roomId // 传递房间号
+            roomId: roomId 
         });
     }, 2000);
   }
@@ -659,32 +721,23 @@ export default class GameScene extends BaseScene {
         this.accumulator = this.fixedTimeStep * 5;
     }
     
-    // [核心优化] 物理步进与视觉插值分离
     while (this.accumulator >= this.fixedTimeStep) {
-        // 1. 在物理步进前，保存当前状态为“上一帧”状态
         this._saveEntityStates();
-        
-        // 2. 执行物理步进
         this._fixedUpdate(this.fixedTimeStep);
         this.accumulator -= this.fixedTimeStep;
     }
 
-    // 3. 计算插值系数 (alpha)，代表当前时间点位于上一次物理帧和下一次物理帧之间的比例 (0.0 ~ 1.0)
     const alpha = this.accumulator / this.fixedTimeStep;
 
-    // 4. 使用插值系数更新视图
     this.strikers.forEach(s => s.update(delta, alpha));
     this.ball?.update(delta, alpha);
 
-    // [新增] 检测玩家发呆
     if (this.gameMode === 'pve' && 
         this.turnMgr.currentTurn === TeamId.LEFT && 
         !this.isMoving && 
         !this.isGameOver) {
         
-        // 如果倒计时过了 10秒 (总时限30秒，剩余20秒时)
         if (this.turnMgr.timer < (this.turnMgr.maxTime - 10)) {
-            // 只有极低概率触发，避免一直催
             if (Math.random() < 0.005) { 
                 this.triggerAIChat(ChatTrigger.IDLE);
             }
@@ -692,7 +745,6 @@ export default class GameScene extends BaseScene {
     }
   }
 
-  // [新增] 保存所有实体的渲染状态
   _saveEntityStates() {
       this.strikers.forEach(s => s.saveRenderState());
       if (this.ball) this.ball.saveRenderState();
@@ -729,9 +781,6 @@ export default class GameScene extends BaseScene {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
 
-            // [核心修改] 增加 !this.isGoalResetting 判断
-            // 如果正在处理进球重置逻辑，不要因为物理静止了就自动切换回合
-            // 而是等待 setTimeout 中的重置逻辑来切换回合
             if (isPhysicsSleeping && isAnimFinished && !this.isGoalResetting) {
                  const startedAnyAnim = this._enforceFairPlay();
                  if (!startedAnyAnim) {
@@ -751,22 +800,21 @@ export default class GameScene extends BaseScene {
                   Matter.Body.setAngularVelocity(b, 0);
               }
           });
-          // 强制同步视觉，避免插值产生的残影
           this._saveEntityStates(); 
       }
   }
   
-  _endTurn() {
-      if (!this.isMoving) return;
+  _endTurn(force = false) {
+      // [修复] 增加 force 参数，允许强制结束回合 (用于处理 TURN_SYNC 乱序或 MOVE 丢失的情况)
+      if (!this.isMoving && !force) return;
 
-      // [新增] 检测是否为玩家失误（没有进球，且球没有发生大的位移，或者没碰到球）
-      // 这里简化判断：只要回合结束了且没有进球，就有概率触发“失误/未进”的嘲讽
-      // 只有 PVE 且是玩家刚踢完
+      // [新增] 回合计数增加
+      this.totalTurns++;
+
       if (this.gameMode === 'pve' && 
           this.turnMgr.currentTurn === TeamId.LEFT &&
           this.turnStartScores[TeamId.LEFT] === this.rules.score[TeamId.LEFT]) {
           
-          // 30% 概率触发“踢得不好”或“没进”的吐槽
           if (Math.random() < 0.3) {
               this.triggerAIChat(ChatTrigger.PLAYER_BAD);
           }
@@ -777,8 +825,11 @@ export default class GameScene extends BaseScene {
       
       if (this.ball) {
           this.ball.setLightningMode(false);
-          this.ball.resetStates(); // [核心修改] 回合结束强制重置技能状态
+          this.ball.resetStates(); 
       }
+
+      // [核心新增] 检查是否触发僵持局加油 (回合切换时判断)
+      this._checkEncouragementCheer();
 
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {
           this.networkCtrl.syncAllPositions();
@@ -790,10 +841,33 @@ export default class GameScene extends BaseScene {
           const pending = this.networkCtrl.popPendingTurn();
           if (pending !== null && pending !== undefined) {
               this.turnMgr.currentTurn = pending;
-          } else if (this.turnMgr.currentTurn === this.myTeamId) {
+          } else {
+              // [修复] 兜底策略：如果 pendingTurn 缺失（例如 MOVE 消息丢失），强制切换回合
+              // 这确保了接收方不会卡在发送方的回合中
               this.turnMgr.switchTurn();
           }
           this.turnMgr.resetTimer();
+      }
+  }
+
+  // [新增] 僵持局加油判断逻辑
+  _checkEncouragementCheer() {
+      // 1. 如果本局已经触发过，则不再触发
+      if (this.hasPlayedClimaxCheer) return;
+
+      // 2. 回合数检测：5-10 回合之间
+      if (this.totalTurns >= 5 && this.totalTurns <= 10) {
+          // 3. 局势判断：分差 <= 1 (僵持/胶着状态)
+          const scoreDiff = Math.abs(this.rules.score[TeamId.LEFT] - this.rules.score[TeamId.RIGHT]);
+          
+          if (scoreDiff <= 1) {
+              // 4. 随机触发 (约30%概率)
+              if (Math.random() < 0.3) {
+                  console.log(`[Audio] Trigger Encouragement Cheer at turn ${this.totalTurns}`);
+                  this.hasPlayedClimaxCheer = true;
+                  AudioManager.playClimaxCheer();
+              }
+          }
       }
   }
   
@@ -935,23 +1009,39 @@ export default class GameScene extends BaseScene {
   }
 
   onExit() {
-      super.onExit();
+      // 1. 先清理逻辑和事件监听
       Platform.hideGameAds();
       if (this.resetTimerId) {
           clearTimeout(this.resetTimerId);
           this.resetTimerId = null;
       }
+
+      // [新增] 停止背景音
+      AudioManager.stopBGM();
+      
+      // 移除事件监听 (EventBus 已修复支持传 context)
       EventBus.off(Events.GOAL_SCORED, this);
       EventBus.off(Events.GAME_OVER, this);
       EventBus.off(Events.COLLISION_HIT, this);
       EventBus.off(Events.PLAY_SOUND, this); 
       EventBus.off(Events.SKILL_ACTIVATED, this); 
       EventBus.off(Events.ITEM_UPDATE, this); 
+      
       if (this.networkCtrl) {
           this.networkCtrl.destroy();
           this.networkCtrl = null;
       }
+      
+      if (this.rules) {
+          this.rules.destroy();
+          this.rules = null;
+      }
+      
+      this._clearEntities();
       this.turnMgr.clear();
       this.physics.clear();
+
+      // 2. 最后再销毁显示对象容器
+      super.onExit();
   }
 }

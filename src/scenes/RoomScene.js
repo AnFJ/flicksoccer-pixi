@@ -20,6 +20,7 @@ export default class RoomScene extends BaseScene {
     this.players = [];
     this.readyBtn = null;
     this.formationBtn = null;
+    this.inviteBtn = null; // [修改] 添加引用
     this.isReady = false;
     this.statusText = null;
     this.p1Container = null;
@@ -54,6 +55,18 @@ export default class RoomScene extends BaseScene {
 
     this.p1Container = this.createPlayerSlot(designWidth * 0.25, designHeight / 2);
     this.p2Container = this.createPlayerSlot(designWidth * 0.75, designHeight / 2);
+
+    // [修改] 邀请好友按钮 (调整位置到 P2 头像下方)
+    this.inviteBtn = new Button({
+        text: '邀请好友', width: 220, height: 60, color: 0xe67e22, fontSize: 28,
+        onClick: () => {
+            Platform.shareRoom(this.roomId);
+        }
+    });
+    // P2 container x is designWidth * 0.75. Button width 220.
+    // 中心对齐计算: x = designWidth * 0.75 - 110, y = designHeight / 2 + 230
+    this.inviteBtn.position.set(designWidth * 0.75 - 110, designHeight / 2 + 230);
+    this.container.addChild(this.inviteBtn);
 
     const fmt = Formations.find(f => f.id === this.myFormationId) || Formations[0];
     this.formationBtn = new Button({
@@ -183,6 +196,11 @@ export default class RoomScene extends BaseScene {
           }
           this.updatePlayerSlot(this.p1Container, players.find(p=>p.teamId===0), players.find(p=>p.teamId===0)?.id === myId);
           this.updatePlayerSlot(this.p2Container, players.find(p=>p.teamId===1), players.find(p=>p.teamId===1)?.id === myId);
+          
+          // [修改] 如果对方存在(P2)，隐藏邀请按钮
+          const hasP2 = players.some(p => p.teamId === 1);
+          if (this.inviteBtn) this.inviteBtn.visible = !hasP2;
+
       } else if (msg.type === NetMsg.START) {
           SceneManager.changeScene(GameScene, { mode: 'pvp_online', players: this.players, startTurn: msg.payload.currentTurn });
       } else if (msg.type === NetMsg.GAME_RESUME) {
@@ -202,6 +220,10 @@ export default class RoomScene extends BaseScene {
           this.players = this.players.filter(p => p.id !== leftId);
           this.updatePlayerSlot(this.p1Container, this.players.find(p=>p.teamId===0), this.players.find(p=>p.teamId===0)?.id === AccountMgr.userInfo.id);
           this.updatePlayerSlot(this.p2Container, this.players.find(p=>p.teamId===1), this.players.find(p=>p.teamId===1)?.id === AccountMgr.userInfo.id);
+          
+          // [修改] 如果对方离开了，重新显示邀请按钮
+          const hasP2 = this.players.some(p => p.teamId === 1);
+          if (this.inviteBtn) this.inviteBtn.visible = !hasP2;
       }
   }
 

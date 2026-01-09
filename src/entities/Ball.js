@@ -6,6 +6,13 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class Ball {
+  // [新增] 静态纹理缓存，全局复用
+  static cachedTextures = {
+      shadow: null,
+      trail: null,
+      overlay: null
+  };
+
   /**
    * @param {number} x
    * @param {number} y
@@ -46,7 +53,7 @@ export default class Ball {
     // 2. 视图容器
     this.view = new PIXI.Container();
     
-    // A. 阴影 (优化版：Canvas纹理 + 正片叠底)
+    // A. 阴影 (优化版：使用缓存纹理)
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
     this.view.addChild(shadow);
@@ -58,7 +65,8 @@ export default class Ball {
     this.historyRecordThreshold = 2; 
 
     // B. 常规拖尾特效 (SimpleRope)
-    this.trailTexture = this.generateTrailTexture();
+    // [优化] 使用缓存纹理
+    this.trailTexture = this.getTrailTexture();
     
     // Rope 的段数
     this.ropeSegmentCount = 20;
@@ -82,11 +90,10 @@ export default class Ball {
     this.view.addChild(this.fireContainer);
 
     // E. 足球本体容器
-    // [修复] 保存引用以便在 update 中旋转整个容器，解决 TilingSprite 旋转偏心问题
     this.ballContainer = new PIXI.Container();
     this.view.addChild(this.ballContainer);
 
-    // [关键] 创建遮罩，确保球体和光影层边缘完美对其
+    // [关键] 创建遮罩
     const mask = new PIXI.Graphics();
     mask.beginFill(0xffffff);
     mask.drawCircle(0, 0, this.radius);
@@ -100,7 +107,7 @@ export default class Ball {
         texKey = `ball_texture_${themeId}`;
     }
     const rawBallTex = ResourceManager.get(texKey) || ResourceManager.get('ball_texture'); 
-    const texture = rawBallTex || this.generateProceduralPattern();
+    const texture = rawBallTex || PIXI.Texture.WHITE; // 兜底
     
     this.textureScale = 0.36; 
     this.ballTexture = new PIXI.TilingSprite(
@@ -110,21 +117,21 @@ export default class Ball {
     );
     this.ballTexture.anchor.set(0.5);
     this.ballTexture.tileScale.set(this.textureScale);
-    this.ballTexture.tint = 0xdddddd; // 稍微暗一点，靠光影层提亮
+    this.ballTexture.tint = 0xdddddd; 
     
     // 将纹理加入容器
     this.ballContainer.addChild(this.ballTexture);
 
-    // [优化] 光影蒙版 (Overlay)
-    const overlayTexture = this.generateProceduralOverlay();
-    const overlay = new PIXI.Sprite(overlayTexture);
-    overlay.anchor.set(0.5);
-    overlay.width = this.radius * 2;
-    overlay.height = this.radius * 2;
-    // 稍微放大一点点以防计算误差导致的白边
-    overlay.scale.set(1.01);
-    
-    this.ballContainer.addChild(overlay);
+    // [优化] 光影蒙版 (Overlay) - 使用缓存
+    const overlayTexture = this.getOverlayTexture();
+    if (overlayTexture) {
+        const overlay = new PIXI.Sprite(overlayTexture);
+        overlay.anchor.set(0.5);
+        overlay.width = this.radius * 2;
+        overlay.height = this.radius * 2;
+        overlay.scale.set(1.01);
+        this.ballContainer.addChild(overlay);
+    }
 
     // --- 状态变量 ---
     this.skillStates = {
@@ -135,118 +142,95 @@ export default class Ball {
     };
 
     this.moveAngle = 0;
-    
-    // [修复] 记录上一帧的视图位置，用于计算纹理滚动增量
     this.prevPos = { x: x, y: y };
   }
 
-  setLightningMode(active) {
-      this.skillStates.lightning = active;
-      if (!active) this.lightningTrail.clear();
-  }
 
-  activateUnstoppable(duration) {
-      this.skillStates.fire = true;
-      this.skillStates.fireMaxDuration = duration;
-      this.skillStates.fireTimer = duration;
-      
-      this.body.frictionAir = 0;
-      this.body.friction = 0;
-  }
-
-  // [新增] 强制重置所有技能状态和物理属性
-  resetStates() {
-      this.skillStates.fire = false;
-      this.skillStates.lightning = false;
-      this.skillStates.fireTimer = 0;
-      
-      // 关键：恢复物理属性，防止 frictionAir 停留在 0 导致无限滑行
-      if (this.body) {
-          this.body.frictionAir = this.baseFrictionAir;
-          this.body.friction = this.baseFriction;
-      }
-      
-      // 清理特效
-      this.lightningTrail.clear();
-      this.fireContainer.removeChildren();
-      this.trailRope.visible = false;
-  }
+  // --- 资源创建与缓存方法 ---
 
   createShadowSprite() {
-    const r = this.radius;
-    const blurPadding = 20; 
-    const size = (r + blurPadding) * 2;
+      // 1. 尝试从缓存获取纹理
+      let texture = Ball.cachedTextures.shadow;
 
-    if (typeof document !== 'undefined' && document.createElement) {
-        try {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
-            
-            if (ctx) {
-                const cx = size / 2;
-                const cy = size / 2;
-                const grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r + blurPadding * 0.8);
-                
-                grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)'); 
-                grad.addColorStop(0.4, 'rgba(0, 0, 0, 0.35)'); 
-                grad.addColorStop(0.8, 'rgba(0, 0, 0, 0.05)'); 
-                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
+      // 2. 如果没有，则生成并缓存
+      if (!texture) {
+          const r = this.radius;
+          const blurPadding = 20; 
+          const size = (r + blurPadding) * 2;
 
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
-                ctx.fill();
+          if (typeof document !== 'undefined' && document.createElement) {
+              try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = size;
+                  canvas.height = size;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                      const cx = size / 2;
+                      const cy = size / 2;
+                      const grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r + blurPadding * 0.8);
+                      grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)'); 
+                      grad.addColorStop(0.4, 'rgba(0, 0, 0, 0.35)'); 
+                      grad.addColorStop(0.8, 'rgba(0, 0, 0, 0.05)'); 
+                      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
+                      ctx.fillStyle = grad;
+                      ctx.beginPath();
+                      ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
+                      ctx.fill();
+                      texture = PIXI.Texture.from(canvas);
+                      Ball.cachedTextures.shadow = texture;
+                  }
+              } catch(e) {}
+          }
+      }
 
-                const texture = PIXI.Texture.from(canvas);
-                const sprite = new PIXI.Sprite(texture);
-                sprite.anchor.set(0.5);
-                sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-                
-                return sprite;
-            }
-        } catch(e) {}
-    }
-
-    const g = new PIXI.Graphics();
-    g.beginFill(0x000000, 0.3);
-    g.drawCircle(0, 0, r + 4);
-    g.endFill();
-    g.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-    return g;
+      // 3. 使用纹理创建 Sprite (或 fallback 到 Graphics)
+      if (texture) {
+          const sprite = new PIXI.Sprite(texture);
+          sprite.anchor.set(0.5);
+          sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+          return sprite;
+      } else {
+          const g = new PIXI.Graphics();
+          g.beginFill(0x000000, 0.3);
+          g.drawCircle(0, 0, this.radius + 4);
+          g.endFill();
+          g.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+          return g;
+      }
   }
 
-  generateTrailTexture() {
-    if (typeof document !== 'undefined' && document.createElement) {
-        try {
-            const w = 256, h = 64; 
-            const canvas = document.createElement('canvas');
-            canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                const grad = ctx.createLinearGradient(0, 0, w, 0);
-                grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)'); // 尾巴尖端透明
-                grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)'); 
-                grad.addColorStop(1, 'rgba(255, 255, 255, 0.9)'); // 头部不透明  
-                
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                // 流星形状
-                ctx.moveTo(0, h/2 - h*0.4); 
-                ctx.bezierCurveTo(w * 0.2, h * 0.1, w * 0.6, h * 0.45, w, h/2);
-                ctx.bezierCurveTo(w * 0.6, h * 0.55, w * 0.2, h * 0.9, 0, h/2 + h*0.4);
-                
-                ctx.fill();
-                return PIXI.Texture.from(canvas);
-            }
-        } catch (e) {}
-    }
-    return PIXI.Texture.WHITE;
+  getTrailTexture() {
+      if (Ball.cachedTextures.trail) return Ball.cachedTextures.trail;
+
+      if (typeof document !== 'undefined' && document.createElement) {
+          try {
+              const w = 256, h = 64; 
+              const canvas = document.createElement('canvas');
+              canvas.width = w; canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                  const grad = ctx.createLinearGradient(0, 0, w, 0);
+                  grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)'); 
+                  grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.3)'); 
+                  grad.addColorStop(1, 'rgba(255, 255, 255, 0.9)');  
+                  ctx.fillStyle = grad;
+                  ctx.beginPath();
+                  ctx.moveTo(0, h/2 - h*0.4); 
+                  ctx.bezierCurveTo(w * 0.2, h * 0.1, w * 0.6, h * 0.45, w, h/2);
+                  ctx.bezierCurveTo(w * 0.6, h * 0.55, w * 0.2, h * 0.9, 0, h/2 + h*0.4);
+                  ctx.fill();
+                  const tex = PIXI.Texture.from(canvas);
+                  Ball.cachedTextures.trail = tex;
+                  return tex;
+              }
+          } catch (e) {}
+      }
+      return PIXI.Texture.WHITE;
   }
 
-  generateProceduralPattern() { return PIXI.Texture.WHITE; }
-  generateProceduralOverlay() {
+  getOverlayTexture() {
+      if (Ball.cachedTextures.overlay) return Ball.cachedTextures.overlay;
+
       if (typeof document !== 'undefined' && document.createElement) {
           try {
               const size = this.radius * 2;
@@ -286,14 +270,46 @@ export default class Ball {
                   ctx.fillStyle = rimGrad; ctx.fillRect(0, 0, size, size);
                   ctx.restore();
 
-                  return PIXI.Texture.from(canvas);
+                  const tex = PIXI.Texture.from(canvas);
+                  Ball.cachedTextures.overlay = tex;
+                  return tex;
               }
           } catch (e) { }
       }
-      return PIXI.Texture.EMPTY; 
+      return null;
   }
 
-  // [新增] 保存当前物理状态（作为上一帧状态）
+  // --- 逻辑方法 ---
+
+  setLightningMode(active) {
+      this.skillStates.lightning = active;
+      if (!active) this.lightningTrail.clear();
+  }
+
+  activateUnstoppable(duration) {
+      this.skillStates.fire = true;
+      this.skillStates.fireMaxDuration = duration;
+      this.skillStates.fireTimer = duration;
+      
+      this.body.frictionAir = 0;
+      this.body.friction = 0;
+  }
+
+  resetStates() {
+      this.skillStates.fire = false;
+      this.skillStates.lightning = false;
+      this.skillStates.fireTimer = 0;
+      
+      if (this.body) {
+          this.body.frictionAir = this.baseFrictionAir;
+          this.body.friction = this.baseFriction;
+      }
+      
+      this.lightningTrail.clear();
+      this.fireContainer.removeChildren();
+      this.trailRope.visible = false;
+  }
+
   saveRenderState() {
       if (this.body) {
           this.renderState.x = this.body.position.x;
@@ -302,20 +318,16 @@ export default class Ball {
       }
   }
 
-  // [修改] update 接收插值系数 alpha
   update(deltaMS = 16.66, alpha = 1.0) {
     if (this.body && this.view) {
-      // 1. 获取物理帧位置
       const currX = this.body.position.x;
       const currY = this.body.position.y;
       const currAngle = this.body.angle;
 
-      // 2. 使用 alpha 进行插值
       const prevX = this.renderState.x;
       const prevY = this.renderState.y;
       const prevAngle = this.renderState.angle;
 
-      // 简单的线性插值
       const renderX = prevX + (currX - prevX) * alpha;
       const renderY = prevY + (currY - prevY) * alpha;
       const renderAngle = prevAngle + (currAngle - prevAngle) * alpha;
@@ -323,21 +335,17 @@ export default class Ball {
       this.view.position.x = renderX;
       this.view.position.y = renderY;
       
-      // [修复] 旋转逻辑：不再旋转 ballTexture，而是旋转 ballContainer
       this.ballContainer.rotation = renderAngle;
 
-      // 2. 计算速度 (用于特效) - 速度直接取物理速度即可，不需要插值
       const velocity = this.body.velocity;
       const speed = Matter.Vector.magnitude(velocity);
       
-      // [修复] 自转物理阻尼：模拟草地对旋转的强摩擦力
       if (Math.abs(this.body.angularVelocity) > 0.001) {
           Matter.Body.setAngularVelocity(this.body, this.body.angularVelocity * 0.92);
       } else if (this.body.angularVelocity !== 0) {
           Matter.Body.setAngularVelocity(this.body, 0);
       }
 
-      // 3. 更新移动角度 (用于特效方向)
       if (speed > 0.1) {
           const targetAngle = Math.atan2(velocity.y, velocity.x);
           let diff = targetAngle - this.moveAngle;
@@ -347,15 +355,11 @@ export default class Ball {
           this.moveAngle += diff * turnSpeed;
       }
 
-      // 4. [核心修复] 纹理滚动计算
-      // 使用插值后的渲染位置差来滚动纹理
       const dx = renderX - this.prevPos.x;
       const dy = renderY - this.prevPos.y;
       const distMoved = Math.sqrt(dx * dx + dy * dy);
 
-      // 只有发生实质性移动时才更新纹理
       if (distMoved > 0.05) {
-          // 渲染角度
           const angle = -renderAngle; 
           const cos = Math.cos(angle), sin = Math.sin(angle);
           
@@ -369,12 +373,9 @@ export default class Ball {
           if (Math.abs(this.ballTexture.tilePosition.y) > 10000) this.ballTexture.tilePosition.y %= this.ballTexture.texture.height;
       }
 
-      // 更新上一帧位置 (渲染位置)
       this.prevPos.x = renderX;
       this.prevPos.y = renderY;
 
-      // 5. 更新特效
-      // 特效通常基于当前位置，使用渲染位置即可
       this.updatePathHistory(renderX, renderY);
 
       if (this.skillStates.fire) {
@@ -418,7 +419,6 @@ export default class Ball {
   }
 
   updatePathHistory(curX, curY) {
-      // 传入的已经是渲染位置
       const dist = Math.sqrt(Math.pow(curX - this.lastRecordPos.x, 2) + Math.pow(curY - this.lastRecordPos.y, 2));
       
       if (dist > this.historyRecordThreshold || this.pathHistory.length === 0) {
@@ -441,7 +441,7 @@ export default class Ball {
       const segmentLen = targetLength / (this.ropeSegmentCount - 1);
 
       const resultPoints = [];
-      const currentX = this.view.position.x; // 使用渲染位置
+      const currentX = this.view.position.x; 
       const currentY = this.view.position.y;
 
       resultPoints.push({ x: 0, y: 0 });
@@ -489,8 +489,6 @@ export default class Ball {
 
   updateRopeTrail(speed) {
       const smoothPoints = this.getResampledPath(speed);
-      
-      // [修复] 防止 pathHistory 不足时数组为空导致访问 undefined
       if (smoothPoints.length === 0) return;
 
       for (let i = 0; i < this.ropePoints.length; i++) {
@@ -520,22 +518,16 @@ export default class Ball {
         if (Math.random() > 0.7) { 
             const startP = points[i];
             const prevP = points[i-1];
-            
             const dx = startP.x - prevP.x;
             const dy = startP.y - prevP.y;
             const angle = Math.atan2(dy, dx);
-            
             const branchAngle = angle + (Math.random() - 0.5) * 1.5; 
             const branchLen = 30 + Math.random() * 40;
-            
             const endX = startP.x + Math.cos(branchAngle) * branchLen;
             const endY = startP.y + Math.sin(branchAngle) * branchLen;
-            
             const midX = (startP.x + endX) / 2 + (Math.random() - 0.5) * 10;
             const midY = (startP.y + endY) / 2 + (Math.random() - 0.5) * 10;
-            
             const branchPath = [startP, {x: midX, y: midY}, {x: endX, y: endY}];
-            
             this.drawLightningBranch(g, branchPath, 3, 0.6, 0x00FFFF, 2);
         }
     }
@@ -544,18 +536,14 @@ export default class Ball {
   drawLightningBranch(g, pts, amp, alpha, color, width) {
         g.lineStyle(width, color, alpha);
         g.moveTo(pts[0].x, pts[0].y);
-        
         for (let i = 1; i < pts.length; i++) {
             const p1 = pts[i-1];
             const p2 = pts[i];
-            
             const midX = (p1.x + p2.x) / 2;
             const midY = (p1.y + p2.y) / 2;
-            
             const dx = p2.x - p1.x;
             const dy = p2.y - p1.y;
             const len = Math.sqrt(dx*dx + dy*dy);
-            
             if (len > 5) {
                 const nx = -dy / len;
                 const ny = dx / len;
@@ -569,42 +557,32 @@ export default class Ball {
   spawnFireParticles(speed, moveAngle) {
       const vx = this.body.velocity.x;
       const vy = this.body.velocity.y;
-      
       const steps = Math.ceil(speed / 5); 
-      
       for (let s = 0; s < steps; s++) {
           const t = s / steps;
           const spawnX = -vx * t; 
           const spawnY = -vy * t; 
-          
           const p = new PIXI.Graphics();
           const isGold = Math.random() > 0.4;
           const color = isGold ? 0xFFD700 : 0xFF4500; 
           const intensity = Math.min(speed, 12) / 12;
           const size = (6 + Math.random() * 8) * intensity;
-          
           p.beginFill(color, (0.4 + Math.random() * 0.4) * intensity);
           p.drawCircle(0, 0, size);
           p.endFill();
-          
           const offsetAngle = Math.random() * Math.PI * 2;
           const offsetR = Math.random() * this.radius * 0.6;
-          
           p.x = spawnX + Math.cos(offsetAngle) * offsetR;
           p.y = spawnY + Math.sin(offsetAngle) * offsetR;
-          
           const angle = moveAngle + Math.PI; 
           const spread = 0.6; 
           const pAngle = angle + (Math.random() - 0.5) * spread;
           const pSpeed = speed * (0.1 + Math.random() * 0.2); 
-          
           p.vx = Math.cos(pAngle) * pSpeed;
           p.vy = Math.sin(pAngle) * pSpeed;
           p.vx += vx * 0.1;
           p.vy += vy * 0.1;
-
           p.alphaDecay = 0.015 + Math.random() * 0.02;
-          
           this.fireContainer.addChild(p);
       }
   }
@@ -623,8 +601,10 @@ export default class Ball {
       }
   }
 
-  updateFireEffect(speed, moveAngle) {
-      this.spawnFireParticles(speed, moveAngle);
-      this.updateFireParticlesState();
+  // [新增] 销毁方法
+  destroy() {
+      // 只需要清理逻辑相关引用，显示对象由 Scene 统一 destroy
+      this.body = null;
+      // 注意：不要销毁 Ball.cachedTextures，因为它们是全局共享的
   }
 }

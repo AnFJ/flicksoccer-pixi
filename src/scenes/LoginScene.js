@@ -7,6 +7,8 @@ import Platform from '../managers/Platform.js';
 import ResourceManager from '../managers/ResourceManager.js';
 import AudioManager from '../managers/AudioManager.js'; 
 import MenuScene from './MenuScene.js';
+import RoomScene from './RoomScene.js'; // [新增]
+import NetworkMgr from '../managers/NetworkMgr.js'; // [新增]
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 
@@ -148,10 +150,29 @@ export default class LoginScene extends BaseScene {
               // 是新用户，且不是Web环境 (Web默认Guest自动进)
               this._createAuthButton(w, h);
           } else {
-              // 老用户 或 Web用户 或 缓存命中 -> 进大厅
-              SceneManager.changeScene(MenuScene);
+              this._checkInviteAndEnter();
           }
       }, 200);
+  }
+
+  // [新增] 检查邀请并进入游戏
+  _checkInviteAndEnter() {
+      // 检查是否有来自平台启动参数的邀请
+      const invite = Platform.pendingInvite;
+      if (invite && invite.roomId) {
+          console.log(`[Login] Auto-joining room: ${invite.roomId}`);
+          this.loadingLabel.text = "正在加入邀请房间...";
+          
+          const user = AccountMgr.userInfo;
+          NetworkMgr.connectRoom(invite.roomId, user.id, user);
+          SceneManager.changeScene(RoomScene, { roomId: invite.roomId });
+          
+          // 清除邀请，避免退回主菜单后又自动进入
+          Platform.pendingInvite = null;
+      } else {
+          // 正常流程
+          SceneManager.changeScene(MenuScene);
+      }
   }
 
   _createAuthButton(w, h) {
@@ -177,7 +198,7 @@ export default class LoginScene extends BaseScene {
               }
 
               setTimeout(() => {
-                  SceneManager.changeScene(MenuScene);
+                  this._checkInviteAndEnter();
               }, 500);
           }
       });

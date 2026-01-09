@@ -160,28 +160,42 @@ export default class OnlineMatchController {
 
     _handleReplayEvent(frame) {
         if (frame.eventType === NetMsg.GOAL) {
-            let { newScore, scoreTeam } = frame.payload;
-            
-            // [增强] 如果 scoreTeam 缺失 (兼容旧服务器代码)，尝试本地推断
-            if (scoreTeam === undefined || scoreTeam === null) {
-                const oldScore = this.scene.rules.score;
-                if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) scoreTeam = TeamId.LEFT;
-                else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) scoreTeam = TeamId.RIGHT;
-            }
-
-            this.scene.rules.score = newScore;
-            // [核心修复] 传递 scoreTeam
-            this.scene._playGoalEffects(newScore, scoreTeam);
-            // [修复] 更新分数后立即检查是否满足结束条件
-            this._checkRemoteGameOver(newScore);
-            
-            // [核心优化] 不再清空回放队列 (isReplaying/replayQueue)
-            // 允许后续的轨迹数据（如球撞网后的运动）继续播放，直到 GameScene 重置场景
-            
+            this._processGoalMessage(frame.payload);
         } else if (frame.eventType === 'SOUND') {
             // [新增] 播放同步的碰撞音效
             AudioManager.playSFX(frame.key);
         }
+    }
+
+    // [新增] 统一处理进球消息逻辑 (复用于回放和直接消息)
+    _processGoalMessage(payload) {
+        const { newScore, scoreTeam } = payload;
+        
+        // [重要] 去重校验：如果本地分数已经大于等于网络分数，说明已处理过或网络延迟重复发
+        const currentScore = this.scene.rules.score[scoreTeam];
+        if (newScore[scoreTeam] <= currentScore) {
+            console.log(`[Online] Ignore duplicate/old goal message. Local: ${currentScore}, Net: ${newScore[scoreTeam]}`);
+            return;
+        }
+
+        // [核心修复] 如果是我方回合(我是攻击者)，理应由我方产生进球，忽略对方传来的 GOAL
+        // 除非出现极其罕见的同步错乱，否则不应信任对方在我方回合的判定
+        if (this.scene.turnMgr.currentTurn === this.scene.myTeamId) {
+             console.log(`[Online] Ignore remote goal during my turn.`);
+             return;
+        }
+
+        let actualScoreTeam = scoreTeam;
+        // [增强] 如果 scoreTeam 缺失 (兼容旧服务器代码)，尝试本地推断
+        if (actualScoreTeam === undefined || actualScoreTeam === null) {
+            const oldScore = this.scene.rules.score;
+            if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) actualScoreTeam = TeamId.LEFT;
+            else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) actualScoreTeam = TeamId.RIGHT;
+        }
+
+        this.scene.rules.score = newScore;
+        this.scene._playGoalEffects(newScore, actualScoreTeam);
+        this._checkRemoteGameOver(newScore);
     }
 
     _applyFrameState(frame) {
@@ -299,21 +313,20 @@ export default class OnlineMatchController {
                         payload: msg.payload,
                         t: 0 
                     });
+                    // [修复] 收到进球消息后，强制停止缓冲，确保队列中的进球事件能立即/随后被播放
+                    // 防止因数据包停止发送导致的 buffer 不足而卡住
+                    this.isBuffering = false;
                 } else {
-                    let { newScore, scoreTeam } = msg.payload;
-                    
-                    // [增强] 本地推断 scoreTeam
-                    if (scoreTeam === undefined || scoreTeam === null) {
-                        const oldScore = scene.rules.score;
-                        if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) scoreTeam = TeamId.LEFT;
-                        else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) scoreTeam = TeamId.RIGHT;
-                    }
-
-                    scene.rules.score = newScore;
-                    // [核心修复] 传递 scoreTeam
-                    scene._playGoalEffects(newScore, scoreTeam);
-                    // [修复] 如果是非回放状态下收到GOAL (通常不常见，但为了稳健)，也检查结束条件
-                    this._checkRemoteGameOver(newScore);
+                    this._processGoalMessage(msg.payload);
+                }
+                break;
+            
+            // [新增] 阵型更新消息处理
+            case NetMsg.FORMATION_UPDATE:
+                const { teamId, formationId } = msg.payload;
+                // 注意：只处理对方的更新
+                if (teamId !== this.scene.myTeamId) {
+                    this.scene.handleRemoteFormationUpdate(teamId, formationId);
                 }
                 break;
 
@@ -342,6 +355,17 @@ export default class OnlineMatchController {
         }
     }
 
+    // [新增] 发送阵型更新
+    sendFormationUpdate(formationId) {
+        NetworkMgr.send({
+            type: NetMsg.FORMATION_UPDATE,
+            payload: {
+                teamId: this.scene.myTeamId,
+                formationId: formationId
+            }
+        });
+    }
+
     // [新增] 检查远程同步的分数是否触发游戏结束
     _checkRemoteGameOver(score) {
         const maxScore = GameConfig.gameplay.maxScore;
@@ -358,6 +382,14 @@ export default class OnlineMatchController {
     }
 
     _handleTurnSync(payload) {
+        // [修复] 在清除队列前，检查是否有挂起的 GOAL 事件未处理
+        // 防止 TURN_SYNC 消息在 GOAL 事件播放前到达，导致比分丢失
+        const pendingGoal = this.replayQueue.find(f => f.isEvent && f.eventType === NetMsg.GOAL);
+        if (pendingGoal) {
+            console.log("[Online] Found pending GOAL in queue during SYNC, applying immediately.");
+            this._processGoalMessage(pendingGoal.payload);
+        }
+
         this.isReplaying = false;
         this.isBuffering = false;
         this.replayQueue = [];
@@ -381,6 +413,11 @@ export default class OnlineMatchController {
 
         if (this.scene.isMoving) {
             this.scene._endTurn();
+        } else if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
+            // [修复] 处理 MOVE 消息丢失或同步乱序的情况
+            // 如果我处于等待回合(对手回合)，但收到了同步指令且画面静止，说明回合已结束
+            console.log("[Online] TURN_SYNC received without active move. Forcing turn end.");
+            this.scene._endTurn(true); // 强制结束
         }
     }
 

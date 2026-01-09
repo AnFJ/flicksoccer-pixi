@@ -10,12 +10,16 @@ import Platform from '../managers/Platform.js'; // [新增] 引入 Platform 处�
 export default class FormationSelectionDialog extends PIXI.Container {
   /**
    * @param {string} mode 'single' | 'dual' | 'single_online'
+   * @param {Function} onConfirm
+   * @param {Function} onCancel
+   * @param {string} [confirmText] 自定义确认按钮文本
    */
-  constructor(mode, onConfirm, onCancel) {
+  constructor(mode, onConfirm, onCancel, confirmText = null) {
     super();
     this.mode = mode;
     this.onConfirm = onConfirm;
     this.onCancel = onCancel;
+    this.confirmText = confirmText;
 
     // 状态
     this.p1FormationId = AccountMgr.userInfo.theme.formationId || 0;
@@ -60,8 +64,17 @@ export default class FormationSelectionDialog extends PIXI.Container {
 
     // 底部按钮
     const btnY = panelH/2 - 70;
+    
+    // 确定按钮文本逻辑
+    let btnText = '开始比赛';
+    if (this.confirmText) {
+        btnText = this.confirmText;
+    } else if (this.mode === 'single_online') {
+        btnText = '确定';
+    }
+
     const confirmBtn = new Button({
-        text: this.mode === 'single_online' ? '确定' : '开始比赛', 
+        text: btnText, 
         width: 240, height: 80, color: 0x2ecc71,
         onClick: () => {
             if (this.mode === 'single') AccountMgr.updateFormation(this.p1FormationId);
