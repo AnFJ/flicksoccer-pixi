@@ -17,7 +17,8 @@ import { GameConfig } from '../config.js';
 import { TeamId, Events, NetMsg, SkillType } from '../constants.js';
 import { getFormation } from '../config/FormationConfig.js'; 
 
-import GameMenuButton from '../ui/GameMenuButton.js';
+import LeaveButton from '../ui/LeaveButton.js';
+import FormationButton from '../ui/FormationButton.js'; // [新增]
 import GameHUD from '../ui/GameHUD.js';
 import GoalBanner from '../ui/GoalBanner.js';
 import SparkSystem from '../vfx/SparkSystem.js';
@@ -116,8 +117,8 @@ export default class GameScene extends BaseScene {
     this.isShooting = false;
     this.shotReactionPlayed = false;
 
-    // [新增] 播放比赛氛围音效
-    AudioManager.playBGM('crowd_bg_loop');
+    // [修改] 移除在此处立即播放背景音，移至 initGame 中横幅动画开始时播放
+    // AudioManager.playBGM('crowd_bg_loop');
 
     if (this.gameMode === 'pve') {
         const randomIndex = Math.floor(Math.random() * AIPersonas.length);
@@ -196,12 +197,16 @@ export default class GameScene extends BaseScene {
     }
 
     setTimeout(() => {
-        if (!this.isGameOver) {
+        // [修复] 增加 destroyed 检查，防止场景退出后仍然播放音乐
+        if (!this.isGameOver && this.container && !this.container.destroyed) {
             let startText = "游戏开始";
             if (this.gameMode === 'pve') {
                 startText = `第 ${this.currentLevel} 关 开始`;
             }
             this.goalBanner?.play(startText);
+            
+            // [新增] 在横幅出现时才开始播放群众背景音
+            AudioManager.playBGM('crowd_bg_loop'); 
         }
     }, 500);
 
@@ -241,60 +246,22 @@ export default class GameScene extends BaseScene {
     this.goalBanner = new GoalBanner();
     this.layout.layers.ui.addChild(this.goalBanner);
 
-    const menuBtn = new GameMenuButton(this.app, this.layout.layers.ui, () => {
+    // [修改] 使用 LeaveButton 替换 GameMenuButton
+    const leaveBtn = new LeaveButton(this.app, this.layout.layers.ui, () => {
         this.onMenuBtnClick();
     });
-    this.layout.layers.ui.addChild(menuBtn);
+    this.layout.layers.ui.addChild(leaveBtn);
 
-    // [新增] 阵型调整按钮 (右下角)
-    // 逻辑上支持所有模式玩家换自己的阵型。
-    this.createFormationButton();
+    // [修改] 使用 FormationButton 替换原来的创建逻辑
+    const formationBtn = new FormationButton(this.app, this.layout.layers.ui, () => {
+        this.openIngameFormation();
+    });
+    this.layout.layers.ui.addChild(formationBtn);
 
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
     
     this.turnMgr.resetTimer();
-  }
-
-  // [新增] 创建右下角阵型按钮
-  createFormationButton() {
-      // 样式参考 GameMenuButton，但颜色为黄色
-      const btnSize = 100;
-      const btn = new Button({
-          text: '阵型', 
-          width: btnSize, 
-          height: btnSize, 
-          color: 0xF1C40F, // 黄色
-          texture: ResourceManager.get('icon_theme'), // 尝试使用图标
-          fontSize: 24,
-          textColor: 0x333333,
-          onClick: () => this.openIngameFormation()
-      });
-
-      // 如果有图标，隐藏文字
-      if (ResourceManager.get('icon_theme')) {
-          btn.label.visible = false;
-      }
-
-      // 添加阴影和圆角效果 (手动绘制以匹配 GameMenuButton 风格)
-      // Button 类内部是一个 Container，我们可以在 btn.inner 下添加修饰
-      const bg = new PIXI.Graphics();
-      // 阴影
-      bg.beginFill(0xC27C0E); // 深黄
-      bg.drawRoundedRect(-btnSize/2, -btnSize/2 + 6, btnSize, btnSize, 20);
-      bg.endFill();
-      // 实体覆盖 (Button 内部已有 bg，这里是为了做立体感)
-      // 由于 Button 内部实现较简单，我们直接调整位置即可
-      
-      // 定位：屏幕右下角
-      const screenMargin = 30;
-      const globalX = this.app.screen.width - screenMargin - btnSize / 4;
-      const globalY = this.app.screen.height - screenMargin;
-      
-      const localPos = this.layout.layers.ui.toLocal(new PIXI.Point(globalX, globalY));
-      btn.position.set(localPos.x, localPos.y);
-
-      this.layout.layers.ui.addChild(btn);
   }
 
   // [新增] 打开游戏内阵型调整
