@@ -12,64 +12,66 @@
        - 渲染引擎：Pixi.js (v6.5)
        - 物理引擎：Matter.js (v0.18+)
        - 打包工具：Vite
-       - 后端服务：Cloudflare Workers + Durable Objects (WebSocket)
+       - 后端服务：Cloudflare Workers + Durable Objects (WebSocket) + D1 Database
 
    2.2 架构设计
        软件采用 MVC (Model-View-Controller) 变种架构：
-       - View (UI层)：基于 Pixi.js 的场景管理（SceneManager）和 UI 组件（GameHUD, Button, Dialog）。
-       - Controller (逻辑层)：InputController 处理用户输入，TurnManager 管理回合流程，AIController 处理人机逻辑。
+       - View (UI层)：基于 Pixi.js 的场景管理（SceneManager）和 UI 组件（GameHUD, Button, GoalBanner, AIChatBubble）。
+       - Controller (逻辑层)：InputController 处理用户输入，TurnManager 管理回合流程，AIController 处理人机逻辑，OnlineMatchController 处理网络同步。
        - Model (数据/物理层)：PhysicsEngine 封装 Matter.js 物理世界，AccountMgr 管理用户数据，GameRules 处理得分判定。
 
 3. 模块设计
    3.1 场景管理模块 (SceneManager)
        - 负责场景的切换、销毁与生命周期管理。
-       - 包含场景：LoginScene（登录）、MenuScene（主菜单）、LobbyScene（大厅）、RoomScene（备战室）、GameScene（核心对战）、ResultScene（结算）、LevelSelectScene（关卡选择）。
-       - 实现了屏幕适配策略（宽屏锁定高度，窄屏锁定宽度）。
+       - 包含场景：LoginScene（登录）、MenuScene（主菜单）、LobbyScene（大厅/房间列表）、RoomScene（备战室）、GameScene（核心对战）、ResultScene（结算）、LevelSelectScene（关卡选择）。
+       - 适配策略：宽屏锁定高度，窄屏锁定宽度。
 
    3.2 物理引擎模块 (PhysicsEngine)
        - 封装 Matter.js，配置重力为0（俯视视角）。
-       - 实现了自定义的摩擦力模型（StoppingFriction），解决低速无限滑行问题。
-       - 定义了碰撞分组（CollisionCategory）：Wall, Striker, Ball, Goal。
+       - 实现了 StoppingFriction 自定义摩擦力模型，解决低速无限滑行问题。
+       - 定义了 CollisionCategory：Wall, Striker, Ball, Goal, GoalNet。
+       - 实现了基于物理帧插值的视觉平滑算法。
 
    3.3 网络通信模块 (NetworkMgr)
-       - 支持 HTTP (POST) 请求处理登录与数据同步。
+       - 支持 HTTP (POST/GET) 请求处理登录、数据同步及房间列表获取。
        - 基于 WebSocket 实现全双工通信，用于实时对战。
-       - 实现了心跳检测（Ping/Pong）与断线重连机制。
-       - 消息协议定义：JOIN, READY, START, MOVE, TURN_SYNC, SNAPSHOT 等。
+       - 实现了心跳检测、断线重连、状态快照恢复。
+       - 消息协议：JOIN, READY, START, MOVE, TRAJECTORY_BATCH, GOAL, LEAVE 等。
 
-   3.4 AI 决策模块 (AIDecisionMaker)
-       - 采用行为树与评分系统结合的决策逻辑。
-       - 核心流程：局势分析 -> 威胁检测 -> 候选动作生成 -> 评分 -> 执行。
-       - 具备多种行为模式：射门（Shoot）、反弹射门（Bank Shot）、解围（Clearance）、破坏（Sabotage）、防守归位（Defensive Move）。
+   3.4 AI 决策与交互模块 (AIController & AIChat)
+       - 决策逻辑：基于评分系统的行为树（常规射门、反弹射门、暴力破局、解围、防守）。
+       - 交互系统：配置了5种人格（Hot, Troll, Robot, Noble, Cute）。
+       - 触发器：监听游戏事件（进球、乌龙、超时、撞柱等），根据概率和冷却时间触发气泡对话。
 
 4. 核心算法与逻辑
    4.1 物理同步算法
-       - 采用“状态同步 + 客户端预测 + 轨迹回放”的混合模型。
-       - 发送端：以 100ms 为间隔打包物理刚体（位置、速度、角度）快照发送给服务器。
-       - 接收端：接收数据包并存入缓冲队列，延迟播放以平滑网络抖动。
-       - 关键事件（射门、进球）通过可靠消息通道立即广播。
+       - 采用“状态同步 + 客户端预测 + 轨迹回放”模型。
+       - 发送端：以 100ms 为间隔打包物理刚体轨迹数据。
+       - 接收端：维护缓冲队列，收到 GOAL 消息时会等待队列播放完毕再执行进球逻辑，确保动画连贯。
 
    4.2 碰撞与进球检测
-       - 使用 Matter.Events.on('collisionStart') 监听碰撞。
-       - 进球判定：检测 Ball 与 GoalSensor（球门内部传感器）的碰撞事件。
-       - 进球后触发特效，并重置双方阵型位置（使用插值动画平滑归位）。
+       - 进球判定：检测 Ball 与 GoalSensor 的碰撞事件。
+       - 进球后触发 GoalBanner 动画，并锁定物理状态防止二次触发，2秒后重置阵型。
+       - 乌龙球判定：通过对比回合方（TurnId）与得分方（ScoreTeam）判断。
 
    4.3 防作弊与边界处理
-       - 强制将物体限制在球场围墙内。
-       - 公平竞赛检测：回合结束时，若棋子停留在己方球门内，自动将其移出至安全区域。
+       - 公平竞赛检测：回合结束时，若棋子停留在己方球门内，触发 Reposition 动画将其移出。
+       - 强制边界约束：防止高速物体穿透墙壁。
 
 5. 接口设计
-   5.1 服务端接口 (nodejs架构)
-       - POST /api/login/minigame: 小程序登录，返回用户信息。
-       - POST /api/room/check: 检查房间状态。
-       - WS /api/room/{roomId}/websocket: 建立长连接。
+   5.1 服务端接口 (Cloudflare Workers)
+       - POST /api/login/minigame: 小程序登录。
+       - GET  /api/rooms/list: 获取当前等待中的房间列表（包含房主信息）。
+       - POST /api/room/check: 检查指定房间状态。
+       - WS   /api/room/{roomId}/websocket: 建立游戏长连接。
        - POST /api/match/record: 上报比赛结果与统计数据。
 
-   5.2 存储设计 (SQLite / KV)
-       - 用户表 (users): 存储 user_id, nickname, coins, level, items, theme 等。
-       - 历史表 (match_history): 存储最近10场对战记录。
+   5.2 存储设计 (SQLite / D1)
+       - users 表: 存储 user_id, nickname, coins, level, items, theme, unlocked_themes, match_stats。
+       - room_records 表: 存储房间状态、房主信息，用于大厅列表展示。
+       - match_history 表: 存储近期对战记录。
 
 6. 资源管理
-   - 使用 ResourceManager 单例管理纹理资源。
-   - 支持分包加载：登录页资源优先加载，游戏资源异步加载。
-   - 实现了基于配置的动态资源索引（如不同主题的皮肤加载）。
+   - 使用 ResourceManager 单例管理。
+   - 支持动态主题加载：根据配置 ID 加载对应的棋子、球场和足球纹理。
+   - 广告资源预埋：配置了微信/抖音平台的 Banner、激励视频、插屏广告 ID。

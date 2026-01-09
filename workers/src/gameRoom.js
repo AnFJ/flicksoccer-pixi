@@ -209,9 +209,13 @@ export class GameRoom {
     if (existingPlayerIndex !== -1) {
       // --- 重连逻辑 ---
       console.log(`[GameRoom] Player reconnecting: ${userId}`);
-      // 保留原有状态 (teamId, ready)
+      // 保留原有状态 (teamId, ready, formationId if already set in game)
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
+      // 如果游戏中重连，通常保持原来的 formationId，但如果断线期间改了？
+      // 这里倾向于使用重连时带上来的新参数，或者保留内存中的
+      // 暂时保留内存中的
+      playerInfo.formationId = this.roomData.players[existingPlayerIndex].formationId;
       
       // 更新引用
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
@@ -373,6 +377,24 @@ export class GameRoom {
                       scoreTeam: msg.payload.scoreTeam 
                   }
               }, socket);
+              await this.saveState();
+          }
+          break;
+      
+      // [新增] 阵型更新消息
+      case 'FORMATION_UPDATE':
+          if (msg.payload && msg.payload.formationId !== undefined) {
+              player.formationId = msg.payload.formationId;
+              
+              // 广播给所有人 (包括自己，确保确认，也可以只给对方)
+              // 这里广播给所有人，客户端会判断 teamId 是否是自己
+              this.broadcast({
+                  type: 'FORMATION_UPDATE',
+                  payload: {
+                      teamId: player.teamId,
+                      formationId: player.formationId
+                  }
+              });
               await this.saveState();
           }
           break;
