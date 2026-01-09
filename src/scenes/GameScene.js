@@ -91,9 +91,13 @@ export default class GameScene extends BaseScene {
         [TeamId.RIGHT]: { shots: 0, skills: {} }
     };
 
-    // [新增] 高潮系统状态
-    this.totalTurns = 0; // 累计回合数
-    this.hasPlayedClimaxCheer = false; // 本局是否播放过加油欢呼
+    // [新增] 氛围系统状态
+    this.totalTurns = 0; 
+    this.hasPlayedClimaxCheer = false; // 僵持局加油标记
+    
+    // [新增] 射门反应状态
+    this.isShooting = false;        // 当前是否属于击球后的射门阶段
+    this.shotReactionPlayed = false; // 本次射门是否已经触发过反应
   }
 
   async onEnter(params = {}) {
@@ -106,9 +110,11 @@ export default class GameScene extends BaseScene {
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
 
-    // [新增] 重置高潮状态
+    // [新增] 重置状态
     this.totalTurns = 0;
     this.hasPlayedClimaxCheer = false;
+    this.isShooting = false;
+    this.shotReactionPlayed = false;
 
     // [新增] 播放比赛氛围音效
     AudioManager.playBGM('crowd_bg_loop');
@@ -546,9 +552,12 @@ export default class GameScene extends BaseScene {
   onActionFired(isRemote = false) {
     this.isMoving = true;
     this.moveTimer = 0; 
+    
+    // [核心新增] 重置射门预判状态
+    this.isShooting = true;
+    this.shotReactionPlayed = false;
+
     if (!isRemote) {
-        // [修改] 移除通用的 collision 音效，因为现在由 GameRules 触发分级音效
-        // AudioManager.playSFX('collision'); 
         this.recordShot(this.turnMgr.currentTurn);
     }
     this.turnMgr.timer = 0; 
@@ -556,8 +565,10 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
-    // [注意] 此处不再重置 hasPlayedClimaxCheer，确保整局只触发一次加油欢呼（针对5-10回合的僵持）
-    
+    // [新增] 进球后重置高潮标记
+    this.hasPlayedClimaxCheer = false;
+    this.isShooting = false; // 进球了就不再检测反应
+
     if (this.networkCtrl) {
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
@@ -743,6 +754,9 @@ export default class GameScene extends BaseScene {
             }
         }
     }
+
+    // [新增] 检测射门反应
+    this._checkShotReaction();
   }
 
   _saveEntityStates() {
@@ -821,6 +835,7 @@ export default class GameScene extends BaseScene {
       }
 
       this.isMoving = false;
+      this.isShooting = false; // 回合结束，重置射门状态
       this.moveTimer = 0; 
       
       if (this.ball) {
@@ -850,6 +865,81 @@ export default class GameScene extends BaseScene {
       }
   }
 
+  // [新增] 射门反应检测逻辑
+  _checkShotReaction() {
+      // 1. 基础条件：正在射门阶段且未播放过反应
+      if (!this.isShooting || this.shotReactionPlayed || !this.ball || !this.ball.body) return;
+
+      const ballBody = this.ball.body;
+      const speed = ballBody.speed;
+
+      // 2. 速度门槛：必须是“射门”级别的速度 (比如 > 8)
+      if (speed < 8) return;
+
+      const { x, y, w, h } = this.layout.fieldRect;
+      const bX = ballBody.position.x;
+      const bY = ballBody.position.y;
+      
+      // 3. 区域检测：进入对方禁区深处 (距离底线 1/4 场地长度)
+      const zoneDepth = w * 0.25; 
+      const currentTurn = this.turnMgr.currentTurn;
+      
+      // 假设当前回合是 LEFT，目标是右边球门 (x > w - zoneDepth)
+      // 假设当前回合是 RIGHT，目标是左边球门 (x < zoneDepth)
+      let inDangerZone = false;
+      let targetGoalX = 0; // 目标球门X坐标
+
+      if (currentTurn === TeamId.LEFT) {
+          if (bX > (x + w - zoneDepth) && ballBody.velocity.x > 0) {
+              inDangerZone = true;
+              targetGoalX = x + w + GameConfig.dimensions.goalWidth / 2; // 略微修正到球门内部
+          }
+      } else {
+          if (bX < (x + zoneDepth) && ballBody.velocity.x < 0) {
+              inDangerZone = true;
+              targetGoalX = x - GameConfig.dimensions.goalWidth / 2;
+          }
+      }
+
+      if (inDangerZone) {
+          // 4. 轨迹预测：线性推算球到达球门线时的 Y 坐标
+          // Y_pred = Y + Vy * (TargetX - X) / Vx
+          const timeToImpact = (targetGoalX - bX) / ballBody.velocity.x;
+          if (timeToImpact < 0) return; // 已经飞过了或者反向
+
+          const predictedY = bY + ballBody.velocity.y * timeToImpact;
+          
+          const fieldCenterY = y + h / 2;
+          const goalH = GameConfig.dimensions.goalOpening;
+          
+          // 判定范围：球门开口上下各宽容一点 (例如 20px)
+          const topPostY = fieldCenterY - goalH / 2;
+          const bottomPostY = fieldCenterY + goalH / 2;
+          const margin = 30; // 宽容度
+
+          // 触发反应
+          this.shotReactionPlayed = true;
+
+          // [逻辑分支]
+          // A: 预测进球 (或者非常接近，打中门柱也算激动)
+          if (predictedY > (topPostY - margin) && predictedY < (bottomPostY + margin)) {
+              // 随机播放 1 或 2
+              const idx = Math.floor(Math.random() * 2) + 1;
+              AudioManager.playClimaxCheer(`crowd_anticipation_${idx}`);
+              console.log("[Audio] Crowd Anticipation: Close call!");
+          } 
+          // B: 臭脚 (严重偏出)
+          else {
+              // 随机播放 1, 2, 3
+              const idx = Math.floor(Math.random() * 3) + 1;
+              // 这里用 playSFX 播放叹息，不需要 ducking 背景音，或者也可以用 playClimaxCheer
+              // 为了统一管理淡入淡出，复用 playClimaxCheer 逻辑，但传入 sigh key
+              AudioManager.playClimaxCheer(`crowd_sigh_${idx}`);
+              console.log("[Audio] Crowd Sigh: Bad shot.");
+          }
+      }
+  }
+
   // [新增] 僵持局加油判断逻辑
   _checkEncouragementCheer() {
       // 1. 如果本局已经触发过，则不再触发
@@ -865,6 +955,7 @@ export default class GameScene extends BaseScene {
               if (Math.random() < 0.3) {
                   console.log(`[Audio] Trigger Encouragement Cheer at turn ${this.totalTurns}`);
                   this.hasPlayedClimaxCheer = true;
+                  // 不传参，随机播放 cheer 1-3
                   AudioManager.playClimaxCheer();
               }
           }

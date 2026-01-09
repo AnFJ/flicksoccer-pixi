@@ -30,10 +30,19 @@ class AudioManager {
     this.registerSound('ball_hit_striker_2', 'assets/sounds/ball_hit_striker_2.mp3');
     this.registerSound('ball_hit_striker_3', 'assets/sounds/ball_hit_striker_3.mp3');
 
-    // [新增] 3. 群众高潮呼声
+    // [新增] 3. 群众加油呼声 (僵持局)
     this.registerSound('crowd_cheer_1', 'assets/sounds/crowd_cheer_1.mp3');
     this.registerSound('crowd_cheer_2', 'assets/sounds/crowd_cheer_2.mp3');
     this.registerSound('crowd_cheer_3', 'assets/sounds/crowd_cheer_3.mp3');
+
+    // [新增] 4. 射门预判反应 - 失望 (臭脚)
+    this.registerSound('crowd_sigh_1', 'assets/sounds/crowd_sigh_1.mp3');
+    this.registerSound('crowd_sigh_2', 'assets/sounds/crowd_sigh_2.mp3');
+    this.registerSound('crowd_sigh_3', 'assets/sounds/crowd_sigh_3.mp3');
+
+    // [新增] 5. 射门预判反应 - 激动 (有戏)
+    this.registerSound('crowd_anticipation_1', 'assets/sounds/crowd_anticipation_1.mp3');
+    this.registerSound('crowd_anticipation_2', 'assets/sounds/crowd_anticipation_2.mp3');
   }
 
   registerSound(key, src) {
@@ -111,19 +120,23 @@ class AudioManager {
   }
 
   /**
-   * [新增] 播放高潮欢呼，并处理背景音避让 (Ducking)
+   * 播放高潮/加油/预判欢呼，并处理背景音避让 (Ducking)
+   * @param {string} specificKey 可选，指定播放某个key，否则随机高潮欢呼
    */
-  playClimaxCheer() {
+  playClimaxCheer(specificKey = null) {
       if (this.isMuted) return;
 
-      // 1. 随机选择一个欢呼音效
-      const cheerIndex = Math.floor(Math.random() * 3) + 1;
-      const key = `crowd_cheer_${cheerIndex}`;
+      let key = specificKey;
+      if (!key) {
+          // 默认逻辑：随机选择一个加油欢呼
+          const cheerIndex = Math.floor(Math.random() * 3) + 1;
+          key = `crowd_cheer_${cheerIndex}`;
+      }
+      
       const cheerSound = this.sounds[key];
-
       if (!cheerSound) return;
 
-      console.log(`[Audio] Playing Climax Cheer: ${key}`);
+      console.log(`[Audio] Playing Interaction Sound: ${key}`);
 
       // 2. 淡出背景音
       this._fadeBGM(0.1, 500); // 500ms 内降到 0.1
