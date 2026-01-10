@@ -9,7 +9,10 @@ import AudioManager from '../managers/AudioManager.js';
 
 /**
  * 联机对战控制器 (重构版)
- * 核心原则：发送方(Sender)是唯一事实来源，接收方(Receiver)严格按照队列回放事件。
+ * 核心原则：
+ * 1. 发送方 (Sender, MyTurn) 权威：负责物理模拟、进球检测、状态流转。
+ * 2. 接收方 (Receiver, NotMyTurn) 被动：只负责回放轨迹和事件。
+ * 3. 进球流程：GOAL消息(UI展示) -> 物理继续 -> RESET_FIELD消息(重置) -> TURN_SYNC(切换回合)。
  */
 export default class OnlineMatchController {
     constructor(scene) {
@@ -20,6 +23,7 @@ export default class OnlineMatchController {
         // --- 录制相关 (Sender) ---
         this.sendBuffer = []; 
         this.sendTimer = 0;   
+        this.isWaitingForGoalReset = false; // Sender: 进球后等待重置的标记
 
         // --- 回放相关 (Receiver) ---
         this.isReplaying = false;      
@@ -35,12 +39,16 @@ export default class OnlineMatchController {
     update(delta) {
         const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
 
-        // 如果是我的回合，我在操作(Moving)，则录制
-        // 如果不是我的回合，且正在回放模式，则播放
-        if (this.scene.isMoving) {
-            if (isMyTurn) {
+        if (isMyTurn) {
+            // [Sender 逻辑]
+            // 只要在移动中 (isMoving)，或者正在等待进球后的重置 (isWaitingForGoalReset)，都要录制
+            if (this.scene.isMoving || this.isWaitingForGoalReset) {
                 this._recordFrame(delta);
-            } else if (this.isReplaying) {
+            }
+        } else {
+            // [Receiver 逻辑]
+            // 只要在回放模式，或者队列里有东西，就处理播放
+            if (this.isReplaying || this.replayQueue.length > 0) {
                 this._processPlayback(delta);
             }
         }
@@ -51,7 +59,7 @@ export default class OnlineMatchController {
      */
     onLocalSound(key) {
         const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
-        if (isMyTurn && this.scene.isMoving) {
+        if (isMyTurn && (this.scene.isMoving || this.isWaitingForGoalReset)) {
             this.sendBuffer.push({
                 t: 0, 
                 isEvent: true,
@@ -113,7 +121,7 @@ export default class OnlineMatchController {
 
     /**
      * [Receiver] 播放回放队列
-     * 队列中混合了 物理帧 和 关键事件(进球、回合结束)
+     * 队列中混合了 物理帧 和 关键事件(GOAL, RESET, TURN_SYNC)
      */
     _processPlayback(dt) {
         // 如果缓冲中，判断是否可以开始
@@ -130,10 +138,6 @@ export default class OnlineMatchController {
         while (remainingDt > 0 || this.replayQueue.length > 0) {
             // 如果队列空了，停止播放，等待更多数据
             if (this.replayQueue.length === 0) {
-                // 如果时间也没了，直接退出
-                if (remainingDt > 0) {
-                    // console.log("Buffer empty, waiting...");
-                }
                 break;
             }
 
@@ -150,8 +154,6 @@ export default class OnlineMatchController {
             // 如果当前帧的时间 > 剩余时间，说明这一帧只播放一部分
             if (item.t > remainingDt) {
                 item.t -= remainingDt;
-                // 这里我们不需要真正插值，只需要应用物理状态。
-                // 为了平滑，理想情况是根据 remainingDt 插值，但这里直接应用目标状态作为简化
                 this._applyFrameState(item); 
                 remainingDt = 0;
             } else {
@@ -172,11 +174,15 @@ export default class OnlineMatchController {
         console.log(`[Online] Replay Event: ${event.eventType}`, event.payload);
 
         if (event.eventType === NetMsg.GOAL) {
-            // 执行进球逻辑：更新比分，播放特效
-            this._executeRemoteGoal(event.payload);
+            // 执行进球UI (不重置位置，不停止运动)
+            this._executeRemoteGoalUI(event.payload);
         } 
+        else if (event.eventType === NetMsg.RESET_FIELD) {
+            // 执行位置重置
+            this.scene.setupFormation();
+        }
         else if (event.eventType === NetMsg.TURN_SYNC) {
-            // 执行回合结束逻辑：同步最终位置，切换回合
+            // 执行回合结束逻辑：切换回合，停止运动状态
             this._executeRemoteTurnSync(event.payload);
         }
         else if (event.eventType === 'SOUND') {
@@ -184,22 +190,16 @@ export default class OnlineMatchController {
         }
     }
 
-    // [Receiver] 执行远程进球
-    _executeRemoteGoal(payload) {
+    // [Receiver] 执行远程进球 UI (仅特效)
+    _executeRemoteGoalUI(payload) {
         const { newScore, scoreTeam } = payload;
         
-        // 双重校验，防止重复进球 (虽然序列化后几率很小)
-        const currentScore = this.scene.rules.score[scoreTeam];
-        if (newScore[scoreTeam] <= currentScore) {
-            return;
-        }
-
+        // 更新比分
         this.scene.rules.score = newScore;
-        // 调用 Scene 的特效逻辑
-        // 注意：Scene.onGoal 里会判断如果是接收方则只播特效
-        this.scene._playGoalEffects(newScore, scoreTeam);
+        // 播放特效 (调用场景的公共方法，但注意场景中要避免重置逻辑)
+        this.scene._playGoalEffectsOnly(newScore, scoreTeam);
         
-        // 检查游戏是否结束
+        // 检查游戏是否结束 (UI显示)
         this._checkRemoteGameOver(newScore);
     }
 
@@ -207,9 +207,10 @@ export default class OnlineMatchController {
     _executeRemoteTurnSync(payload) {
         this.isReplaying = false;
         this.isBuffering = false;
-        this.replayQueue = []; // 清空队列 (理论上此时应该是空的)
+        this.replayQueue = []; // 清空队列
 
-        // 强行同步一次最终位置
+        // 强行同步一次最终位置 (防御性同步)
+        // [修复] 只有当 payload 包含位置信息时才同步
         if (payload.strikers) {
             payload.strikers.forEach(data => {
                 const s = this.scene.strikers.find(st => st.id === data.id);
@@ -226,8 +227,14 @@ export default class OnlineMatchController {
             Matter.Body.setAngularVelocity(this.scene.ball.body, 0);
         }
 
-        // 调用 Scene 结束回合
-        this.scene._endTurn(true); 
+        // 设置下一个回合
+        if (payload.nextTurn !== undefined) {
+            this.scene.turnMgr.currentTurn = payload.nextTurn;
+            this.scene.turnMgr.resetTimer();
+        }
+
+        // 结束“移动”状态，解锁 UI
+        this.scene.isMoving = false;
     }
 
     _applyFrameState(frame) {
@@ -280,7 +287,7 @@ export default class OnlineMatchController {
                     this.isBuffering = true;
                     this.replayQueue = [];
                     this.totalBufferedTime = 0;
-                    scene.onActionFired(true); 
+                    scene.isMoving = true; // 锁定输入
                 }
                 break;
 
@@ -292,7 +299,6 @@ export default class OnlineMatchController {
                         frames.forEach(f => {
                             f.originalT = f.t; 
                             this.replayQueue.push(f);
-                            // 只有物理帧才计入缓冲时间，事件帧是瞬时的
                             if (!f.isEvent) {
                                 this.totalBufferedTime += f.t;
                             }
@@ -302,28 +308,33 @@ export default class OnlineMatchController {
                 break;
 
             case NetMsg.GOAL:
-                // [核心修改] 进球消息作为事件帧插入队列
+                // [Receiver] 将 GOAL 作为事件插入队列
                 if (this.isReplaying) {
-                    console.log("[Online] Queuing GOAL event");
                     this.replayQueue.push({
                         isEvent: true,
                         eventType: NetMsg.GOAL,
                         payload: msg.payload,
                         t: 0 
                     });
-                    // 收到进球，停止缓冲等待，尽可能快地播放
-                    this.isBuffering = false;
-                } else {
-                    // 如果不在回放模式（比如极罕见的同步延迟），直接处理
-                    // 但通常应该在回放模式中
-                    this._executeRemoteGoal(msg.payload);
+                    this.isBuffering = false; // 进球了，不必死等 buffer
+                }
+                break;
+
+            case NetMsg.RESET_FIELD:
+                // [Receiver] 将 RESET 作为事件插入队列
+                if (this.isReplaying) {
+                    this.replayQueue.push({
+                        isEvent: true,
+                        eventType: NetMsg.RESET_FIELD,
+                        payload: msg.payload,
+                        t: 0 
+                    });
                 }
                 break;
 
             case NetMsg.TURN_SYNC:
-                // [核心修改] 回合结束消息作为事件帧插入队列
+                // [Receiver] 将 TURN_SYNC 作为事件插入队列
                 if (this.isReplaying) {
-                    console.log("[Online] Queuing TURN_SYNC event");
                     this.replayQueue.push({
                         isEvent: true,
                         eventType: NetMsg.TURN_SYNC,
@@ -332,7 +343,17 @@ export default class OnlineMatchController {
                     });
                     this.isBuffering = false;
                 } else {
-                    // 异常情况：未回放却收到同步，强制同步
+                    // [核心修复] 非回放状态收到同步 (通常是 Sender 收到自己的回显)
+                    // 如果本地回合已经和远程的一致，说明这是冗余的回显，忽略之
+                    const localTurn = this.scene.turnMgr.currentTurn;
+                    const remoteNextTurn = msg.payload.nextTurn;
+                    
+                    if (localTurn === remoteNextTurn) {
+                        console.log("[Online] Ignored echo TURN_SYNC");
+                        return;
+                    }
+
+                    // 异常：直接同步
                     this._executeRemoteTurnSync(msg.payload);
                 }
                 break;
@@ -416,25 +437,86 @@ export default class OnlineMatchController {
 
     /**
      * [Sender] 本地发生进球
-     * 必须先刷新缓冲区，确保之前的物理帧先发出去，然后再发 GOAL 消息
      */
     handleLocalGoal(data) {
         if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
-            // 如果不是我的回合，但我检测到了进球（理论上被 GameRules 屏蔽了，这里是兜底）
-            // 立即回滚，不发送消息
-            this.scene.rules.score[data.scoreTeam]--; 
+            // 安全防御：如果不该我处理，忽略
             return true; 
         }
         
+        // 1. 发送所有未发送的轨迹
         this._flushSendBuffer();
 
+        // 2. 发送 GOAL 消息
         NetworkMgr.send({
             type: NetMsg.GOAL,
             payload: { newScore: data.newScore, scoreTeam: data.scoreTeam }
         });
+
+        // [核心修复] 3. 检查是否达成胜利条件 (Sender 侧检查)
+        // Receiver 侧在回放 GOAL 时会检查
+        const maxScore = GameConfig.gameplay.maxScore;
+        let winner = -1;
+        if (data.newScore[TeamId.LEFT] >= maxScore) winner = TeamId.LEFT;
+        else if (data.newScore[TeamId.RIGHT] >= maxScore) winner = TeamId.RIGHT;
+
+        if (winner !== -1) {
+            // 游戏结束：直接进入结算，不再执行后续的 Reset 逻辑
+            this.scene.onGameOver({ winner });
+            // 返回 false 允许 GameScene 播放 "进球" Banner (然后 2秒后转场)
+            return false;
+        }
         
-        // 返回 false，表示本地逻辑继续执行 (播放特效等)
+        // 4. 标记进入“等待重置”状态
+        // 此时物理引擎还要继续运行，轨迹还要继续发送
+        this.isWaitingForGoalReset = true;
+
+        // 5. 启动延时重置流程
+        setTimeout(() => {
+            this._performSenderReset(data.scoreTeam);
+        }, 2000); // 2秒后重置
+
+        // 返回 false，表示本地逻辑(UI特效)可以执行
         return false; 
+    }
+
+    /**
+     * [Sender] 执行重置和回合切换
+     */
+    _performSenderReset(scoreTeam) {
+        // 1. 本地重置球场 (开始动画)
+        this.scene.setupFormation();
+        
+        // 2. 发送重置消息 (通知 Receiver 也要开始 Reset)
+        NetworkMgr.send({ type: NetMsg.RESET_FIELD });
+
+        // 3. 发送剩余轨迹 (不再重要)
+        this._flushSendBuffer();
+
+        // 4. 准备下个回合数据
+        const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+        
+        // 5. 构造同步包
+        // [核心修复] 在进球重置时，不发送具体的 strikers/ball 位置
+        // 因为此时物理位置还在球门内，而视觉正在动画回中场
+        // 如果发送旧位置，Receiver 收到后会把球瞬间拉回球门，导致画面抽搐
+        // Receiver 收到 RESET_FIELD 后已经在执行确定性的重置动画，不需要位置同步
+        const payload = {
+            // strikers: ..., // 省略位置，防止回弹
+            // ball: ..., 
+            nextTurn: nextTurn
+        };
+
+        // 6. 发送 TURN_SYNC
+        NetworkMgr.send({ type: NetMsg.TURN_SYNC, payload });
+
+        // 7. 本地应用切换
+        this.isWaitingForGoalReset = false;
+        this.scene.turnMgr.currentTurn = nextTurn;
+        this.scene.turnMgr.resetTimer();
+        
+        // 如果下回合还是我，保持 isMoving=false 允许操作；否则 isMoving=false (等待对方 MOVE)
+        this.scene.isMoving = false;
     }
 
     sendFairPlayMove(id, start, end, duration) {
@@ -445,24 +527,25 @@ export default class OnlineMatchController {
     }
 
     /**
-     * [Sender] 回合结束，发送同步包
+     * [Sender] 正常回合结束 (无进球)
      */
     syncAllPositions() {
-        // 先发完剩下的轨迹
         this._flushSendBuffer();
         
-        // 再发同步包
+        const currentTurn = this.scene.turnMgr.currentTurn;
+        const nextTurn = currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+
         const payload = {
             strikers: this.scene.strikers.map(s => ({ id: s.id, pos: { x: s.body.position.x, y: s.body.position.y } })),
-            ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y }
+            ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y },
+            nextTurn: nextTurn
         };
         NetworkMgr.send({ type: NetMsg.TURN_SYNC, payload });
     }
 
     popPendingTurn() {
-        const turn = this.pendingTurn;
-        this.pendingTurn = null;
-        return turn;
+        // 在新逻辑中，nextTurn 通过 TURN_SYNC 传递，这里不需要处理 pendingTurn 了
+        return null;
     }
 
     _handlePlayerLeft(payload) { 

@@ -70,6 +70,9 @@ export const NetMsg = {
   // [新增] 阵型更新 (游戏中)
   FORMATION_UPDATE: 'FORMATION_UPDATE',
 
+  // [新增] 重置球场 (进球后，先发送GOAL，等待一段时间后发送RESET_FIELD，最后发送TURN_SYNC)
+  RESET_FIELD: 'RESET_FIELD',
+
   TURN_SYNC: 'TURN_SYNC', // 回合同步(回合结束时的最终一致性)
   SNAPSHOT: 'SNAPSHOT',   // 中间状态快照(移动过程中的位置修正)
   GOAL: 'GOAL',       // 进球

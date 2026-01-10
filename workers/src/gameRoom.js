@@ -301,15 +301,13 @@ export class GameRoom {
 
       case 'MOVE':
         if (this.roomData.status === 'PLAYING' && this.roomData.currentTurn === player.teamId) {
-          this.roomData.currentTurn = player.teamId === 0 ? 1 : 0;
+          // 服务器不再立即切换回合，而是等待 TURN_SYNC
           this.broadcast({
             type: 'MOVE',
             payload: {
-              ...msg.payload,
-              nextTurn: this.roomData.currentTurn
+              ...msg.payload
             }
           });
-          await this.saveState();
         }
         break;
       
@@ -345,14 +343,27 @@ export class GameRoom {
           });
           break;
         
+      case 'RESET_FIELD':
+          // [新增] 转发重置球场消息
+          this.broadcast({
+              type: 'RESET_FIELD',
+              payload: msg.payload
+          });
+          break;
+
       case 'TURN_SYNC':
         if (msg.payload) {
             this.roomData.positions = msg.payload; 
+            // 如果客户端同步了 nextTurn，服务器必须更新
+            if (msg.payload.nextTurn !== undefined && msg.payload.nextTurn !== null) {
+                this.roomData.currentTurn = msg.payload.nextTurn;
+            }
         }
+        // 广播给所有人，确保回合状态一致
         this.broadcast({
           type: 'TURN_SYNC',
           payload: msg.payload
-        }, socket);
+        });
         await this.saveState();
         break;
 
@@ -367,9 +378,8 @@ export class GameRoom {
       case 'GOAL':
           if (msg.payload && msg.payload.newScore) {
               this.roomData.scores = msg.payload.newScore;
-              // [核心修复] 
-              // 1. 将 scoreTeam 传递给其他客户端
-              // 2. 排除发送者 (socket)，因为发送者已经本地乐观更新了
+              // 广播给其他人 (排除发送者，因发送者已乐观更新)
+              // 实际上，为了确保一致性，发给所有人也可以，但客户端做了重复检测
               this.broadcast({
                   type: 'GOAL',
                   payload: { 

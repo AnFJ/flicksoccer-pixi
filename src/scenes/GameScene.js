@@ -63,8 +63,6 @@ export default class GameScene extends BaseScene {
     this.isGamePaused = false; 
     this.myTeamId = TeamId.LEFT;
 
-    this.isGoalResetting = false;
-
     this.hud = null;
     this.goalBanner = null;
     this.sparkSystem = null;
@@ -79,8 +77,6 @@ export default class GameScene extends BaseScene {
     this.p1FormationId = 0;
     this.p2FormationId = 0; 
 
-    this.resetTimerId = null;
-    
     this.moveTimer = 0;
     this.MAX_MOVE_TIME = 15000; 
 
@@ -98,7 +94,6 @@ export default class GameScene extends BaseScene {
     super.onEnter(params);
     this.gameMode = params.mode || 'pve';
     this.currentLevel = params.level || 1; 
-    this.isGoalResetting = false;
     
     this.matchStats.startTime = Date.now();
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
@@ -347,7 +342,8 @@ export default class GameScene extends BaseScene {
   _animateReset() {
       const { x, y, w, h } = this.layout.fieldRect;
       const cx = x + w/2, cy = y + h/2;
-      const duration = 1000; 
+      // 快速重置动画
+      const duration = 500; 
 
       if (this.ball) {
           this.ball.body.isSensor = true; 
@@ -428,6 +424,7 @@ export default class GameScene extends BaseScene {
 
   onPlaySound(key) {
       if (this.gameMode === 'pvp_online' && this.turnMgr.currentTurn !== this.myTeamId) {
+          // 在 PVP Online 模式下，Receiver 的音效由 replay event 触发
           return;
       }
       AudioManager.playSFX(key);
@@ -490,12 +487,10 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
-    // [核心修改]
-    // 如果是网络对战，且通过 GameRules 触发了进球（说明是本地检测到的）
-    // 如果 NetworkCtrl 存在，则让 NetworkCtrl 判断是否是 Sender。
-    // 如果是 Sender，handleLocalGoal 会返回 false -> 继续执行 UI 特效
-    // 如果是 Receiver（理论上不会触发，但做防御），返回 true -> 中断本地执行
+    // 1. 如果是网络对战，委托给 NetworkCtrl 处理权威逻辑
     if (this.networkCtrl) {
+        // 如果我是发送方，NetworkCtrl 会返回 false -> 继续执行 UI
+        // 如果我是接收方，NetworkCtrl 会返回 true (理论上不应触发) -> 中断
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
     }
@@ -509,65 +504,42 @@ export default class GameScene extends BaseScene {
         this.moveTimer / 1000 
     );
 
-    this._playGoalEffects(data.newScore, data.scoreTeam);
+    // 2. 播放 UI 特效
+    this._playGoalEffectsOnly(data.newScore, data.scoreTeam);
+
+    // 3. 非网络模式下的自动重置逻辑 (PVE / Local)
+    if (!this.networkCtrl) {
+        setTimeout(() => {
+            if (!this.isGameOver && this.physics && this.physics.engine) {
+                this.setupFormation();
+                if (data.scoreTeam !== undefined) {
+                    const nextTurn = data.scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+                    this.turnMgr.currentTurn = nextTurn;
+                    this.turnMgr.resetTimer();
+                }
+                this.isMoving = false;
+            }
+        }, 2000);
+    }
   }
 
-  _playGoalEffects(newScore, scoreTeam) {
+  // [修改] 只处理视觉效果，不涉及逻辑重置
+  _playGoalEffectsOnly(newScore, scoreTeam) {
     AudioManager.playSFX('goal');
     this.hud?.updateScore(newScore[TeamId.LEFT], newScore[TeamId.RIGHT]);
     this.goalBanner?.play("进球！"); 
     Platform.vibrateShort();
     
-    this.isGoalResetting = true;
-
+    // 不要立即停止球的物理效果
     if (this.ball) {
         this.ball.setLightningMode(false);
         this.ball.resetStates(); 
     }
-    
-    if (this.resetTimerId) clearTimeout(this.resetTimerId);
-
-    // [注意] 这里的重置计时器对 Sender 是有效的
-    // 对 Receiver 而言，它可能在回放中已经处理了 TURN_SYNC，
-    // 或者等待 Sender 发送的 TURN_SYNC 来触发重置。
-    // 为了防止 Receiver 这里的定时器比网络消息先触发导致位置不一致，
-    // 我们在 _fixedUpdate 中做了限制，Receiver 不会检查物理静止状态。
-    // 此外，Receiver 的 _endTurn 是由网络消息驱动的，会覆盖这里的逻辑。
-    
-    this.resetTimerId = setTimeout(() => { 
-        // 只有 Sender 或 本地模式 需要通过定时器自动进入下一回合
-        // Receiver 应该等待 TURN_SYNC 消息来触发 _endTurn 
-        // 但为了视觉连贯，先重置阵型是可以的，真正的 turnSwitch 由 _endTurn 控制
-        if (!this.isGameOver && this.physics && this.physics.engine) {
-            this.setupFormation(); 
-            
-            // 仅本地逻辑更新回合，网络模式下由 _endTurn 或 网络消息决定
-            if (!this.networkCtrl) {
-                if (scoreTeam !== undefined && scoreTeam !== null) {
-                    const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
-                    this.turnMgr.currentTurn = nextTurn;
-                    this.turnMgr.resetTimer();
-                }
-            }
-
-            this.isGoalResetting = false;
-            // 注意：isMoving 设为 false 会导致 InputController 重新启用
-            // Receiver 最好保持 isMoving = true 直到 TURN_SYNC 真正到达
-            if (!this.networkCtrl || this.turnMgr.currentTurn === this.myTeamId) {
-                this.isMoving = false;
-            }
-        }
-    }, 2000);
   }
 
   onGameOver(data) {
     this.isGameOver = true;
     this.matchStats.endTime = Date.now(); 
-
-    if (this.resetTimerId) {
-        clearTimeout(this.resetTimerId);
-        this.resetTimerId = null;
-    }
 
     this.aiChatCtrl.onGameOver(data.winner);
 
@@ -630,20 +602,20 @@ export default class GameScene extends BaseScene {
     const isPvpOnline = this.gameMode === 'pvp_online';
     const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
     
-    // [核心修改] 
-    // 只有非联网模式(PVE/Local) 或者 联网模式下的发送方(Sender) 才执行物理模拟。
-    // 接收方(Receiver) 的物体位置完全由 NetworkCtrl 里的回放逻辑控制 (this.networkCtrl.update)
+    // [核心修改] 严格的权限分离
+    // 1. 物理引擎：仅 Sender 和 单机模式 运行
     if (!isPvpOnline || isMyTurn) {
         this.physics.update(dt);
-    } 
+    }
 
-    // TurnMgr 也只在本地更新，Receiver 的 Turn 切换由消息控制
+    // 2. 回合管理：仅 Sender 和 单机模式 运行 (AI触发、倒计时)
+    // Receiver 的 Turn 由网络消息驱动
     if (!isPvpOnline || isMyTurn) {
         this.turnMgr.update(dt);
     }
     
+    // 3. 网络控制器：负责录制或回放
     if (this.networkCtrl) {
-        // NetworkCtrl 内部会根据是 Sender 还是 Receiver 执行不同的逻辑 (录制 vs 回放)
         this.networkCtrl.update(dt);
     }
 
@@ -653,7 +625,8 @@ export default class GameScene extends BaseScene {
 
     if (this.isMoving) {
         this.moveTimer += dt;
-        if (this.moveTimer > this.MAX_MOVE_TIME) {
+        // 超时保护 (Sender 负责)
+        if (this.moveTimer > this.MAX_MOVE_TIME && (!isPvpOnline || isMyTurn)) {
             console.log("Turn timed out, forcing end.");
             this._forceFreezeAll(); 
             this._endTurn();
@@ -662,12 +635,14 @@ export default class GameScene extends BaseScene {
 
         // [核心修改] 
         // 只有 Sender 有权检测物理静止并结束回合
-        // Receiver 必须等待 TURN_SYNC 事件
+        // Receiver 必须等待 TURN_SYNC 事件来结束 isMoving
         if (!isPvpOnline || isMyTurn) {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
+            // 只有当没有正在等待重置的进球时，才正常检测静止
+            const isWaitingReset = this.networkCtrl && this.networkCtrl.isWaitingForGoalReset;
 
-            if (isPhysicsSleeping && isAnimFinished && !this.isGoalResetting) {
+            if (isPhysicsSleeping && isAnimFinished && !isWaitingReset) {
                  const startedAnyAnim = this._enforceFairPlay();
                  if (!startedAnyAnim) {
                      this._endTurn();
@@ -712,20 +687,21 @@ export default class GameScene extends BaseScene {
           this.ball.resetStates(); 
       }
 
+      // 如果是 Sender，通知网络
       if (this.networkCtrl && this.turnMgr.currentTurn === this.myTeamId) {
           this.networkCtrl.syncAllPositions();
       }
 
+      // 如果是单机，切换本地 Turn
       if (!this.networkCtrl) {
           this.turnMgr.switchTurn();
       } else {
-          const pending = this.networkCtrl.popPendingTurn();
-          if (pending !== null && pending !== undefined) {
-              this.turnMgr.currentTurn = pending;
-          } else {
+          // 网络模式下，Turn 切换由 syncAllPositions (TURN_SYNC) 触发，
+          // 但为了即时响应，Sender 在这里也可以预先切换，保持一致
+          if (this.turnMgr.currentTurn === this.myTeamId) {
               this.turnMgr.switchTurn();
+              this.turnMgr.resetTimer();
           }
-          this.turnMgr.resetTimer();
       }
   }
 
@@ -860,7 +836,8 @@ export default class GameScene extends BaseScene {
       });
       
       if (finishedAnims.length > 0 && this.repositionAnimations.length === 0) {
-          if (this.isMoving) {
+          // 仅当没有等待进球重置时，才结束 Move (对于 Reset 后的自动结束逻辑，由 _executeRemoteTurnSync 负责)
+          if (this.isMoving && (!this.networkCtrl || !this.networkCtrl.isWaitingForGoalReset)) {
               this._endTurn();
           }
       }
@@ -868,11 +845,6 @@ export default class GameScene extends BaseScene {
 
   onExit() {
       Platform.hideGameAds();
-      if (this.resetTimerId) {
-          clearTimeout(this.resetTimerId);
-          this.resetTimerId = null;
-      }
-
       AudioManager.stopBGM();
       
       EventBus.off(Events.GOAL_SCORED, this);

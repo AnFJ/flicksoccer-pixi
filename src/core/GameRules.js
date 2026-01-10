@@ -11,7 +11,7 @@ export default class GameRules {
    */
   constructor(physicsEngine, scene) {
     this.engine = physicsEngine.engine;
-    this.scene = scene; // [新增] 保存场景引用
+    this.scene = scene; 
     this.score = {
       [TeamId.LEFT]: 0,
       [TeamId.RIGHT]: 0
@@ -47,15 +47,15 @@ export default class GameRules {
         const bodyB = pair.bodyB;
 
         // [核心修改] 权限校验
-        // 如果是 PVP Online 模式，且当前不是我的回合（我是接收方），
-        // 绝对禁止进行进球判定，防止本地物理碰撞先于网络消息触发
+        // 在网络对战中，只有“发送方 (Sender)”（当前操作者）有权检测进球
+        // 接收方 (Receiver) 绝对禁止执行检测逻辑，完全由网络消息驱动
         const isOnline = this.scene && this.scene.gameMode === 'pvp_online';
         const isMyTurn = this.scene && this.scene.turnMgr.currentTurn === this.scene.myTeamId;
         
-        // 只有 PVE模式 或 (PVP模式且是我方回合) 才有权判定进球
         const hasAuthority = !isOnline || isMyTurn;
 
-        if (hasAuthority) {
+        // 如果已经在处理进球中，则不再检测（防止短时间内重复触发）
+        if (hasAuthority && !this.isGoalProcessing) {
             this.checkGoal(bodyA, bodyB);
         }
         
@@ -192,7 +192,8 @@ export default class GameRules {
   }
 
   checkGoal(bodyA, bodyB) {
-    if (this.isGoalProcessing || (Date.now() - this.lastGoalTime < 2000)) return;
+    // 如果已经在处理进球，直接返回
+    if (this.isGoalProcessing) return;
 
     let ball = null;
     let goalSensor = null;
@@ -221,6 +222,7 @@ export default class GameRules {
   }
 
   handleGoal(goalEntity) {
+    // 锁定进球状态，防止重复检测
     this.isGoalProcessing = true;
     this.lastGoalTime = Date.now();
     
@@ -235,8 +237,11 @@ export default class GameRules {
       newScore: this.score
     });
 
-    if (this.score[scoreTeam] >= GameConfig.gameplay.maxScore) {
-      EventBus.emit(Events.GAME_OVER, { winner: scoreTeam });
+    // 只有非联网模式才在此处检查结束。联网模式由 Sender 的逻辑层决定何时发送结束
+    if (this.scene.gameMode !== 'pvp_online') {
+        if (this.score[scoreTeam] >= GameConfig.gameplay.maxScore) {
+            EventBus.emit(Events.GAME_OVER, { winner: scoreTeam });
+        }
     }
   }
 
