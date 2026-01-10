@@ -61,9 +61,6 @@ export const NetMsg = {
   // [新增] 技能同步
   SKILL: 'SKILL',
 
-  // [新增] 公平竞赛移出同步
-  FAIR_PLAY_MOVE: 'FAIR_PLAY_MOVE', 
-
   // [核心新增] 批量轨迹数据包
   TRAJECTORY_BATCH: 'TRAJECTORY_BATCH', 
   

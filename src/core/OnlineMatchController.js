@@ -367,21 +367,6 @@ export default class OnlineMatchController {
             case NetMsg.SKILL:
                 if (scene.skillMgr) scene.skillMgr.handleRemoteSkill(msg.payload);
                 break;
-
-            case NetMsg.FAIR_PLAY_MOVE:
-                const { id, end, duration } = msg.payload;
-                const s = scene.strikers.find(st => st.id === id);
-                if (s) {
-                    s.body.isSensor = true;
-                    scene.repositionAnimations.push({
-                        body: s.body,
-                        start: { x: s.body.position.x, y: s.body.position.y },
-                        end: end,
-                        time: 0,
-                        duration: duration
-                    });
-                }
-                break;
             
             case NetMsg.FORMATION_UPDATE:
                 if (msg.payload.teamId !== this.scene.myTeamId) {
@@ -517,13 +502,6 @@ export default class OnlineMatchController {
         
         // 如果下回合还是我，保持 isMoving=false 允许操作；否则 isMoving=false (等待对方 MOVE)
         this.scene.isMoving = false;
-    }
-
-    sendFairPlayMove(id, start, end, duration) {
-        NetworkMgr.send({
-            type: NetMsg.FAIR_PLAY_MOVE,
-            payload: { id, start, end, duration }
-        });
     }
 
     /**

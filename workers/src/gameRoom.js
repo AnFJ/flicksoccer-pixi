@@ -336,12 +336,6 @@ export class GameRoom {
           }, socket);
           break;
 
-      case 'FAIR_PLAY_MOVE':
-          this.broadcast({
-              type: 'FAIR_PLAY_MOVE',
-              payload: msg.payload
-          });
-          break;
         
       case 'RESET_FIELD':
           // [新增] 转发重置球场消息

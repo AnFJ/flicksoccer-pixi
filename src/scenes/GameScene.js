@@ -643,10 +643,7 @@ export default class GameScene extends BaseScene {
             const isWaitingReset = this.networkCtrl && this.networkCtrl.isWaitingForGoalReset;
 
             if (isPhysicsSleeping && isAnimFinished && !isWaitingReset) {
-                 const startedAnyAnim = this._enforceFairPlay();
-                 if (!startedAnyAnim) {
-                     this._endTurn();
-                 }
+                 this._endTurn();
             }
         }
     }
@@ -667,6 +664,19 @@ export default class GameScene extends BaseScene {
   
   _endTurn(force = false) {
       if (!this.isMoving && !force) return;
+
+      // [新增] 回合结束前执行公平竞赛检查 (防堵门)
+      // 只有拥有权威的一方 (Local / Sender) 才执行检测
+      const isOnline = this.gameMode === 'pvp_online';
+      const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
+      
+      if ((!isOnline || isMyTurn) && this._enforceFairPlay()) {
+          // 如果检测到有棋子需要移出球门，则添加了 reposition 动画
+          // 此时我们不结束 isMoving 状态，让动画播放完
+          // 因为 isMoving 为 true，Sender 会继续发送物理帧 (即动画过程) 给 Receiver
+          // Receiver 看起来就像是在播放一段正常的物理移动
+          return;
+      }
 
       this.atmosphereCtrl.onTurnEnd();
 
@@ -705,6 +715,7 @@ export default class GameScene extends BaseScene {
       }
   }
 
+  // [新增] 检查是否有棋子滞留在球门内，并生成移出动画
   _enforceFairPlay() {
     if (this.networkCtrl && this.turnMgr.currentTurn !== this.myTeamId) {
         return false;
@@ -728,9 +739,6 @@ export default class GameScene extends BaseScene {
             const targetPos = this._findSafeRandomPosition(striker.teamId, safeDistance);
             const duration = 700;
 
-            if (this.networkCtrl) {
-                this.networkCtrl.sendFairPlayMove(striker.id, { x: body.position.x, y: body.position.y }, targetPos, duration);
-            }
             
             body.isSensor = true;
             this.repositionAnimations.push({
