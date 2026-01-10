@@ -352,7 +352,7 @@ export class GameRoom {
         this.broadcast({
           type: 'TURN_SYNC',
           payload: msg.payload
-        });
+        }, socket);
         await this.saveState();
         break;
 

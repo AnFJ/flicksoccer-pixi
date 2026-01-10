@@ -35,7 +35,6 @@ import TurnManager from '../core/TurnManager.js';
 import OnlineMatchController from '../core/OnlineMatchController.js';
 import SkillManager from '../core/SkillManager.js'; 
 
-// [修改] 引入新的控制器
 import AIChatController from '../core/AIChatController.js';
 import AtmosphereController from '../core/AtmosphereController.js';
 
@@ -49,7 +48,6 @@ export default class GameScene extends BaseScene {
     this.turnMgr = new TurnManager(this);
     this.skillMgr = new SkillManager(this);
     
-    // [新增] 实例化新的控制器
     this.aiChatCtrl = new AIChatController(this);
     this.atmosphereCtrl = new AtmosphereController(this);
 
@@ -106,7 +104,6 @@ export default class GameScene extends BaseScene {
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
 
-    // [新增] 初始化控制器
     this.aiChatCtrl.init(this.gameMode);
     this.atmosphereCtrl.reset();
 
@@ -167,7 +164,8 @@ export default class GameScene extends BaseScene {
     this.layout.init(this.activeTheme.field);
     this.input.init();
     this.turnMgr.init(this.gameMode, params.startTurn, this.currentLevel);
-    this.rules = new GameRules(this.physics);
+    // [修改] 传递 this 给 GameRules 构造函数
+    this.rules = new GameRules(this.physics, this);
     this.setupFormation();
     this._createUI();
     this._setupEvents();
@@ -204,7 +202,6 @@ export default class GameScene extends BaseScene {
     const extraData = {
         currentLevel: this.currentLevel,
         players: this.gameMode === 'pvp_online' ? this.players : [],
-        // [修改] 从控制器获取 Persona
         aiInfo: this.aiChatCtrl.getPersona() 
     };
 
@@ -218,7 +215,6 @@ export default class GameScene extends BaseScene {
     );
     this.layout.layers.ui.addChild(this.hud);
 
-    // [修改] 让控制器创建 Chat Bubble
     this.aiChatCtrl.createUI(this.hud);
 
     this.goalBanner = new GoalBanner();
@@ -240,7 +236,6 @@ export default class GameScene extends BaseScene {
     this.turnMgr.resetTimer();
   }
 
-  // [新增] 打开游戏内阵型调整
   openIngameFormation() {
       let mode = 'single_online'; 
       if (this.gameMode === 'pvp_local') {
@@ -438,7 +433,6 @@ export default class GameScene extends BaseScene {
       AudioManager.playSFX(key);
 
       if (key === 'hit_post') {
-          // [修改] 通过控制器触发嘲讽
           this.aiChatCtrl.onPlayerMiss();
       }
   }
@@ -486,7 +480,6 @@ export default class GameScene extends BaseScene {
     this.isMoving = true;
     this.moveTimer = 0; 
     
-    // [修改] 通知 AtmosphereController 击球开始
     this.atmosphereCtrl.onTurnStart();
 
     if (!isRemote) {
@@ -497,21 +490,23 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
-    // [修改] 通知 AtmosphereController 进球
-    this.atmosphereCtrl.onGoal();
-
+    // [核心修改]
+    // 如果是网络对战，且通过 GameRules 触发了进球（说明是本地检测到的）
+    // 如果 NetworkCtrl 存在，则让 NetworkCtrl 判断是否是 Sender。
+    // 如果是 Sender，handleLocalGoal 会返回 false -> 继续执行 UI 特效
+    // 如果是 Receiver（理论上不会触发，但做防御），返回 true -> 中断本地执行
     if (this.networkCtrl) {
         const handled = this.networkCtrl.handleLocalGoal(data);
         if (handled) return; 
     }
     
-    // [修改] 调用 Chat Controller 处理进球说话逻辑
-    // 传入：得分方, 回合开始时分数, 当前分数, 回合消耗时间
+    this.atmosphereCtrl.onGoal();
+
     this.aiChatCtrl.onGoal(
         data.scoreTeam, 
         this.turnStartScores, 
         this.rules.score,
-        this.moveTimer / 1000 // 已过秒数
+        this.moveTimer / 1000 
     );
 
     this._playGoalEffects(data.newScore, data.scoreTeam);
@@ -532,18 +527,35 @@ export default class GameScene extends BaseScene {
     
     if (this.resetTimerId) clearTimeout(this.resetTimerId);
 
+    // [注意] 这里的重置计时器对 Sender 是有效的
+    // 对 Receiver 而言，它可能在回放中已经处理了 TURN_SYNC，
+    // 或者等待 Sender 发送的 TURN_SYNC 来触发重置。
+    // 为了防止 Receiver 这里的定时器比网络消息先触发导致位置不一致，
+    // 我们在 _fixedUpdate 中做了限制，Receiver 不会检查物理静止状态。
+    // 此外，Receiver 的 _endTurn 是由网络消息驱动的，会覆盖这里的逻辑。
+    
     this.resetTimerId = setTimeout(() => { 
+        // 只有 Sender 或 本地模式 需要通过定时器自动进入下一回合
+        // Receiver 应该等待 TURN_SYNC 消息来触发 _endTurn 
+        // 但为了视觉连贯，先重置阵型是可以的，真正的 turnSwitch 由 _endTurn 控制
         if (!this.isGameOver && this.physics && this.physics.engine) {
             this.setupFormation(); 
             
-            if (scoreTeam !== undefined && scoreTeam !== null) {
-                const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
-                this.turnMgr.currentTurn = nextTurn;
-                this.turnMgr.resetTimer();
+            // 仅本地逻辑更新回合，网络模式下由 _endTurn 或 网络消息决定
+            if (!this.networkCtrl) {
+                if (scoreTeam !== undefined && scoreTeam !== null) {
+                    const nextTurn = scoreTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+                    this.turnMgr.currentTurn = nextTurn;
+                    this.turnMgr.resetTimer();
+                }
             }
 
             this.isGoalResetting = false;
-            this.isMoving = false;
+            // 注意：isMoving 设为 false 会导致 InputController 重新启用
+            // Receiver 最好保持 isMoving = true 直到 TURN_SYNC 真正到达
+            if (!this.networkCtrl || this.turnMgr.currentTurn === this.myTeamId) {
+                this.isMoving = false;
+            }
         }
     }, 2000);
   }
@@ -557,7 +569,6 @@ export default class GameScene extends BaseScene {
         this.resetTimerId = null;
     }
 
-    // [修改] AI 胜利聊天
     this.aiChatCtrl.onGameOver(data.winner);
 
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
@@ -606,10 +617,7 @@ export default class GameScene extends BaseScene {
     this.strikers.forEach(s => s.update(delta, alpha));
     this.ball?.update(delta, alpha);
 
-    // [修改] 调用 Chat Controller 更新 (闲置检测)
     this.aiChatCtrl.update();
-
-    // [修改] 调用 Atmosphere Controller 更新 (射门预判)
     this.atmosphereCtrl.update();
   }
 
@@ -622,13 +630,20 @@ export default class GameScene extends BaseScene {
     const isPvpOnline = this.gameMode === 'pvp_online';
     const isMyTurn = this.turnMgr.currentTurn === this.myTeamId;
     
+    // [核心修改] 
+    // 只有非联网模式(PVE/Local) 或者 联网模式下的发送方(Sender) 才执行物理模拟。
+    // 接收方(Receiver) 的物体位置完全由 NetworkCtrl 里的回放逻辑控制 (this.networkCtrl.update)
     if (!isPvpOnline || isMyTurn) {
         this.physics.update(dt);
     } 
 
-    this.turnMgr.update(dt);
+    // TurnMgr 也只在本地更新，Receiver 的 Turn 切换由消息控制
+    if (!isPvpOnline || isMyTurn) {
+        this.turnMgr.update(dt);
+    }
     
     if (this.networkCtrl) {
+        // NetworkCtrl 内部会根据是 Sender 还是 Receiver 执行不同的逻辑 (录制 vs 回放)
         this.networkCtrl.update(dt);
     }
 
@@ -645,6 +660,9 @@ export default class GameScene extends BaseScene {
             return;
         }
 
+        // [核心修改] 
+        // 只有 Sender 有权检测物理静止并结束回合
+        // Receiver 必须等待 TURN_SYNC 事件
         if (!isPvpOnline || isMyTurn) {
             const isPhysicsSleeping = this.physics.isSleeping();
             const isAnimFinished = this.repositionAnimations.length === 0;
@@ -675,7 +693,6 @@ export default class GameScene extends BaseScene {
   _endTurn(force = false) {
       if (!this.isMoving && !force) return;
 
-      // [修改] 通知 Atmosphere 回合结束
       this.atmosphereCtrl.onTurnEnd();
 
       if (this.gameMode === 'pve' && 
@@ -683,7 +700,6 @@ export default class GameScene extends BaseScene {
           this.turnStartScores[TeamId.LEFT] === this.rules.score[TeamId.LEFT]) {
           
           if (Math.random() < 0.3) {
-              // [修改] 通知 Chat Controller 玩家失误
               this.aiChatCtrl.onPlayerBadMove();
           }
       }

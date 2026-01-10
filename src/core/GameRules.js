@@ -7,18 +7,19 @@ import { GameConfig } from '../config.js';
 export default class GameRules {
   /**
    * @param {PhysicsEngine} physicsEngine 
+   * @param {GameScene} scene [新增] 传入场景引用以便判断游戏模式和回合
    */
-  constructor(physicsEngine) {
+  constructor(physicsEngine, scene) {
     this.engine = physicsEngine.engine;
+    this.scene = scene; // [新增] 保存场景引用
     this.score = {
       [TeamId.LEFT]: 0,
       [TeamId.RIGHT]: 0
     };
     
     this.isGoalProcessing = false; 
-    this.lastGoalTime = 0; // [新增] 进球时间锁
+    this.lastGoalTime = 0;
     
-    // [修改] 保存回调引用以便移除
     this.collisionHandler = (event) => this.onCollisionStart(event);
     this.initCollisionEvents();
   }
@@ -29,12 +30,12 @@ export default class GameRules {
     }
   }
 
-  // [新增] 清理方法
   destroy() {
       if (this.engine) {
           Matter.Events.off(this.engine, 'collisionStart', this.collisionHandler);
       }
       this.engine = null;
+      this.scene = null;
   }
 
   onCollisionStart(event) {
@@ -45,7 +46,19 @@ export default class GameRules {
         const bodyA = pair.bodyA;
         const bodyB = pair.bodyB;
 
-        this.checkGoal(bodyA, bodyB);
+        // [核心修改] 权限校验
+        // 如果是 PVP Online 模式，且当前不是我的回合（我是接收方），
+        // 绝对禁止进行进球判定，防止本地物理碰撞先于网络消息触发
+        const isOnline = this.scene && this.scene.gameMode === 'pvp_online';
+        const isMyTurn = this.scene && this.scene.turnMgr.currentTurn === this.scene.myTeamId;
+        
+        // 只有 PVE模式 或 (PVP模式且是我方回合) 才有权判定进球
+        const hasAuthority = !isOnline || isMyTurn;
+
+        if (hasAuthority) {
+            this.checkGoal(bodyA, bodyB);
+        }
+        
         this.checkNetCollision(bodyA, bodyB);
         this.checkStrikerBallCollision(pair);
         this.checkSoundEffects(pair);
@@ -67,7 +80,6 @@ export default class GameRules {
 
       const labels = [bodyA.label, bodyB.label];
 
-      // [修改] 足球撞击棋子的音效逻辑已移至 checkStrikerBallCollision 统一处理，此处忽略
       if (labels.includes('Ball') && labels.includes('Striker')) {
           return;
       }
@@ -81,23 +93,22 @@ export default class GameRules {
           }
       }
 
-      // 2. 棋子撞墙 (新增)
+      // 2. 棋子撞墙
       if (labels.includes('Striker')) {
           const other = bodyA.label === 'Striker' ? bodyB : bodyA;
-          // 检查是否撞到了墙壁 (WallTop, WallBottom, GoalNet 等)
           if (other.label && (other.label.includes('Wall') || other.label.includes('GoalNet'))) {
               EventBus.emit(Events.PLAY_SOUND, 'striker_hit_edge');
               return;
           }
       }
 
-      // 3. 棋子撞棋子 (新增分级音效)
+      // 3. 棋子撞棋子
       if (bodyA.label === 'Striker' && bodyB.label === 'Striker') {
-          let soundKey = 'striker_hit_striker_3'; // 默认小声
+          let soundKey = 'striker_hit_striker_3'; 
           if (intensity > 12) {
-              soundKey = 'striker_hit_striker_1'; // 大速度 (强力碰撞)
+              soundKey = 'striker_hit_striker_1';
           } else if (intensity > 6) {
-              soundKey = 'striker_hit_striker_2'; // 中速度
+              soundKey = 'striker_hit_striker_2';
           }
           EventBus.emit(Events.PLAY_SOUND, soundKey);
           return;
@@ -128,17 +139,15 @@ export default class GameRules {
         const relativeVelocity = Matter.Vector.sub(ball.velocity, striker.velocity);
         const intensity = Matter.Vector.magnitude(relativeVelocity);
 
-        // [新增] 根据强度分级播放音效
         if (intensity > 1.0) {
-            let soundKey = 'ball_hit_striker_3'; // 默认小
+            let soundKey = 'ball_hit_striker_3'; 
             if (intensity > 15) {
-                soundKey = 'ball_hit_striker_1'; // 大速度 (暴力射门)
+                soundKey = 'ball_hit_striker_1';
             } else if (intensity > 8) {
-                soundKey = 'ball_hit_striker_2'; // 中速度
+                soundKey = 'ball_hit_striker_2';
             }
             EventBus.emit(Events.PLAY_SOUND, soundKey);
 
-            // 产生火花特效
             let contactX, contactY;
             if (pair.collision.supports && pair.collision.supports.length > 0) {
                 const contact = pair.collision.supports[0];
@@ -183,7 +192,6 @@ export default class GameRules {
   }
 
   checkGoal(bodyA, bodyB) {
-    // [修改] 增加时间锁检查，防止短时间(2秒)内多次触发
     if (this.isGoalProcessing || (Date.now() - this.lastGoalTime < 2000)) return;
 
     let ball = null;
@@ -214,7 +222,7 @@ export default class GameRules {
 
   handleGoal(goalEntity) {
     this.isGoalProcessing = true;
-    this.lastGoalTime = Date.now(); // [新增] 更新时间戳
+    this.lastGoalTime = Date.now();
     
     const defenseTeam = goalEntity.ownerTeamId;
     const scoreTeam = defenseTeam === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;

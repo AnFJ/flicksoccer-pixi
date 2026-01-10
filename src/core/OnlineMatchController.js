@@ -8,7 +8,8 @@ import { GameConfig } from '../config.js';
 import AudioManager from '../managers/AudioManager.js';
 
 /**
- * 联机对战控制器
+ * 联机对战控制器 (重构版)
+ * 核心原则：发送方(Sender)是唯一事实来源，接收方(Receiver)严格按照队列回放事件。
  */
 export default class OnlineMatchController {
     constructor(scene) {
@@ -23,40 +24,36 @@ export default class OnlineMatchController {
         // --- 回放相关 (Receiver) ---
         this.isReplaying = false;      
         this.isBuffering = false;      
-        this.replayQueue = [];         
+        this.replayQueue = []; // 队列中可以包含物理帧Frame 或 事件Event
         this.replayTime = 0;           
         this.totalBufferedTime = 0;    
         
-        // [新增] 缓存挂起的同步指令
-        this.queuedTurnSync = null;
-
         EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
-        EventBus.on(Events.PLAY_SOUND, this.onLocalSound, this); // [新增] 监听本地音效
+        EventBus.on(Events.PLAY_SOUND, this.onLocalSound, this); 
     }
 
     update(delta) {
         const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
 
+        // 如果是我的回合，我在操作(Moving)，则录制
+        // 如果不是我的回合，且正在回放模式，则播放
         if (this.scene.isMoving) {
             if (isMyTurn) {
-                // 我是攻击方：记录当前帧
                 this._recordFrame(delta);
             } else if (this.isReplaying) {
-                // 我是防守方：播放回放
                 this._processPlayback(delta);
             }
         }
     }
 
     /**
-     * [新增] 监听并记录本地音效
+     * [Sender] 监听并记录本地音效
      */
     onLocalSound(key) {
         const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
-        // 只有发送方（我的回合）才记录音效并发送给对方
         if (isMyTurn && this.scene.isMoving) {
             this.sendBuffer.push({
-                t: 0, // 音效事件通常附着在当前时刻，时间增量设为0以便立即处理
+                t: 0, 
                 isEvent: true,
                 eventType: 'SOUND',
                 key: key
@@ -64,6 +61,9 @@ export default class OnlineMatchController {
         }
     }
 
+    /**
+     * [Sender] 录制物理帧
+     */
     _recordFrame(dt) {
         const frameData = {
             t: dt, 
@@ -111,16 +111,12 @@ export default class OnlineMatchController {
         this.sendTimer = 0;
     }
 
+    /**
+     * [Receiver] 播放回放队列
+     * 队列中混合了 物理帧 和 关键事件(进球、回合结束)
+     */
     _processPlayback(dt) {
-        // [新增] 如果队列已空且有挂起的同步，直接执行同步并退出
-        if (this.replayQueue.length === 0) {
-            if (this.queuedTurnSync) {
-                this._handleTurnSync(this.queuedTurnSync);
-                this.queuedTurnSync = null;
-            }
-            return;
-        }
-
+        // 如果缓冲中，判断是否可以开始
         if (this.isBuffering) {
             if (this.totalBufferedTime >= GameConfig.network.replayBufferTime) {
                 this.isBuffering = false;
@@ -130,72 +126,108 @@ export default class OnlineMatchController {
         }
 
         let remainingDt = dt;
-        while (remainingDt > 0 && this.replayQueue.length > 0) {
-            const currentFrame = this.replayQueue[0];
-            
-            if (currentFrame.isEvent) {
-                this._handleReplayEvent(currentFrame);
-                this.replayQueue.shift(); 
-                continue; 
+
+        while (remainingDt > 0 || this.replayQueue.length > 0) {
+            // 如果队列空了，停止播放，等待更多数据
+            if (this.replayQueue.length === 0) {
+                // 如果时间也没了，直接退出
+                if (remainingDt > 0) {
+                    // console.log("Buffer empty, waiting...");
+                }
+                break;
             }
 
-            if (currentFrame.t > remainingDt) {
-                currentFrame.t -= remainingDt;
-                this._applyFrameState(currentFrame);
+            const item = this.replayQueue[0];
+
+            // --- 情况 A: 处理事件 (t=0) ---
+            if (item.isEvent) {
+                this._handleReplayEvent(item);
+                this.replayQueue.shift();
+                continue; // 事件处理完继续循环，不消耗 dt
+            }
+
+            // --- 情况 B: 处理物理帧 ---
+            // 如果当前帧的时间 > 剩余时间，说明这一帧只播放一部分
+            if (item.t > remainingDt) {
+                item.t -= remainingDt;
+                // 这里我们不需要真正插值，只需要应用物理状态。
+                // 为了平滑，理想情况是根据 remainingDt 插值，但这里直接应用目标状态作为简化
+                this._applyFrameState(item); 
                 remainingDt = 0;
             } else {
-                remainingDt -= currentFrame.t;
-                this._applyFrameState(currentFrame);
+                // 当前帧时间 <= 剩余时间，完整播放这一帧
+                remainingDt -= item.t;
+                this._applyFrameState(item);
+                
+                // 移除帧，并更新缓冲总时长
                 this.replayQueue.shift();
-                this.totalBufferedTime -= currentFrame.originalT || currentFrame.t; 
+                this.totalBufferedTime -= item.originalT || item.t;
             }
-        }
-
-        // [新增] 播放完本帧后，再次检查队列是否耗尽，如果耗尽且有挂起的同步，立即执行
-        if (this.replayQueue.length === 0 && this.queuedTurnSync) {
-            this._handleTurnSync(this.queuedTurnSync);
-            this.queuedTurnSync = null;
+            
+            if (remainingDt <= 0) break;
         }
     }
 
-    _handleReplayEvent(frame) {
-        if (frame.eventType === NetMsg.GOAL) {
-            this._processGoalMessage(frame.payload);
-        } else if (frame.eventType === 'SOUND') {
-            // [新增] 播放同步的碰撞音效
-            AudioManager.playSFX(frame.key);
+    _handleReplayEvent(event) {
+        console.log(`[Online] Replay Event: ${event.eventType}`, event.payload);
+
+        if (event.eventType === NetMsg.GOAL) {
+            // 执行进球逻辑：更新比分，播放特效
+            this._executeRemoteGoal(event.payload);
+        } 
+        else if (event.eventType === NetMsg.TURN_SYNC) {
+            // 执行回合结束逻辑：同步最终位置，切换回合
+            this._executeRemoteTurnSync(event.payload);
+        }
+        else if (event.eventType === 'SOUND') {
+            AudioManager.playSFX(event.key);
         }
     }
 
-    // [新增] 统一处理进球消息逻辑 (复用于回放和直接消息)
-    _processGoalMessage(payload) {
+    // [Receiver] 执行远程进球
+    _executeRemoteGoal(payload) {
         const { newScore, scoreTeam } = payload;
         
-        // [重要] 去重校验：如果本地分数已经大于等于网络分数，说明已处理过或网络延迟重复发
+        // 双重校验，防止重复进球 (虽然序列化后几率很小)
         const currentScore = this.scene.rules.score[scoreTeam];
         if (newScore[scoreTeam] <= currentScore) {
-            console.log(`[Online] Ignore duplicate/old goal message. Local: ${currentScore}, Net: ${newScore[scoreTeam]}`);
             return;
         }
 
-        // [核心修复] 如果是我方回合(我是攻击者)，理应由我方产生进球，忽略对方传来的 GOAL
-        // 除非出现极其罕见的同步错乱，否则不应信任对方在我方回合的判定
-        if (this.scene.turnMgr.currentTurn === this.scene.myTeamId) {
-             console.log(`[Online] Ignore remote goal during my turn.`);
-             return;
-        }
-
-        let actualScoreTeam = scoreTeam;
-        // [增强] 如果 scoreTeam 缺失 (兼容旧服务器代码)，尝试本地推断
-        if (actualScoreTeam === undefined || actualScoreTeam === null) {
-            const oldScore = this.scene.rules.score;
-            if (newScore[TeamId.LEFT] > oldScore[TeamId.LEFT]) actualScoreTeam = TeamId.LEFT;
-            else if (newScore[TeamId.RIGHT] > oldScore[TeamId.RIGHT]) actualScoreTeam = TeamId.RIGHT;
-        }
-
         this.scene.rules.score = newScore;
-        this.scene._playGoalEffects(newScore, actualScoreTeam);
+        // 调用 Scene 的特效逻辑
+        // 注意：Scene.onGoal 里会判断如果是接收方则只播特效
+        this.scene._playGoalEffects(newScore, scoreTeam);
+        
+        // 检查游戏是否结束
         this._checkRemoteGameOver(newScore);
+    }
+
+    // [Receiver] 执行远程回合同步与结束
+    _executeRemoteTurnSync(payload) {
+        this.isReplaying = false;
+        this.isBuffering = false;
+        this.replayQueue = []; // 清空队列 (理论上此时应该是空的)
+
+        // 强行同步一次最终位置
+        if (payload.strikers) {
+            payload.strikers.forEach(data => {
+                const s = this.scene.strikers.find(st => st.id === data.id);
+                if (s) {
+                    Matter.Body.setPosition(s.body, data.pos);
+                    Matter.Body.setVelocity(s.body, {x:0, y:0});
+                    Matter.Body.setAngularVelocity(s.body, 0); 
+                }
+            });
+        }
+        if (this.scene.ball && payload.ball) {
+            Matter.Body.setPosition(this.scene.ball.body, payload.ball);
+            Matter.Body.setVelocity(this.scene.ball.body, {x:0, y:0});
+            Matter.Body.setAngularVelocity(this.scene.ball.body, 0);
+        }
+
+        // 调用 Scene 结束回合
+        this.scene._endTurn(true); 
     }
 
     _applyFrameState(frame) {
@@ -229,11 +261,10 @@ export default class OnlineMatchController {
                 this.pendingTurn = msg.payload.nextTurn;
 
                 const striker = scene.strikers.find(s => s.id === msg.payload.id);
-                // 只有当击球者不是我的时候，才进入回放逻辑
+                // 收到对手移动指令，开始进入回放模式
                 if (striker && striker.teamId !== scene.myTeamId) {
                     const usedSkills = msg.payload.skills || {};
                     
-                    // 应用技能特效到球上
                     if (usedSkills[SkillType.UNSTOPPABLE] && scene.ball) {
                          scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
                     }
@@ -249,23 +280,60 @@ export default class OnlineMatchController {
                     this.isBuffering = true;
                     this.replayQueue = [];
                     this.totalBufferedTime = 0;
-                    this.queuedTurnSync = null; // 重置挂起状态
                     scene.onActionFired(true); 
                 }
                 break;
 
             case NetMsg.TRAJECTORY_BATCH:
+                // 只有在回放模式下才接收物理帧
                 if (this.isReplaying) {
                     const frames = msg.payload.frames;
                     if (frames && frames.length > 0) {
                         frames.forEach(f => {
                             f.originalT = f.t; 
                             this.replayQueue.push(f);
+                            // 只有物理帧才计入缓冲时间，事件帧是瞬时的
                             if (!f.isEvent) {
                                 this.totalBufferedTime += f.t;
                             }
                         });
                     }
+                }
+                break;
+
+            case NetMsg.GOAL:
+                // [核心修改] 进球消息作为事件帧插入队列
+                if (this.isReplaying) {
+                    console.log("[Online] Queuing GOAL event");
+                    this.replayQueue.push({
+                        isEvent: true,
+                        eventType: NetMsg.GOAL,
+                        payload: msg.payload,
+                        t: 0 
+                    });
+                    // 收到进球，停止缓冲等待，尽可能快地播放
+                    this.isBuffering = false;
+                } else {
+                    // 如果不在回放模式（比如极罕见的同步延迟），直接处理
+                    // 但通常应该在回放模式中
+                    this._executeRemoteGoal(msg.payload);
+                }
+                break;
+
+            case NetMsg.TURN_SYNC:
+                // [核心修改] 回合结束消息作为事件帧插入队列
+                if (this.isReplaying) {
+                    console.log("[Online] Queuing TURN_SYNC event");
+                    this.replayQueue.push({
+                        isEvent: true,
+                        eventType: NetMsg.TURN_SYNC,
+                        payload: msg.payload,
+                        t: 0
+                    });
+                    this.isBuffering = false;
+                } else {
+                    // 异常情况：未回放却收到同步，强制同步
+                    this._executeRemoteTurnSync(msg.payload);
                 }
                 break;
 
@@ -293,40 +361,10 @@ export default class OnlineMatchController {
                     });
                 }
                 break;
-
-            case NetMsg.TURN_SYNC:
-                // [核心修复] 如果正在回放且队列未空，暂存同步指令，等待回放自然结束
-                // 解决球还在滚动时被强制瞬移到停止点造成的卡顿问题
-                if (this.isReplaying && this.replayQueue.length > 0) {
-                    // console.log("[Online] Buffering TURN_SYNC until replay finishes");
-                    this.queuedTurnSync = msg.payload;
-                } else {
-                    this._handleTurnSync(msg.payload);
-                }
-                break;
-
-            case NetMsg.GOAL:
-                if (this.isReplaying) {
-                    this.replayQueue.push({
-                        isEvent: true,
-                        eventType: NetMsg.GOAL,
-                        payload: msg.payload,
-                        t: 0 
-                    });
-                    // [修复] 收到进球消息后，强制停止缓冲，确保队列中的进球事件能立即/随后被播放
-                    // 防止因数据包停止发送导致的 buffer 不足而卡住
-                    this.isBuffering = false;
-                } else {
-                    this._processGoalMessage(msg.payload);
-                }
-                break;
             
-            // [新增] 阵型更新消息处理
             case NetMsg.FORMATION_UPDATE:
-                const { teamId, formationId } = msg.payload;
-                // 注意：只处理对方的更新
-                if (teamId !== this.scene.myTeamId) {
-                    this.scene.handleRemoteFormationUpdate(teamId, formationId);
+                if (msg.payload.teamId !== this.scene.myTeamId) {
+                    this.scene.handleRemoteFormationUpdate(msg.payload.teamId, msg.payload.formationId);
                 }
                 break;
 
@@ -355,7 +393,6 @@ export default class OnlineMatchController {
         }
     }
 
-    // [新增] 发送阵型更新
     sendFormationUpdate(formationId) {
         NetworkMgr.send({
             type: NetMsg.FORMATION_UPDATE,
@@ -366,78 +403,37 @@ export default class OnlineMatchController {
         });
     }
 
-    // [新增] 检查远程同步的分数是否触发游戏结束
     _checkRemoteGameOver(score) {
         const maxScore = GameConfig.gameplay.maxScore;
         let winner = -1;
-        
-        // score 对象可能是 { "0": 2, "1": 0 }
         if (score[TeamId.LEFT] >= maxScore) winner = TeamId.LEFT;
         else if (score[TeamId.RIGHT] >= maxScore) winner = TeamId.RIGHT;
 
-        // 如果达到胜利条件，手动触发本地的 GameOver 逻辑
         if (winner !== -1) {
             this.scene.onGameOver({ winner });
         }
     }
 
-    _handleTurnSync(payload) {
-        // [修复] 在清除队列前，检查是否有挂起的 GOAL 事件未处理
-        // 防止 TURN_SYNC 消息在 GOAL 事件播放前到达，导致比分丢失
-        const pendingGoal = this.replayQueue.find(f => f.isEvent && f.eventType === NetMsg.GOAL);
-        if (pendingGoal) {
-            console.log("[Online] Found pending GOAL in queue during SYNC, applying immediately.");
-            this._processGoalMessage(pendingGoal.payload);
-        }
-
-        this.isReplaying = false;
-        this.isBuffering = false;
-        this.replayQueue = [];
-        this.queuedTurnSync = null; // 重置
-        
-        if (payload.strikers) {
-            payload.strikers.forEach(data => {
-                const s = this.scene.strikers.find(st => st.id === data.id);
-                if (s) {
-                    Matter.Body.setPosition(s.body, data.pos);
-                    Matter.Body.setVelocity(s.body, {x:0, y:0});
-                    Matter.Body.setAngularVelocity(s.body, 0); 
-                }
-            });
-        }
-        if (this.scene.ball && payload.ball) {
-            Matter.Body.setPosition(this.scene.ball.body, payload.ball);
-            Matter.Body.setVelocity(this.scene.ball.body, {x:0, y:0});
-            Matter.Body.setAngularVelocity(this.scene.ball.body, 0);
-        }
-
-        if (this.scene.isMoving) {
-            this.scene._endTurn();
-        } else if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
-            // [修复] 处理 MOVE 消息丢失或同步乱序的情况
-            // 如果我处于等待回合(对手回合)，但收到了同步指令且画面静止，说明回合已结束
-            console.log("[Online] TURN_SYNC received without active move. Forcing turn end.");
-            this.scene._endTurn(true); // 强制结束
-        }
-    }
-
+    /**
+     * [Sender] 本地发生进球
+     * 必须先刷新缓冲区，确保之前的物理帧先发出去，然后再发 GOAL 消息
+     */
     handleLocalGoal(data) {
         if (this.scene.turnMgr.currentTurn !== this.scene.myTeamId) {
+            // 如果不是我的回合，但我检测到了进球（理论上被 GameRules 屏蔽了，这里是兜底）
+            // 立即回滚，不发送消息
             this.scene.rules.score[data.scoreTeam]--; 
-            return true; // 如果不是我的回合，说明我是被动方，本地先回滚分数，等待网络同步
+            return true; 
         }
         
-        // [核心修复] 必须先刷新缓冲区，确保这一帧之前的物理轨迹(球进门的过程)先发出去
-        // 这样接收方在收到 GOAL 消息前，会先收到并播放完球滚进门的动画
         this._flushSendBuffer();
 
-        // 1. 发送 GOAL 消息给对方
         NetworkMgr.send({
             type: NetMsg.GOAL,
             payload: { newScore: data.newScore, scoreTeam: data.scoreTeam }
         });
         
-        // 2. 返回 false，告诉 GameScene 继续执行本地的进球特效和重置逻辑
+        // 返回 false，表示本地逻辑继续执行 (播放特效等)
         return false; 
     }
 
@@ -448,8 +444,14 @@ export default class OnlineMatchController {
         });
     }
 
+    /**
+     * [Sender] 回合结束，发送同步包
+     */
     syncAllPositions() {
+        // 先发完剩下的轨迹
         this._flushSendBuffer();
+        
+        // 再发同步包
         const payload = {
             strikers: this.scene.strikers.map(s => ({ id: s.id, pos: { x: s.body.position.x, y: s.body.position.y } })),
             ball: { x: this.scene.ball.body.position.x, y: this.scene.ball.body.position.y }
@@ -476,7 +478,7 @@ export default class OnlineMatchController {
     }
     _handlePlayerOffline(payload) { 
         const offlineTeamId = payload.teamId; 
-        const reason = payload.reason; // [新增] 获取原因
+        const reason = payload.reason;
 
         if (offlineTeamId !== undefined) {
             if (!this.hasOpponentLeft) {
@@ -487,7 +489,6 @@ export default class OnlineMatchController {
             this.scene.input.reset();
             
             if (!this.hasOpponentLeft) {
-                // [新增] 根据原因显示不同提示
                 if (reason === 'manual') {
                     Platform.showToast("对方主动离开了...");
                 } else {
