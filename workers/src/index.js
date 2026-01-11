@@ -37,12 +37,14 @@ const INITIAL_ITEMS = [
 const INITIAL_THEME = { striker: 1, field: 1, ball: 1, formationId: 0 };
 // 默认解锁内容 (Type: [IDs])
 const INITIAL_UNLOCKED = { striker: [1], field: [1], ball: [1], formation: [0] };
-// [新增] 默认生涯数据
+// 默认生涯数据
 const INITIAL_MATCH_STATS = {
     total_pve: 0, total_local: 0, total_online: 0,
     wins_pve: 0, wins_local: 0, wins_online: 0,
     rating_sum_pve: 0, rating_sum_local: 0, rating_sum_online: 0
 };
+// [新增] 默认每日解锁记录
+const INITIAL_DAILY_UNLOCKS = {};
 
 export default {
   async fetch(request, env, ctx) {
@@ -59,10 +61,8 @@ export default {
     try {
       // --- 1. 多人房间相关 ---
       
-      // [新增] 获取可加入的房间列表
+      // 获取可加入的房间列表
       if (path === '/api/rooms/list' && request.method === 'GET') {
-          // 查询状态为 0 (WAITING) 的最近 5 个房间
-          // 注意：需要确保数据库表 room_records 存在
           const { results } = await env.DB.prepare(`
               SELECT room_id, host_info, created_at 
               FROM room_records 
@@ -71,7 +71,6 @@ export default {
               LIMIT 5
           `).all();
           
-          // 解析 JSON 字段
           const rooms = results.map(r => {
               try {
                   return {
@@ -135,12 +134,13 @@ export default {
             checkin_history: '[]',
             theme: JSON.stringify(INITIAL_THEME),
             unlocked_themes: JSON.stringify(INITIAL_UNLOCKED),
-            match_stats: JSON.stringify(INITIAL_MATCH_STATS) // [新增]
+            match_stats: JSON.stringify(INITIAL_MATCH_STATS),
+            daily_unlocks: JSON.stringify(INITIAL_DAILY_UNLOCKS) // [新增]
           };
           
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats, daily_unlocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats, user.daily_unlocks).run();
 
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(deviceId).first();
         } else {
@@ -168,11 +168,16 @@ export default {
             updateFields.push("unlocked_themes = ?");
             updateArgs.push(user.unlocked_themes);
           }
-          // [新增] 检查 match_stats
           if (!user.match_stats) {
             user.match_stats = JSON.stringify(INITIAL_MATCH_STATS);
             updateFields.push("match_stats = ?");
             updateArgs.push(user.match_stats);
+          }
+          // [新增] 检查 daily_unlocks
+          if (!user.daily_unlocks) {
+            user.daily_unlocks = JSON.stringify(INITIAL_DAILY_UNLOCKS);
+            updateFields.push("daily_unlocks = ?");
+            updateArgs.push(user.daily_unlocks);
           }
 
           if (updateFields.length > 0) {
@@ -221,12 +226,13 @@ export default {
             checkin_history: '[]',
             theme: JSON.stringify(INITIAL_THEME),
             unlocked_themes: JSON.stringify(INITIAL_UNLOCKED),
-            match_stats: JSON.stringify(INITIAL_MATCH_STATS) // [新增]
+            match_stats: JSON.stringify(INITIAL_MATCH_STATS),
+            daily_unlocks: JSON.stringify(INITIAL_DAILY_UNLOCKS) // [新增]
           };
 
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats).run();
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats, daily_unlocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats, user.daily_unlocks).run();
 
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
@@ -260,11 +266,17 @@ export default {
             updateArgs.push(user.unlocked_themes);
             needsUpdate = true;
           }
-          // [新增]
           if (!user.match_stats) {
             user.match_stats = JSON.stringify(INITIAL_MATCH_STATS);
             updateSqlParts.push("match_stats = ?");
             updateArgs.push(user.match_stats);
+            needsUpdate = true;
+          }
+          // [新增]
+          if (!user.daily_unlocks) {
+            user.daily_unlocks = JSON.stringify(INITIAL_DAILY_UNLOCKS);
+            updateSqlParts.push("daily_unlocks = ?");
+            updateArgs.push(user.daily_unlocks);
             needsUpdate = true;
           }
 
@@ -294,7 +306,7 @@ export default {
 
       // --- 4. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
-        const { userId, coins, level, items, checkinHistory, theme, unlockedThemes } = await request.json();
+        const { userId, coins, level, items, checkinHistory, theme, unlockedThemes, dailyUnlocks } = await request.json();
 
         let sql = 'UPDATE users SET coins = ?, level = ?, items = ?';
         let args = [coins, level, JSON.stringify(items || [])];
@@ -304,16 +316,20 @@ export default {
           args.push(JSON.stringify(checkinHistory));
         }
 
-        // [修改] 更新 theme (其中包含 formationId)
         if (theme !== undefined) {
           sql += ', theme = ?';
           args.push(JSON.stringify(theme));
         }
 
-        // [新增] 更新 unlocked_themes (确保数据库有此列)
         if (unlockedThemes !== undefined) {
             sql += ', unlocked_themes = ?';
             args.push(JSON.stringify(unlockedThemes));
+        }
+
+        // [新增] 更新 daily_unlocks
+        if (dailyUnlocks !== undefined) {
+            sql += ', daily_unlocks = ?';
+            args.push(JSON.stringify(dailyUnlocks));
         }
 
         sql += ' WHERE user_id = ?';

@@ -1,3 +1,4 @@
+import path from 'path';
 
 // 游戏全局配置
 export const GameConfig = {
@@ -125,7 +126,7 @@ export const GameConfig = {
       
       // [核心新增] 轨迹回放配置
       trajectorySendInterval: 100, // 发送端：每多少毫秒打包发送一次轨迹数据包
-      replayBufferTime: 800,       // 接收端：开始播放前需要缓冲的时间 (ms)
+      replayBufferTime: 500,       // 接收端：开始播放前需要缓冲的时间 (ms)
   },
 
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
@@ -142,7 +143,9 @@ export const GameConfig = {
               theme_striker: 'adunit-88bdd3cb911f5642',
               theme_field: 'adunit-80528d8bc18b8441',
               theme_ball: 'adunit-6b851044132039f5',
-              theme_formation: 'adunit-342edcf7c048abe3'
+              theme_formation: 'adunit-342edcf7c048abe3',
+              // [新增] 模式解锁
+              unlock_mode: 'adunit-mode-unlock-placeholder' // 请替换为真实ID
           }
       },
       douyin: {
@@ -156,7 +159,9 @@ export const GameConfig = {
               theme_striker: 'adunit-dy-striker',
               theme_field: 'adunit-dy-field',
               theme_ball: 'adunit-dy-ball',
-              theme_formation: 'adunit-dy-formation'
+              theme_formation: 'adunit-dy-formation',
+              // [新增] 模式解锁
+              unlock_mode: 'adunit-mode-unlock-placeholder'
           }
       }
   },

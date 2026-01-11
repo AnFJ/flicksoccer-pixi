@@ -3,7 +3,7 @@ import Platform from './Platform.js';
 import NetworkMgr from './NetworkMgr.js';
 import EventBus from './EventBus.js';
 import { Events } from '../constants.js';
-import { LevelRewards } from '../config/RewardConfig.js'; // [新增]
+import { LevelRewards } from '../config/RewardConfig.js'; 
 
 const CACHE_KEY = 'finger_soccer_user_data';
 
@@ -29,12 +29,13 @@ class AccountMgr {
           ball: [1],
           formation: [0]
       },
-      // [新增] 本地缓存的生涯数据
       matchStats: {
           total_pve: 0, total_local: 0, total_online: 0,
           wins_pve: 0, wins_local: 0, wins_online: 0,
           rating_sum_pve: 0, rating_sum_local: 0, rating_sum_online: 0
-      }
+      },
+      // [新增] 每日模式解锁记录 { modeKey: timestamp }
+      dailyUnlocks: {} 
     };
     this.isLoggedIn = false;
     this.isNewUser = false;
@@ -133,13 +134,42 @@ class AccountMgr {
           this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
       }
 
-      // [新增] 解析生涯数据
+      // 解析生涯数据
       try {
           this.userInfo.matchStats = typeof data.match_stats === 'string' ? JSON.parse(data.match_stats || '{}') : data.match_stats;
           if (!this.userInfo.matchStats) this.userInfo.matchStats = {};
       } catch(e) {
           this.userInfo.matchStats = {};
       }
+      
+      // [新增] 解析每日解锁数据
+      try {
+          this.userInfo.dailyUnlocks = typeof data.daily_unlocks === 'string' ? JSON.parse(data.daily_unlocks || '{}') : data.daily_unlocks;
+          if (!this.userInfo.dailyUnlocks) this.userInfo.dailyUnlocks = {};
+      } catch(e) {
+          this.userInfo.dailyUnlocks = {};
+      }
+  }
+
+  // 检查某个模式今日是否已解锁
+  isModeUnlocked(modeKey) {
+      if (!this.userInfo.dailyUnlocks) return false;
+      const lastUnlockTime = this.userInfo.dailyUnlocks[modeKey];
+      if (!lastUnlockTime) return false;
+      
+      const lastDate = new Date(lastUnlockTime).toDateString();
+      const todayDate = new Date().toDateString();
+      
+      return lastDate === todayDate;
+  }
+
+  // 解锁某个模式
+  unlockMode(modeKey) {
+      if (!this.userInfo.dailyUnlocks) this.userInfo.dailyUnlocks = {};
+      this.userInfo.dailyUnlocks[modeKey] = Date.now();
+      this.saveToCache();
+      // [修改] 解锁是关键行为，建议同步到服务器
+      this.sync(); 
   }
 
   async sync() {
@@ -152,11 +182,12 @@ class AccountMgr {
           items: this.userInfo.items,
           checkinHistory: this.userInfo.checkinHistory,
           theme: this.userInfo.theme,
-          unlockedThemes: this.userInfo.unlockedThemes 
+          unlockedThemes: this.userInfo.unlockedThemes,
+          dailyUnlocks: this.userInfo.dailyUnlocks // [新增]
       });
   }
 
-  // [新增] 提交比赛结果
+  // 提交比赛结果
   async recordMatch(matchType, isWin, rating, matchData) {
       if (this.userInfo.id.startsWith('offline_')) return;
 
@@ -190,11 +221,8 @@ class AccountMgr {
       if (!isFail && level === this.userInfo.level) {
           this.userInfo.level++;
           
-          // [核心新增] 检查该等级是否有奖励
+          // 检查该等级是否有奖励
           let unlockedReward = null;
-          // 注意：奖励是通关 level 后获得的，比如通关第2关，等级变为3，解锁奖励LevelRewards[2]或[3]?
-          // 通常是 "通关第N关，解锁第N关奖励"。此时 userInfo.level 已经 +1 了。
-          // 所以我们检查 level (即刚通关的那个关卡号)
           const reward = LevelRewards[level];
           
           if (reward) {
@@ -311,6 +339,7 @@ class AccountMgr {
       this.userInfo.theme = { striker: 1, field: 1, ball: 1, formationId: 0 };
       this.userInfo.unlockedThemes = { striker: [1], field: [1], ball: [1], formation: [0] };
       this.userInfo.matchStats = {};
+      this.userInfo.dailyUnlocks = {};
       this.isLoggedIn = true;
       this.saveToCache(); 
   }

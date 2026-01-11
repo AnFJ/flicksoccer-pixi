@@ -14,8 +14,9 @@ import InventoryView from '../ui/InventoryView.js';
 import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; 
 import MessageDialog from '../ui/MessageDialog.js'; 
 import EventBus from '../managers/EventBus.js';
-import { Events } from '../constants.js'; // [新增] 引入 Events
+import { Events } from '../constants.js'; 
 import ResultScene from './ResultScene.js'; 
+
 export default class MenuScene extends BaseScene {
   onEnter() {
     super.onEnter();
@@ -62,7 +63,7 @@ export default class MenuScene extends BaseScene {
     };
     const entryFee = GameConfig.gameplay.economy.entryFee;
     
-    // 1. PVE
+    // 1. PVE (无需解锁)
     const pveBtn = new Button({ 
         ...btnConfig,
         text: `单人闯关`, 
@@ -71,35 +72,135 @@ export default class MenuScene extends BaseScene {
         } 
     });
     pveBtn.position.set(btnX - 210, startY);
+    this.container.addChild(pveBtn);
     
-    // 2. 本地双人
+    // 2. 本地双人 (需每日解锁)
     const pvpLocalBtn = new Button({ 
         ...btnConfig,
         text: '本地双人', 
-        onClick: () => SceneManager.changeScene(GameScene, { mode: 'pvp_local' }) 
+        onClick: () => {
+            this.handleModeEntry('local_pvp', () => {
+                SceneManager.changeScene(GameScene, { mode: 'pvp_local' });
+            });
+        } 
     });
     pvpLocalBtn.position.set(btnX - 210, startY + gap);
+    this.container.addChild(pvpLocalBtn);
+    
+    // 检查并添加锁图标
+    this.updateLockStatus(pvpLocalBtn, 'local_pvp');
 
-    // 3. 网络对战
+    // 3. 网络对战 (需每日解锁)
     const pvpOnlineBtn = new Button({
         ...btnConfig, 
-        text: `网络对战 (门票${entryFee})`,
+        text: `网络对战`,
         onClick: () => {
             if (AccountMgr.userInfo.coins >= entryFee) {
-                SceneManager.changeScene(LobbyScene);
+                this.handleModeEntry('online_pvp', () => {
+                    SceneManager.changeScene(LobbyScene);
+                });
             } else {
                 Platform.showToast(`金币不足，需要${entryFee}金币`);
             }
         } 
     });
     pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
+    this.container.addChild(pvpOnlineBtn);
 
-    this.container.addChild(pveBtn, pvpLocalBtn, pvpOnlineBtn);
+    // 检查并添加锁图标
+    this.updateLockStatus(pvpOnlineBtn, 'online_pvp');
 
     this.alignUserInfo();
 
     // [新增] 监听数据刷新事件
     EventBus.on(Events.USER_DATA_REFRESHED, this.refreshUI, this);
+  }
+
+  /**
+   * [新增] 处理模式入口逻辑（含广告锁）
+   * @param {string} modeKey 
+   * @param {Function} onSuccess 
+   */
+  handleModeEntry(modeKey, onSuccess) {
+      if (AccountMgr.isModeUnlocked(modeKey)) {
+          // 已解锁，直接进入
+          onSuccess();
+      } else {
+          // 未解锁，弹窗提示看广告
+          const dialog = new MessageDialog(
+              "解锁玩法", 
+              "观看一次视频，今日无限畅玩该模式！", 
+              async () => {
+                  const adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode'] || "";
+                  const success = await Platform.showRewardedVideoAd(adUnitId);
+                  if (success) {
+                      AccountMgr.unlockMode(modeKey);
+                      Platform.showToast("解锁成功！今日免费畅玩");
+                      // 刷新按钮状态
+                      this.refreshLockIcons();
+                      // 进入
+                      onSuccess();
+                  }
+              }
+          );
+          // 修改 MessageDialog 的确认按钮文字会更友好，这里默认是 "确定"
+          this.container.addChild(dialog);
+      }
+  }
+
+  /**
+   * [新增] 更新按钮上的锁图标
+   */
+  updateLockStatus(btn, modeKey) {
+      // 如果已存在锁图标，先移除
+      const existingLock = btn.inner.getChildByName('lockIcon');
+      if (existingLock) {
+          btn.inner.removeChild(existingLock);
+      }
+
+      // 如果未解锁，添加图标
+      if (!AccountMgr.isModeUnlocked(modeKey)) {
+          const lockContainer = new PIXI.Container();
+          lockContainer.name = 'lockIcon';
+          
+          // 黄色背景圆
+          const bg = new PIXI.Graphics();
+          bg.beginFill(0xF1C40F);
+          bg.lineStyle(2, 0xFFFFFF);
+          bg.drawCircle(0, 0, 24);
+          bg.endFill();
+          
+          // 播放三角形 (代表看视频)
+          const icon = new PIXI.Graphics();
+          icon.beginFill(0x333333);
+          icon.moveTo(-5, -8);
+          icon.lineTo(8, 0);
+          icon.lineTo(-5, 8);
+          icon.endFill();
+
+          lockContainer.addChild(bg, icon);
+          // 放置在按钮右上角区域 (相对于中心)
+          lockContainer.position.set(btn.options.width / 2 - 140, -btn.options.height / 2 + 65);
+          
+          btn.inner.addChild(lockContainer);
+      }
+  }
+
+  /**
+   * [新增] 刷新所有按钮的锁状态
+   */
+  refreshLockIcons() {
+      // 遍历容器子对象寻找按钮 (简单起见，按添加顺序或文本内容找，这里简化假设)
+      // 在实际项目中最好保存按钮引用。这里我们简单重新 update 所有可能带锁的按钮
+      this.container.children.forEach(child => {
+          if (child instanceof Button) {
+              if (child.options.text.includes('本地双人')) {
+                  this.updateLockStatus(child, 'local_pvp');
+              } else if (child.options.text.includes('网络对战')) {
+                  this.updateLockStatus(child, 'online_pvp');
+              }
+          }
+      });
   }
 
   // [新增] 刷新 UI 数据
@@ -121,8 +222,6 @@ export default class MenuScene extends BaseScene {
       if (this.nameText) {
           this.nameText.text = user.nickname;
       }
-
-      // 如果需要刷新头像，这里也可以处理，但头像加载较重通常不频繁变动
   }
 
   // 响应屏幕尺寸变化
@@ -249,7 +348,7 @@ export default class MenuScene extends BaseScene {
 
     // 4. 每日签到
     if (!AccountMgr.isCheckedInToday()) {
-        this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '签到有奖', 0xFF5722, () => {
+        this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '每日一抽', 0xFF5722, () => {
             this.handleDailyCheckIn(this.checkInBtn);
         });
         container.addChild(this.checkInBtn);

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login TEXT DEFAULT (datetime('now', '+8 hours')),          -- 最后登录时间戳
     checkin_history TEXT DEFAULT '[]',  -- 签到历史 (JSON 字符串)
     match_stats TEXT DEFAULT '{"totalMatches":0,"wins":0,"losses":0}', -- 比赛统计 (JSON 字符串)
+    daily_unlocks TEXT DEFAULT '{}'  -- 每日解锁记录 (JSON 字符串)
 );
 -- 对战记录
 CREATE TABLE IF NOT EXISTS match_history (
