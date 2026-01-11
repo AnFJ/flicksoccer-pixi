@@ -9,55 +9,71 @@ class AudioManager {
     this.isMuted = false;
   }
 
-  init() {
+  async init() {
     console.log('[Audio] Initializing sounds...');
-    // 注册基础音效
+    
+    // 1. 本地音频注册
     this.registerSound('collision', 'assets/sounds/collision.mp3');
     this.registerSound('goal', 'assets/sounds/goal.mp3');
     this.registerSound('win', 'assets/sounds/win.mp3');
     
-    // 注册物理碰撞音效 (保留通用，新增分级)
     this.registerSound('hit_ball', 'assets/sounds/hit_ball.mp3');
     this.registerSound('hit_wall', 'assets/sounds/hit_wall.mp3');
-    this.registerSound('hit_striker', 'assets/sounds/hit_striker.mp3'); // 保留作为兜底
+    this.registerSound('hit_striker', 'assets/sounds/hit_striker.mp3'); 
     this.registerSound('hit_post', 'assets/sounds/hit_post.mp3');
 
-    // [新增] 1. 群众背景循环音
-    this.registerSound('crowd_bg_loop', 'assets/sounds/crowd_bg_loop.mp3');
-
-    // [新增] 2. 足球碰撞棋子分级音效 (1=大, 2=中, 3=小)
+    // 碰撞分级音效
     this.registerSound('ball_hit_striker_1', 'assets/sounds/ball_hit_striker_1.mp3');
     this.registerSound('ball_hit_striker_2', 'assets/sounds/ball_hit_striker_2.mp3');
     this.registerSound('ball_hit_striker_3', 'assets/sounds/ball_hit_striker_3.mp3');
 
-    // [新增] 3. 棋子碰撞棋子分级音效 (1=大, 2=中, 3=小)
     this.registerSound('striker_hit_striker_1', 'assets/sounds/striker_hit_striker_1.mp3');
     this.registerSound('striker_hit_striker_2', 'assets/sounds/striker_hit_striker_2.mp3');
     this.registerSound('striker_hit_striker_3', 'assets/sounds/striker_hit_striker_3.mp3');
 
-    // [新增] 4. 棋子撞墙音效
     this.registerSound('striker_hit_edge', 'assets/sounds/striker_hit_edge.mp3');
 
-    // [新增] 5. 技能释放音效
-    this.registerSound('skill_fire', 'assets/sounds/skill_fire.mp3'); // 无敌战车
-    this.registerSound('skill_lightning', 'assets/sounds/skill_lightning.mp3'); // 大力水手
+    this.registerSound('skill_fire', 'assets/sounds/skill_fire.mp3');
+    this.registerSound('skill_lightning', 'assets/sounds/skill_lightning.mp3');
 
-    // [新增] 6. 群众加油呼声 (僵持局)
-    this.registerSound('crowd_cheer_1', 'assets/sounds/crowd_cheer_1.mp3');
-    this.registerSound('crowd_cheer_2', 'assets/sounds/crowd_cheer_2.mp3');
-    this.registerSound('crowd_cheer_3', 'assets/sounds/crowd_cheer_3.mp3');
+    // 2. 远程音频注册 (需先下载/获取路径)
+    // 定义远程文件列表
+    const remoteAudios = [
+        { key: 'crowd_bg_loop', file: 'crowd_bg_loop.mp3' },
+        { key: 'crowd_cheer_1', file: 'crowd_cheer_1.mp3' },
+        { key: 'crowd_cheer_2', file: 'crowd_cheer_2.mp3' },
+        { key: 'crowd_cheer_3', file: 'crowd_cheer_3.mp3' },
+        { key: 'crowd_sigh_1', file: 'crowd_sigh_1.mp3' }, // 假设这些也可能被移到远程，如果还在本地请保留在上方
+        { key: 'crowd_sigh_2', file: 'crowd_sigh_2.mp3' },
+        { key: 'crowd_sigh_3', file: 'crowd_sigh_3.mp3' },
+        { key: 'crowd_anticipation_1', file: 'crowd_anticipation_1.mp3' },
+        { key: 'crowd_anticipation_2', file: 'crowd_anticipation_2.mp3' }
+    ];
 
-    // [新增] 7. 射门预判反应 - 失望 (臭脚)
-    this.registerSound('crowd_sigh_1', 'assets/sounds/crowd_sigh_1.mp3');
-    this.registerSound('crowd_sigh_2', 'assets/sounds/crowd_sigh_2.mp3');
-    this.registerSound('crowd_sigh_3', 'assets/sounds/crowd_sigh_3.mp3');
-
-    // [新增] 8. 射门预判反应 - 激动 (有戏)
-    this.registerSound('crowd_anticipation_1', 'assets/sounds/crowd_anticipation_1.mp3');
-    this.registerSound('crowd_anticipation_2', 'assets/sounds/crowd_anticipation_2.mp3');
+    // 本地可能还保留的
+    // 如果这些也被移走了，请将其移动到 remoteAudios 列表，这里为了演示，只处理您明确提到的几个
+    // 注意：您提到的 'cowd' 应该是 'crowd' 的笔误，这里使用 crowd
+    
+    // 处理远程加载
+    await Promise.all(remoteAudios.map(async (item) => {
+        // 尝试加载远程资源
+        // 这里做一个判断：如果文件确实在 assets-origin 中，调用 Platform.loadRemoteAsset
+        // 如果您暂时只移除了部分，未移除的调用 registerSound 即可。
+        // 根据您的要求，crowd_bg_loop, crowd_cheer_1/2/3 必须远程。
+        if (['crowd_bg_loop', 'crowd_cheer_1', 'crowd_cheer_2', 'crowd_cheer_3'].includes(item.key)) {
+            const path = await Platform.loadRemoteAsset(item.file);
+            this.registerSound(item.key, path);
+        } else {
+            // 兜底：如果还没移到远程，使用本地路径 (假设还在 assets/sounds/)
+            // 实际项目中请根据文件实际位置调整
+            this.registerSound(item.key, `assets/sounds/${item.file}`);
+        }
+    }));
   }
 
   registerSound(key, src) {
+    if (!src) return; // 路径为空则跳过
+
     if (Platform.env === 'web') {
         // Web 环境支持 (使用 HTML5 Audio)
         const audio = new Audio();

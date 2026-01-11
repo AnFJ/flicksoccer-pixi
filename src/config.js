@@ -5,6 +5,13 @@ export const GameConfig = {
   designWidth: 2400,
   designHeight: 1080,
   
+  // [新增] 资源配置
+  resourceConfig: {
+      // 请替换为实际的 CDN 地址，末尾不要带 /
+      // H5 开发环境下可以直接指向本地文件夹
+      cdnUrl: "https://your-cdn-domain.com/assets-origin" 
+  },
+
   // 调试配置
   debug: {
     showGoalZones: false,    // 设为 true 可显示球门的物理墙(红)和感应区(黄)

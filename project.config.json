@@ -86,6 +86,10 @@
       {
         "value": "doc",
         "type": "folder"
+      },
+      {
+        "value": "assets-origin",
+        "type": "folder"
       }
     ],
     "include": []

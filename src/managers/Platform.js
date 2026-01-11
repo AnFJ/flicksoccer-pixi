@@ -23,6 +23,81 @@ class Platform {
   }
 
   /**
+   * [新增] 加载远程资源 (支持自动缓存)
+   * @param {string} fileName 文件名 (如 'bg.mp3')
+   * @returns {Promise<string>} 本地路径 或 URL
+   */
+  async loadRemoteAsset(fileName) {
+      // 1. Web 环境
+      if (this.env === 'web') {
+          // 开发环境下，假设 assets-origin 在根目录可访问
+          // 生产环境下，如果是 H5 部署，您可能需要配置 Vite copy 或手动上传 CDN 并修改这里的逻辑
+          return `assets-origin/${fileName}`;
+      }
+
+      // 2. 小游戏环境 (微信/抖音)
+      const provider = this.getProvider();
+      if (!provider) return '';
+
+      const fs = provider.getFileSystemManager();
+      const userDataPath = provider.env.USER_DATA_PATH;
+      const cacheDir = `${userDataPath}/game_cache`;
+      const localPath = `${cacheDir}/${fileName}`;
+      const cdnUrl = GameConfig.resourceConfig.cdnUrl.replace(/\/$/, '');
+      const remoteUrl = `${cdnUrl}/${fileName}`;
+
+      // 确保缓存目录存在
+      try {
+          fs.accessSync(cacheDir);
+      } catch (e) {
+          try {
+              fs.mkdirSync(cacheDir, true);
+          } catch (err) {
+              console.error('[Platform] Create cache dir failed', err);
+          }
+      }
+
+      // 检查文件是否已缓存
+      try {
+          fs.accessSync(localPath);
+          console.log(`[Platform] Hit cache for: ${fileName}`);
+          return localPath;
+      } catch (e) {
+          // 未缓存，开始下载
+          console.log(`[Platform] Downloading remote asset: ${remoteUrl}`);
+          return new Promise((resolve) => {
+              provider.downloadFile({
+                  url: remoteUrl,
+                  success: (res) => {
+                      if (res.statusCode === 200) {
+                          // 保存文件
+                          fs.saveFile({
+                              tempFilePath: res.tempFilePath,
+                              filePath: localPath,
+                              success: (saveRes) => {
+                                  console.log(`[Platform] Cached ${fileName} to ${saveRes.savedFilePath}`);
+                                  resolve(saveRes.savedFilePath);
+                              },
+                              fail: (err) => {
+                                  console.warn('[Platform] Save file failed, using temp path', err);
+                                  resolve(res.tempFilePath);
+                              }
+                          });
+                      } else {
+                          console.warn(`[Platform] Download failed status ${res.statusCode}, using remote url`);
+                          resolve(remoteUrl);
+                      }
+                  },
+                  fail: (err) => {
+                      console.warn('[Platform] Download failed, using remote url', err);
+                      resolve(remoteUrl);
+                  }
+              });
+          });
+      }
+  }
+
+  /**
    * [新增] 检查小游戏启动参数
    */
   checkLaunchOptions() {

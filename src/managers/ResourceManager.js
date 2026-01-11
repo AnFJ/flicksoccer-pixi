@@ -1,5 +1,6 @@
 
 import * as PIXI from 'pixi.js';
+import Platform from './Platform.js'; // [新增]
 
 class ResourceManager {
   constructor() {
@@ -42,10 +43,11 @@ class ResourceManager {
     };
 
     // [新增] 动态注册主题资源
-    // 1. 球场 (改为2套) field_combined1 ~ 2
-    for (let i = 1; i <= 2; i++) {
-        this.gameManifest[`field_${i}`] = `assets/images/fieldtheme/field_combined${i}.png`;
-    }
+    // 1. 球场
+    // field_1 保持本地
+    this.gameManifest['field_1'] = `assets/images/fieldtheme/field_combined1.png`;
+    // field_2 改为远程资源 (标记 remote:)
+    this.gameManifest['field_2'] = `remote:field_combined2.png`;
 
     // 2. 足球纹理 (改为4套: 1默认 + 2奖励)
     // 注意：代码里默认使用了 ball_texture 作为 key，这里我们把 ball_texture1 设为默认的 ball_texture 以兼容旧逻辑
@@ -84,18 +86,30 @@ class ResourceManager {
    * 通用加载内部实现
    */
   _loadManifest(manifest, onProgress) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       const loader = PIXI.Loader.shared;
       
       let count = 0;
-      for (const [key, url] of Object.entries(manifest)) {
-        if (!loader.resources[key]) {
-            loader.add(key, url);
-            count++;
-        } else {
+      
+      // 预处理Manifest：分离本地和远程资源
+      const loadQueue = [];
+
+      for (const [key, rawUrl] of Object.entries(manifest)) {
+        if (loader.resources[key]) {
+            // 已加载，更新引用 (如果是Texture)
             if (loader.resources[key].texture) {
                 this.resources[key] = loader.resources[key].texture;
             }
+            continue;
+        }
+
+        count++;
+        
+        if (rawUrl.startsWith('remote:')) {
+            const fileName = rawUrl.split(':')[1];
+            loadQueue.push({ key, type: 'remote', fileName });
+        } else {
+            loadQueue.push({ key, type: 'local', url: rawUrl });
         }
       }
 
@@ -104,6 +118,27 @@ class ResourceManager {
           resolve();
           return;
       }
+
+      // 如果有远程资源，先并行下载/获取本地路径
+      const remoteItems = loadQueue.filter(item => item.type === 'remote');
+      if (remoteItems.length > 0) {
+          // 这里简单处理：并行请求所有远程路径
+          await Promise.all(remoteItems.map(async (item) => {
+              try {
+                  const localPathOrUrl = await Platform.loadRemoteAsset(item.fileName);
+                  // 将解析后的路径添加到 loader
+                  loader.add(item.key, localPathOrUrl);
+              } catch (e) {
+                  console.warn(`[Resource] Failed to resolve remote asset: ${item.fileName}`, e);
+                  // 失败则不添加，让 loader 后续处理或忽略
+              }
+          }));
+      }
+
+      // 添加本地资源到 loader
+      loadQueue.filter(item => item.type === 'local').forEach(item => {
+          loader.add(item.key, item.url);
+      });
 
       if (onProgress) {
           loader.onProgress.add((loader) => {
