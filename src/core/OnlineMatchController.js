@@ -74,26 +74,39 @@ export default class OnlineMatchController {
 
     /**
      * [Sender] 录制物理帧
+     * [优化] 只记录移动中的物体，且降低精度
      */
     _recordFrame(dt) {
         const frameData = {
-            t: dt, 
+            t: Math.round(dt), // [优化] 时间取整
             bodies: {}
         };
 
         let hasActive = false;
+        const MIN_SPEED = 0.05; // [优化] 静止阈值
+
+        // 1. 处理足球
         if (this.scene.ball && this.scene.ball.body) {
             const b = this.scene.ball.body;
-            frameData.bodies['ball'] = this._packBodyData(b);
-            hasActive = true;
+            // 球总是稍微敏感一点，或者如果不动就不发
+            if (b.speed > MIN_SPEED || Math.abs(b.angularVelocity) > MIN_SPEED) {
+                frameData.bodies['ball'] = this._packBodyData(b);
+                hasActive = true;
+            }
         }
 
+        // 2. 处理棋子 (只发送动的)
         this.scene.strikers.forEach(s => {
             if (s.body) {
-                frameData.bodies[s.id] = this._packBodyData(s.body);
+                if (s.body.speed > MIN_SPEED || Math.abs(s.body.angularVelocity) > MIN_SPEED) {
+                    frameData.bodies[s.id] = this._packBodyData(s.body);
+                    hasActive = true;
+                }
             }
         });
 
+        // 即使没有物体移动，只要这一帧有 dt，也需要 push 进去，保证接收端时间流逝
+        // 但如果 bodies 为空，JSON stringify 后会很短 {"t":17, "bodies":{}}
         this.sendBuffer.push(frameData);
         this.sendTimer += dt;
 
@@ -102,13 +115,19 @@ export default class OnlineMatchController {
         }
     }
 
+    /**
+     * [优化] 数据压缩打包
+     * x,y: 1位小数
+     * a: 2位小数
+     * vx,vy: 1位小数 (仅用于特效)
+     */
     _packBodyData(body) {
         return {
-            x: Number(body.position.x.toFixed(1)),
-            y: Number(body.position.y.toFixed(1)),
-            a: Number(body.angle.toFixed(3)),
-            vx: Number(body.velocity.x.toFixed(2)), 
-            vy: Number(body.velocity.y.toFixed(2))
+            x: Math.round(body.position.x * 10) / 10,
+            y: Math.round(body.position.y * 10) / 10,
+            a: Math.round(body.angle * 100) / 100,
+            vx: Math.round(body.velocity.x * 10) / 10, 
+            vy: Math.round(body.velocity.y * 10) / 10
         };
     }
 
@@ -251,11 +270,13 @@ export default class OnlineMatchController {
 
     _applyFrameState(frame) {
         const bodies = frame.bodies;
+        // [优化] 如果 bodies 为空 (静止帧)，则不更新位置，物体保持原地 (符合预期)
         if (!bodies) return;
 
         if (bodies['ball'] && this.scene.ball) {
             this._setBodyState(this.scene.ball.body, bodies['ball']);
         }
+        // 遍历所有 bodies keys
         for (const id in bodies) {
             if (id === 'ball') continue;
             const striker = this.scene.strikers.find(s => s.id === id);

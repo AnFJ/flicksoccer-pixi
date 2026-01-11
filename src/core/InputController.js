@@ -360,16 +360,15 @@ export default class InputController {
         g.drawPolygon([p1x, p1y, p2x, p2y, p3x, p3y]);
         g.endFill();
 
-        // --- 2. 如果开启超级瞄准，额外绘制折线轨迹 ---
+        // --- 2. 如果开启超级瞄准，绘制红外线激光 ---
         if (isSuperAim) {
-            // 从箭头尖端附近开始绘制，或者从棋子中心开始绘制
             this._drawSuperAimLine(g, sx, sy, angle, this.selectedEntityId);
         }
     }
 
     /**
-     * 超级瞄准：射线检测与折线绘制
-     * [更新] 支持检测足球和敌方棋子
+     * 超级瞄准升级版：红外线激光效果
+     * 包含外发光、内核心线、以及击中点的光斑
      */
     _drawSuperAimLine(g, startX, startY, angle, ignoredId) {
         // 配置
@@ -377,14 +376,12 @@ export default class InputController {
         const totalDist = GameConfig.gameplay.skills.superAim.distance;
         let remainingDist = totalDist;
         
-        // 从棋子边缘稍微靠外一点开始，避免一开始就撞到自己
+        // 从棋子边缘稍微靠外一点开始
         const r = GameConfig.dimensions.strikerDiameter / 2;
         let currX = startX + Math.cos(angle) * (r + 5);
         let currY = startY + Math.sin(angle) * (r + 5);
         let currAngle = angle;
         
-        g.lineStyle(4, 0x9b59b6, 0.8); // 紫色虚线
-
         const { x, y, w, h } = this.scene.layout.fieldRect;
         const bounds = {
             minX: x, maxX: x + w,
@@ -399,6 +396,11 @@ export default class InputController {
                 if (s.id !== ignoredId) targets.push(s);
             });
         }
+
+        // 定义激光颜色
+        const laserColorCore = 0xFFFFFF; // 核心白
+        const laserColorInner = 0xFFCCCC; // 内圈淡红
+        const laserColorOuter = 0xFF0000; // 外圈深红
 
         for (let b = 0; b <= maxBounces; b++) {
             let dx = Math.cos(currAngle);
@@ -439,25 +441,22 @@ export default class InputController {
                 
                 const cx = t.body.position.x;
                 const cy = t.body.position.y;
-                // 球半径或棋子半径
                 const radius = t.radius || (t.label === 'Ball' ? GameConfig.dimensions.ballDiameter/2 : GameConfig.dimensions.strikerDiameter/2);
 
                 const lx = cx - currX;
                 const ly = cy - currY;
-                // 投影长度
                 const tca = lx * dx + ly * dy;
-                if (tca < 0) continue; // 目标在射线背面
+                if (tca < 0) continue; 
 
                 const d2 = (lx*lx + ly*ly) - (tca*tca);
-                if (d2 > radius*radius) continue; // 射线未穿过圆
+                if (d2 > radius*radius) continue; 
 
                 const thc = Math.sqrt(radius*radius - d2);
-                const t0 = tca - thc; // 入射点距离
+                const t0 = tca - thc; 
 
                 if (t0 > 0 && t0 < bestDist) {
                     bestDist = t0;
                     
-                    // 计算法线：(HitPoint - Center) / Radius
                     const hitX = currX + dx * t0;
                     const hitY = currY + dy * t0;
                     hitNormal = {
@@ -467,23 +466,45 @@ export default class InputController {
                 }
             }
 
-            // 绘制当前段线
+            // 计算终点
             const endX = currX + dx * bestDist;
             const endY = currY + dy * bestDist;
             
+            // --- 绘制多层激光 (Glow Effect) ---
+            
+            // 层1：宽大的外发光 (模拟空气散射)
+            g.lineStyle(8, laserColorOuter, 0.2); 
             g.moveTo(currX, currY);
             g.lineTo(endX, endY);
+
+            // 层2：较窄的主体红光
+            g.lineStyle(4, laserColorOuter, 0.6); 
+            g.moveTo(currX, currY);
+            g.lineTo(endX, endY);
+
+            // 层3：极细的核心高亮白光
+            g.lineStyle(1.5, laserColorInner, 0.9); 
+            g.moveTo(currX, currY);
+            g.lineTo(endX, endY);
+
+            // --- 绘制击中点光斑 (Impact Dot) ---
+            g.lineStyle(0); // 关掉线条
             
-            // 撞击点画个小圈
-            g.beginFill(0x9b59b6);
-            g.drawCircle(endX, endY, 4);
+            // 光斑外晕
+            g.beginFill(laserColorOuter, 0.5); 
+            g.drawCircle(endX, endY, 7);
+            g.endFill();
+            
+            // 光斑核心
+            g.beginFill(laserColorCore, 1.0);
+            g.drawCircle(endX, endY, 3);
             g.endFill();
 
+            // 更新距离
             remainingDist -= bestDist;
             if (remainingDist <= 0 || !hitNormal) break;
 
             // --- 计算反射向量 ---
-            // R = D - 2*(D·N)*N
             const dot = dx * hitNormal.x + dy * hitNormal.y;
             const rx = dx - 2 * dot * hitNormal.x;
             const ry = dy - 2 * dot * hitNormal.y;

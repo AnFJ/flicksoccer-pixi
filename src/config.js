@@ -161,7 +161,7 @@ export const GameConfig = {
               theme_ball: 'adunit-6b851044132039f5',
               theme_formation: 'adunit-342edcf7c048abe3',
               // [新增] 模式解锁
-              unlock_mode: 'adunit-mode-unlock-placeholder' // 请替换为真实ID
+              unlock_mode: 'adunit-7fcbc609e83b5de9' // 请替换为真实ID
           }
       },
       douyin: {

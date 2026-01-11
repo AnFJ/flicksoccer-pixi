@@ -251,7 +251,7 @@ export default class LobbyScene extends BaseScene {
 
   createKeypad(w, h) {
       const startY = 320;
-      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', '创建房间'];
+      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', 'GO'];
       const keyW = 180;
       const keyH = 100;
       const gap = 20;
@@ -264,7 +264,7 @@ export default class LobbyScene extends BaseScene {
           const col = index % 3;
           
           let color = 0x34495e;
-          if (key === '创建房间') color = 0x2980b9;
+          if (key === 'GO') color = 0x2980b9;
           if (key === '清空') color = 0xc0392b;
 
           const btn = new Button({
@@ -280,7 +280,7 @@ export default class LobbyScene extends BaseScene {
   onKeyPress(key) {
       if (key === '清空') {
           this.roomNumber = "";
-      } else if (key === '创建房间') {
+      } else if (key === 'GO') {
           if (this.roomNumber.length === 4) {
               this.joinRoom(this.roomNumber);
           } else {
