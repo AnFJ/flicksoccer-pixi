@@ -327,9 +327,23 @@ class AccountMgr {
       return lastDate.toDateString() === today.toDateString();
   }
 
-  performCheckIn(rewardCoins) {
+  performCheckIn(rewardCoins = 0) {
       this.userInfo.checkinHistory.push(Date.now());
-      this.addCoins(rewardCoins, true); 
+      if (rewardCoins > 0) this.addCoins(rewardCoins, true); 
+      else this.sync(); // 即使没有硬币(例如抽奖后发放)，也要记录签到时间
+  }
+
+  // [新增] 处理抽奖奖励
+  processLotteryReward(prize) {
+      if (prize.type === 'coin') {
+          this.addCoins(prize.value);
+      } else if (prize.type === 'skill') {
+          this.addItem(prize.value, prize.count);
+      } else if (prize.type === 'unlock_mode') {
+          this.unlockMode(prize.value);
+      }
+      // 记录签到
+      this.performCheckIn(0); 
   }
 
   enterOfflineMode() {

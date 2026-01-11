@@ -447,8 +447,9 @@ class Platform {
    */
   async showInterstitialAd() {
       if (this.env === 'web') {
-          console.log('[Platform] Mock Interstitial Ad shown (Web)');
-          return Math.random() > 0.5;
+          console.log('[Platform] Mock Interstitial Ad shown (Web) - Default Success');
+          // Web 环境下默认成功，方便测试逻辑
+          return true;
       }
 
       const provider = this.getProvider();
@@ -505,9 +506,10 @@ class Platform {
    */
   async showRewardedVideoAd(adUnitId) {
       if (this.env === 'web') {
-          console.log(`[Platform] Mock Reward Video: ${adUnitId}`);
+          console.log(`[Platform] Mock Reward Video: ${adUnitId} - Default Success`);
+          this.showToast('广告模拟成功');
           return new Promise(resolve => {
-              // Web 模拟延迟后成功
+              // Web 模拟延迟后自动成功
               setTimeout(() => {
                   const success = confirm("模拟：是否看完广告？");
                   resolve(success);

@@ -132,6 +132,22 @@ export const GameConfig = {
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
   // rewardedVideo: 激励视频广告ID (Coins, Aim, Unstoppable, Force, ThemeTypes)
   adConfig: {
+      web: {
+          banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
+          rewardedVideo: {
+              coins: 'adunit-26a38148682bce5a',
+              super_aim: 'adunit-0d8e4a176de1bc31',
+              unstoppable: 'adunit-bc43ef817678099c',
+              super_force: 'adunit-8aa62d2e44801ab1',
+              // [新增] 主题解锁广告ID
+              theme_striker: 'adunit-88bdd3cb911f5642',
+              theme_field: 'adunit-80528d8bc18b8441',
+              theme_ball: 'adunit-6b851044132039f5',
+              theme_formation: 'adunit-342edcf7c048abe3',
+              // [新增] 模式解锁
+              unlock_mode: 'adunit-mode-unlock-placeholder' // 请替换为真实ID
+          }
+      },
       wechat: {
           banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
           rewardedVideo: {

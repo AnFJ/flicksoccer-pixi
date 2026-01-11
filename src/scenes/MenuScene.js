@@ -13,6 +13,8 @@ import Platform from '../managers/Platform.js';
 import InventoryView from '../ui/InventoryView.js'; 
 import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; 
 import MessageDialog from '../ui/MessageDialog.js'; 
+import LotteryDialog from '../ui/LotteryDialog.js'; // [新增]
+import { drawLottery } from '../config/LotteryConfig.js'; // [新增]
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; 
 import ResultScene from './ResultScene.js'; 
@@ -222,6 +224,9 @@ export default class MenuScene extends BaseScene {
       if (this.nameText) {
           this.nameText.text = user.nickname;
       }
+      
+      // 刷新解锁状态
+      this.refreshLockIcons();
   }
 
   // 响应屏幕尺寸变化
@@ -240,7 +245,7 @@ export default class MenuScene extends BaseScene {
       if (this.checkInBtn && this.checkInBtn.parent && this.checkInBtn.visible) {
           this.shakeTimer += delta;
           const interval = 10000; // 10秒
-          const shakeDuration = 900; // [修改] 晃动时长 600 -> 900 (+50%)
+          const shakeDuration = 900; 
           
           if (this.shakeTimer >= interval) {
               if (this.shakeTimer < interval + shakeDuration) {
@@ -444,6 +449,8 @@ export default class MenuScene extends BaseScene {
 
   async handleDailyCheckIn(btn) {
       if (btn) btn.interactive = false;
+      
+      // 1. 播放广告
       let success = false;
       try {
           success = await Platform.showInterstitialAd();
@@ -451,23 +458,37 @@ export default class MenuScene extends BaseScene {
           success = false;
       }
       
-      let reward = success ? 100 : 50;
-      let title = "签到成功";
-      let msg = success ? "恭喜你！\n获得每日签到奖励 100 金币" : "广告加载失败，发送保底奖励 50 金币";
-
-      AccountMgr.performCheckIn(reward);
-
-      const dialog = new MessageDialog(title, msg, () => {
-          if (this.coinsText) {
-              this.coinsText.text = `💰 ${AccountMgr.userInfo.coins}`;
+      // 2. 广告结束后显示抽奖盘
+      if (success) {
+          // 抽取奖品 (逻辑层)
+          const prize = drawLottery();
+          
+          // 显示抽奖弹窗
+          const lotteryDialog = new LotteryDialog(prize, () => {
+              // 动画结束后发放奖励并刷新 UI
+              AccountMgr.processLotteryReward(prize);
+              this.refreshUI();
+              
+              // 移除签到按钮
+              if (btn && btn.parent) {
+                  btn.parent.removeChild(btn);
+              }
+              this.checkInBtn = null;
+          });
+          
+          this.container.addChild(lotteryDialog);
+      } else {
+          // 广告失败，给保底奖励
+          Platform.showToast("广告加载失败，获得保底奖励: 50 金币");
+          AccountMgr.addCoins(50, true);
+          AccountMgr.performCheckIn(0); // 记录签到
+          
+          if (btn && btn.parent) {
+              btn.parent.removeChild(btn);
           }
-      });
-      this.container.addChild(dialog);
-
-      if (btn && btn.parent) {
-          btn.parent.removeChild(btn);
+          this.checkInBtn = null;
+          this.refreshUI();
       }
-      this.checkInBtn = null; // 停止晃动动画
   }
 
   createDefaultAvatar(container, name, radius) {
