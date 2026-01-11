@@ -14,12 +14,37 @@ class Platform {
     
     // 初始化时立即检查启动参数
     this.checkLaunchOptions();
+    
+    // [新增] 注册默认分享行为 (主要针对微信右上角)
+    this.registerDefaultShare();
   }
 
   detectEnv() {
     if (typeof tt !== 'undefined') return 'douyin';
     if (typeof wx !== 'undefined') return 'wechat';
     return 'web';
+  }
+
+  registerDefaultShare() {
+      const provider = this.getProvider();
+      if (!provider) return;
+      
+      const defaultTitle = "弹指足球，一球定胜负！";
+      
+      if (this.env === 'wechat' && provider.onShareAppMessage) {
+          provider.onShareAppMessage(() => ({
+              title: defaultTitle
+          }));
+      } else if (this.env === 'douyin' && provider.onShareAppMessage) {
+          // 抖音也支持全局监听分享菜单
+          provider.onShareAppMessage((res) => {
+              return {
+                  title: defaultTitle,
+                  // 抖音分享通常需要 templateId 才能获得更好效果，这里留空使用默认
+                  // templateId: '' 
+              };
+          });
+      }
   }
 
   /**
@@ -172,43 +197,27 @@ class Platform {
   shareRoom(roomId) {
       const provider = this.getProvider();
       const title = "来《弹指足球》和我一决高下！";
-      // 封面图可以使用截图或者固定图片，这里暂未指定 imageUrl，使用默认截图
       const query = `roomId=${roomId}&fromUser=share`; 
 
       if (this.env === 'wechat') {
-          // 微信小游戏：主动拉起转发（通常需要通过按钮 open-type="share"，但在 Canvas 只能调用 API）
-          // 注意：wx.shareAppMessage 在较新版本通常需要并在 onShareAppMessage 中配置
-          // 我们这里尝试主动调用，如果失败则提示用户点击右上角
-          
-          // 1. 设置被动转发配置 (右上角菜单转发)
-          provider.onShareAppMessage(() => {
-              return {
-                  title: title,
-                  query: query
-              };
-          });
-
-          // 2. 尝试主动拉起 (部分基础库支持，或提示)
           if (provider.shareAppMessage) {
-              provider.shareAppMessage({
-                  title: title,
-                  query: query
-              });
+              provider.shareAppMessage({ title: title, query: query });
           } else {
               this.showToast("请点击右上角 '...' 发送给朋友");
           }
-
       } else if (this.env === 'douyin') {
-          // 抖音小游戏
+          // 抖音小游戏分享
           if (provider.shareAppMessage) {
               provider.shareAppMessage({
                   title: title,
                   query: query,
-                  success() {
-                      console.log('Share success');
-                  },
-                  fail(e) {
+                  success() { console.log('Share success'); },
+                  fail(e) { 
                       console.log('Share failed', e);
+                      if (e && e.errMsg && e.errMsg.indexOf('cancel') === -1) {
+                          // 如果不是用户取消，可能是配置问题
+                          console.warn('Check Douyin share template config');
+                      }
                   }
               });
           }
@@ -418,7 +427,9 @@ class Platform {
           if (!adUnitId || adUnitId.startsWith('adunit-xx')) return;
 
           const bounds = node.getBounds();
-          if (!bounds) return;
+          // bounds 在小游戏环境可能为 0，因为 Pixi 的计算依赖渲染循环
+          // 如果为0，跳过
+          if (!bounds || bounds.width <= 0) return;
 
           try {
               let adInstance = null;
@@ -435,17 +446,22 @@ class Platform {
                   });
               }
               else if (this.env === 'douyin' && provider.createBannerAd) {
+                  // 抖音 Banner 样式调整
                   adInstance = provider.createBannerAd({
                       adUnitId: adUnitId,
                       style: {
                           left: bounds.x,
                           top: bounds.y,
                           width: bounds.width
+                          // 抖音 Banner 高度是自动的，不能直接指定 fixed
                       }
                   });
+                  // 抖音 Banner 需监听 resize 调整位置居中
                   adInstance.onResize(size => {
+                      // 垂直居中于广告牌区域
                       const offsetY = (bounds.height - size.height) / 2;
                       adInstance.style.top = bounds.y + offsetY;
+                      adInstance.style.left = bounds.x + (bounds.width - size.width) / 2;
                   });
               }
 
@@ -493,6 +509,7 @@ class Platform {
       const provider = this.getProvider();
       if (!provider || !provider.createInterstitialAd) return false;
 
+      // 根据平台获取 ID (这里示例写死，实际应从 Config 获取)
       const adUnitId = 'adunit-d0030597225347b3';
 
       return new Promise((resolve) => {
@@ -654,22 +671,7 @@ class Platform {
     if (this.env === 'wechat') {
         const wx = this.getProvider();
         if (wx.createPageManager) {
-            const pageManager = wx.createPageManager();
-            pageManager.load({
-              openlink: '-SSEykJvFV3pORt5kTNpSxd30-TvafFgaZqHSUv3S6kVRb84TEE5RwHDiSF5f7nrJ6jVNpIsfaLHpurmt0qQJ2oX03HgDnc57u_Jz-MxLhkW8BahDJx2uHr0THo_701Wfg8QgkLfZchjnilapXRsz5r7YJsb36Aq6fN0F-H_QzDNoqaZBCiHIGX36PZuElKlWwSxqwIX4ruc0zAVFyp1EE3MCH2VXe4icADWEwO7P0LDqZHaESNstcVG-EskNEyncO_k-AE6oq542gY2m0IUAwEGxclH4yCHpNHKRnkeVFqYUbWxMY7Gj1h5o-c7agzhkD_ia8qOF6x8NtcEnxbuXw', // 由不同渠道获得的OPENLINK值
-            }).then((res) => {
-              // 加载成功，res 可能携带不同活动、功能返回的特殊回包信息（具体请参阅渠道说明）
-              console.log(res);
-
-              // 加载成功后按需显示
-              pageManager.show();
-
-            }).catch((err) => {
-              // 加载失败，请查阅 err 给出的错误信息
-              console.error(err);
-              this.showToast('无法打开游戏圈');
-            })
-        } else if (wx.createGameClubButton) {
+            // 微信游戏圈逻辑...
              this.showToast('请使用右上角菜单进入游戏圈');
         } else {
             this.showToast('当前版本不支持游戏圈');
