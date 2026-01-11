@@ -84,12 +84,15 @@ export default defineConfig(({ mode }) => {
         closeBundle() {
           const srcAssets = path.resolve(__dirname, 'assets');
           const destAssets = path.resolve(__dirname, outDir, 'assets');
+          const srcAssetsOrigin = path.resolve(__dirname, 'assets-origin');
+          const destAssetsOrigin = path.resolve(__dirname, outDir, 'assets-origin');
           
           // 1. 复制资源文件
           if (fs.existsSync(srcAssets)) {
             try {
               console.log(`[Vite] Copying assets from ${srcAssets} to ${destAssets}...`);
               copyRecursiveSync(srcAssets, destAssets);
+              copyRecursiveSync(srcAssetsOrigin, destAssetsOrigin);
               console.log('[Vite] Assets copy complete.');
             } catch (err) {
               console.error('[Vite] Failed to copy assets:', err);

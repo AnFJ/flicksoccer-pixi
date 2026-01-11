@@ -161,8 +161,8 @@ export default class GameLayout {
     /** 创建广告牌 */
     _createAdBoards() {
         const { x, y, w, h } = this.fieldRect;
-        const adW = 200;
-        const adH = 500; 
+        const adW = 160;
+        const adH = 415; 
         const dist = 200; 
         
         this.adBoards = [];

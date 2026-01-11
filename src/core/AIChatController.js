@@ -32,7 +32,8 @@ export default class AIChatController {
         this.aiChatBubble = new AIChatBubble();
         const centerX = GameConfig.designWidth / 2;
         // 定位在右侧 AI 头像附近
-        this.aiChatBubble.position.set(centerX + 480, 125); 
+        // [修改] 跟随 HUD 头像位置调整 (480 -> 430)，确保箭头对准头像
+        this.aiChatBubble.position.set(centerX + 430, 125); 
         parentContainer.addChild(this.aiChatBubble);
     }
 

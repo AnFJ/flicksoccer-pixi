@@ -100,7 +100,8 @@ export default class GameHUD extends PIXI.Container {
 
     // 5. 头像与技能栏
     const myInfo = AccountMgr.userInfo;
-    const avatarSpacing = 480; 
+    // [修改] 减小间距，使头像和技能栏整体向中间靠拢 (480 -> 430)
+    const avatarSpacing = 430; 
 
     // [新增] 等级显示逻辑
     let leftLevel = null;

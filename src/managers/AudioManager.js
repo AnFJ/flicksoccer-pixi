@@ -56,18 +56,8 @@ class AudioManager {
     
     // 处理远程加载
     await Promise.all(remoteAudios.map(async (item) => {
-        // 尝试加载远程资源
-        // 这里做一个判断：如果文件确实在 assets-origin 中，调用 Platform.loadRemoteAsset
-        // 如果您暂时只移除了部分，未移除的调用 registerSound 即可。
-        // 根据您的要求，crowd_bg_loop, crowd_cheer_1/2/3 必须远程。
-        if (['crowd_bg_loop', 'crowd_cheer_1', 'crowd_cheer_2', 'crowd_cheer_3'].includes(item.key)) {
-            const path = await Platform.loadRemoteAsset(item.file);
-            this.registerSound(item.key, path);
-        } else {
-            // 兜底：如果还没移到远程，使用本地路径 (假设还在 assets/sounds/)
-            // 实际项目中请根据文件实际位置调整
-            this.registerSound(item.key, `assets/sounds/${item.file}`);
-        }
+        const path = await Platform.loadRemoteAsset(item.file);
+        this.registerSound(item.key, path);
     }));
   }
 

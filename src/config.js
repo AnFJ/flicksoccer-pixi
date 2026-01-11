@@ -9,7 +9,7 @@ export const GameConfig = {
   resourceConfig: {
       // 请替换为实际的 CDN 地址，末尾不要带 /
       // H5 开发环境下可以直接指向本地文件夹
-      cdnUrl: "https://your-cdn-domain.com/assets-origin" 
+      cdnUrl: "https://game.afragin.dpdns.org/flicksoccer/assets-origin" 
   },
 
   // 调试配置
