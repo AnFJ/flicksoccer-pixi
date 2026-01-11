@@ -125,7 +125,7 @@ export const GameConfig = {
       
       // [核心新增] 轨迹回放配置
       trajectorySendInterval: 100, // 发送端：每多少毫秒打包发送一次轨迹数据包
-      replayBufferTime: 500,       // 接收端：开始播放前需要缓冲的时间 (ms)
+      replayBufferTime: 800,       // 接收端：开始播放前需要缓冲的时间 (ms)
   },
 
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
