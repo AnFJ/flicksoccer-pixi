@@ -23,6 +23,44 @@ class Platform {
   }
 
   /**
+   * [新增] 检查并强制更新小程序版本
+   * 适用于微信和抖音小游戏
+   */
+  checkUpdate() {
+      if (this.env === 'web') return;
+
+      const provider = this.getProvider();
+      if (provider && provider.getUpdateManager) {
+          const updateManager = provider.getUpdateManager();
+
+          updateManager.onCheckForUpdate((res) => {
+              console.log('[Platform] Check update result:', res.hasUpdate);
+          });
+
+          updateManager.onUpdateReady(() => {
+              // 新版本下载成功
+              provider.showModal({
+                  title: '更新提示',
+                  content: '新版本已经准备好，为保证游戏体验，请重启应用。',
+                  showCancel: false, // 强制更新，隐藏取消按钮
+                  success: (res) => {
+                      if (res.confirm) {
+                          // 新的版本已经下载好，调用 applyUpdate 应用新版本并重启
+                          updateManager.applyUpdate();
+                      }
+                  }
+              });
+          });
+
+          updateManager.onUpdateFailed(() => {
+              // 新版本下载失败
+              console.warn('[Platform] Update failed');
+              // 可选：提示用户检查网络或手动删除小程序重进
+          });
+      }
+  }
+
+  /**
    * [新增] 加载远程资源 (支持自动缓存)
    * @param {string} fileName 文件名 (如 'bg.mp3')
    * @returns {Promise<string>} 本地路径 或 URL

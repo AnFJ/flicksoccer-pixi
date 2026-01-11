@@ -4,6 +4,7 @@ import './adapter/dom-adapter/index.js' // 2. Adapter (必须在业务逻辑之�
 import SceneManager from './managers/SceneManager.js';
 import GameScene from './scenes/GameScene.js';
 import LoginScene from './scenes/LoginScene.js';
+import Platform from './managers/Platform.js'; // [新增]
 
 // import '@iro/wechat-adapter'
 import * as PIXI from 'pixi.js'
@@ -59,6 +60,9 @@ async function initGame() {
     if (typeof wx !== 'undefined') minigame = wx;
     else if (typeof tt !== 'undefined') minigame = tt
     const isMiniGame = (typeof wx !== 'undefined' || typeof tt !== 'undefined');
+
+    // [新增] 启动时检查更新
+    Platform.checkUpdate();
 
     let canvasTarget;
     if (isMiniGame) {
