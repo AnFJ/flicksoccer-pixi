@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
       // H5 模式下不需要 lib 配置
       // 小游戏模式下需要 lib 配置，打包成单个 JS 文件
       lib: isH5 ? false : {
-        entry: path.resolve(__dirname, 'src/main-mini.js'),
+        entry: path.resolve(__dirname, isDouyin ? 'src/main-tt.js' : 'src/main-mini.js'),
         name: 'Game',
         // 强制输出文件名为 game.js
         fileName: () => 'game.js', 

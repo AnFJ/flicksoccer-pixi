@@ -28,6 +28,13 @@ PIXI.settings.PRECISION_FRAGMENT = PIXI.PRECISION.MEDIUM
 
 PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR
 
+// [关键修复] 强制覆盖 WebGL 支持检测
+// 在 iPhone 7 等旧 iOS 设备的小游戏环境中，Pixi 内部创建临时 Canvas 进行检测经常失败
+// 但实际上主 Canvas 是支持 WebGL 的。直接返回 true 绕过检测。
+if(isLowEndIOS()) {
+  PIXI.utils.isWebGLSupported = () => true;
+}
+
 // 安装 unsafe-eval (适配微信小游戏禁止 eval 的限制)
 install(PIXI)
 
@@ -76,7 +83,6 @@ async function initGame() {
     const screenWidth = systemInfo.windowWidth;   // 逻辑宽度
     const screenHeight = systemInfo.windowHeight; // 逻辑高度
     const dpr = systemInfo.devicePixelRatio;
-
     console.log(`[Main] Screen: ${screenWidth}x${screenHeight}, DPR: ${dpr}`);
 
     // 初始化 Pixi 应用
@@ -120,3 +126,26 @@ async function initGame() {
 }
 
 initGame();
+
+/**
+ * 判断是否为低性能 iOS 设备 (iPhone 7/7Plus/6s/SE1 等)
+ * 这些设备在小游戏环境下跑 Retina 分辨率会非常卡
+ */
+function isLowEndIOS() {
+    let minigame = null;
+    if (typeof wx !== 'undefined') minigame = wx;
+    else if (typeof tt !== 'undefined') minigame = tt
+    const systemInfo = minigame.getSystemInfoSync();
+    let model = systemInfo.model || "";
+    if (!model) return false;
+    model = model.toLowerCase();
+    // 简单粗暴的判断：包含 iPhone 6, 7, 8 的旧机型
+    // 注意：iPhone X 性能稍好，但有时也需要优化
+    if (model.includes('iphone 6') || 
+        model.includes('iphone 7') || 
+        model.includes('iphone 8') ||
+        model.includes('iphone se')) {
+        return true;
+    }
+    return false;
+}

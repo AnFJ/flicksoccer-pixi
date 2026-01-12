@@ -68,7 +68,8 @@ class AccountMgr {
       }
   }
 
-  async silentLogin() {
+  // [修改] 增加 userInfoToSync 参数，用于在授权后同步资料
+  async silentLogin(userInfoToSync = null) {
     try {
       const creds = await Platform.getLoginCredentials();
       this.tempLoginCredentials = creds; 
@@ -76,7 +77,12 @@ class AccountMgr {
       if (creds.type === 'h5') {
           userData = await NetworkMgr.post('/api/login/h5', { deviceId: creds.deviceId });
       } else {
-          userData = await NetworkMgr.post('/api/login/minigame', { platform: creds.type, code: creds.code });
+          // [修复] 将用户信息放入 payload 发送给后端
+          const payload = { platform: creds.type, code: creds.code };
+          if (userInfoToSync) {
+              payload.userInfo = userInfoToSync;
+          }
+          userData = await NetworkMgr.post('/api/login/minigame', payload);
       }
 
       if (userData && !userData.error) {
@@ -258,7 +264,8 @@ class AccountMgr {
   async updateUserProfile(profile) {
       this.userInfo.nickname = profile.nickName;
       this.userInfo.avatarUrl = profile.avatarUrl;
-      await this.silentLogin();
+      // [关键修复] 将 profile 传给 silentLogin 以便同步给服务器
+      await this.silentLogin(profile);
   }
 
   isThemeUnlocked(type, id) {

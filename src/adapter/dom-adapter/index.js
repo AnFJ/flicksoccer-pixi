@@ -20,13 +20,13 @@ GameGlobal.canvas = canvas
 canvas.addEventListener = document.addEventListener
 canvas.removeEventListener = document.removeEventListener
 
-// 修复: 将系统宽高注入到 canvas，确保 getBoundingClientRect 模拟值正确
+// [关键修复] 将系统宽高注入到 canvas，确保 pixi-interaction 中的 getBoundingClientRect 模拟值正确
 canvas.width = windowWidth * pixelRatio
 canvas.height = windowHeight * pixelRatio
-if (canvas.style) {
-    canvas.style.width = windowWidth + 'px'
-    canvas.style.height = windowHeight + 'px'
-}
+// 模拟 style 属性，防止 Pixi 访问 style.width 报错或取值为 0
+if (!canvas.style) canvas.style = {}
+canvas.style.width = windowWidth + 'px'
+canvas.style.height = windowHeight + 'px'
 
 if (platform === 'devtools') {
   Object.defineProperties(window, {
@@ -35,6 +35,7 @@ if (platform === 'devtools') {
     ontouchstart: {value: noop},
     WebSocket: {value: WebSocket},
     addEventListener: {value: noop},
+    removeEventListener: {value: noop}, // [修复] 补充 removeEventListener
     TouchEvent: {value: TouchEvent},
     XMLDocument: {value: XMLDocument},
     localStorage: {value: localStorage},
@@ -71,15 +72,23 @@ if (platform === 'devtools') {
   GameGlobal.HTMLCanvasElement = HTMLCanvasElement
   GameGlobal.WebGLRenderingContext = GameGlobal.WebGLRenderingContext || {}
 
-  // [关键修复] 注入 window 尺寸，供 pixi-interaction.js 使用
+  // [关键修复] 注入 window 全局尺寸，pixi-interaction.js 会读取这些值作为兜底
   GameGlobal.innerWidth = windowWidth
   GameGlobal.innerHeight = windowHeight
   GameGlobal.devicePixelRatio = pixelRatio
   
-  // 模拟 DOMParser，防止 BitmapFont 加载报错
+  // [新增] 模拟 DOMParser，防止 Pixi 的 BitmapFontLoader 在解析 xml/fnt 文件时崩溃
   GameGlobal.DOMParser = class DOMParser {
       parseFromString(str) {
           return new XMLDocument(str);
       }
   }
+}
+
+// [兜底修复] 确保 globalThis 上存在 removeEventListener，防止部分库直接调用 globalThis.removeEventListener 报错
+if (typeof globalThis !== 'undefined' && !globalThis.removeEventListener) {
+    globalThis.removeEventListener = noop;
+}
+if (typeof window !== 'undefined' && !window.removeEventListener) {
+    window.removeEventListener = noop;
 }
