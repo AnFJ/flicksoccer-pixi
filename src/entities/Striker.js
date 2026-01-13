@@ -156,30 +156,20 @@ export default class Striker {
     const texture = ResourceManager.get('shadow');
 
     let sprite;
-    if (texture) {
-        sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5);
-        
-        // 阴影比实体稍大，营造柔和感 (1.2 ~ 1.3倍半径)
-        // 假设 shadow.png 是包含透明渐变的 128x128 图
-        const scaleSize = this.radius * 2* 1.8; 
-        sprite.width = scaleSize;
-        sprite.height = scaleSize;
-        
-        // 使用正片叠底效果更自然，但消耗略高；普通混合(NORMAL)性能最好
-        // 为了追求 "1:1 完美复刻"，Multiply 效果更好
-        sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-        
-        // 适当降低透明度，不要死黑
-        sprite.alpha = 1;
-    } else {
-        // 兜底：如果阴影图加载失败，回退到简单的黑色 Graphics
-        const g = new PIXI.Graphics();
-        g.beginFill(0x000000, 0.4);
-        g.drawCircle(0, 0, this.radius * 1.1);
-        g.endFill();
-        sprite = g;
-    }
+    sprite = new PIXI.Sprite(texture);
+    sprite.anchor.set(0.5);
+    // 阴影比实体稍大，营造柔和感 (1.2 ~ 1.3倍半径)
+    // 假设 shadow.png 是包含透明渐变的 128x128 图
+    const scaleSize = this.radius * 2 * 1.2;
+    sprite.width = scaleSize;
+    sprite.height = scaleSize;
+    
+    // 使用正片叠底效果更自然，但消耗略高；普通混合(NORMAL)性能最好
+    // 为了追求 "1:1 完美复刻"，Multiply 效果更好
+    sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+    
+    // 适当降低透明度，不要死黑
+    sprite.alpha = 0.8;
     
     return sprite;
   }

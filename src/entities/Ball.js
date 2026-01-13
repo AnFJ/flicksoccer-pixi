@@ -152,25 +152,16 @@ export default class Ball {
       const texture = ResourceManager.get('shadow');
 
       let sprite;
-      if (texture) {
-          sprite = new PIXI.Sprite(texture);
-          sprite.anchor.set(0.5);
-          
-          // 足球阴影尺寸设定 (半径的2.4倍，略大于球体)
-          const scaleSize = this.radius * 2 * 1.8; 
-          sprite.width = scaleSize;
-          sprite.height = scaleSize;
-          
-          sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-          sprite.alpha = 1;
-      } else {
-          // 兜底
-          const g = new PIXI.Graphics();
-          g.beginFill(0x000000, 0.4);
-          g.drawCircle(0, 0, this.radius * 1.15);
-          g.endFill();
-          sprite = g;
-      }
+      sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5);
+
+      // 足球阴影尺寸设定 (半径的2.4倍，略大于球体)
+      const scaleSize = this.radius * 2 * 1.3; 
+      sprite.width = scaleSize;
+      sprite.height = scaleSize;
+
+      sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+      sprite.alpha = 0.9;
       return sprite;
   }
 

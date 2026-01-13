@@ -1,5 +1,3 @@
-import path from 'path';
-
 // 游戏全局配置
 export const GameConfig = {
   // 屏幕参考尺寸 (横屏设计稿 1080*2400)
@@ -34,7 +32,7 @@ export const GameConfig = {
   // 视觉配置
   visuals: {
     strikerThickness: 15,    // 棋子圆柱体厚度
-    shadowOffset: 8,         // [修改] 减小阴影偏移 (12 -> 8)，更贴地
+    shadowOffset: 2,         // [修改] 减小阴影偏移 (12 -> 8)，更贴地
     aimLineColorStart: 0x2ecc71, // 瞄准线起始颜色
     aimLineColorEnd: 0xe74c3c,   // 瞄准线结束颜色
     dashedLineColor: 0xffffff,   // 后方虚线颜色

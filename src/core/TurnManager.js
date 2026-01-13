@@ -72,9 +72,11 @@ export default class TurnManager {
         this.timer = this.maxTime;
         if (this.scene.hud) {
             this.scene.hud.updateTurn(this.currentTurn);
+            // [修复] 只需调用一次更新当前回合的视觉即可。
+            // GameHUD.updateTimerVisuals 内部逻辑是清除所有图形，然后只绘制 activeTeamId 的部分。
+            // 因此调用一次即可完成 "清空对手 + 绘制自己" 的操作。
+            // 之前重复调用 updateTimerVisuals(opponent, 0) 会导致刚画好的自己也被清空。
             this.scene.hud.updateTimerVisuals(this.currentTurn, 1.0);
-            const opponent = this.currentTurn === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
-            this.scene.hud.updateTimerVisuals(opponent, 0);
         }
     }
 

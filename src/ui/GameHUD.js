@@ -21,6 +21,9 @@ export default class GameHUD extends PIXI.Container {
     this.avatarComponents = {}; 
     this.skillMap = { [TeamId.LEFT]: {}, [TeamId.RIGHT]: {} };
 
+    // [优化] 记录上次刷新时间
+    this.lastTimerUpdate = 0;
+
     this.init();
   }
 
@@ -497,17 +500,26 @@ export default class GameHUD extends PIXI.Container {
   }
 
   updateTimerVisuals(activeTeamId, ratio) {
+    // [优化] 降低刷新频率，每 100ms (10FPS) 刷新一次
+    // 强制刷新：当 ratio <= 0 (时间到) 或 ratio >= 1 (重置) 时，立即执行
+    const now = Date.now();
+    const isEdgeCase = ratio <= 0.01 || ratio >= 0.99;
+    
+    if (!isEdgeCase && (now - this.lastTimerUpdate < 100)) {
+        return;
+    }
+    this.lastTimerUpdate = now;
+
     for (const teamId in this.timerGraphics) {
         const g = this.timerGraphics[teamId];
         g.clear();
+        // 只有当前回合的队伍且时间 > 0 时才绘制扇形
         if (parseInt(teamId) === activeTeamId && ratio > 0) {
             const bigRadius = 160; 
             g.beginFill(0x00BFFF, 0.4);
             g.moveTo(0, 0);
             
-            // [修改] 顺时针消失效果
-            // 倒计时开始(ratio=1): 2PI*0 到 2PI -> 完整圆
-            // 倒计时结束(ratio=0): 2PI 到 2PI -> 空
+            // 顺时针消失效果
             const startAngle = Math.PI * 2 * (1 - ratio);
             const endAngle = Math.PI * 2;
             
