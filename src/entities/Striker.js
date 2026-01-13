@@ -6,9 +6,8 @@ import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
 
 export default class Striker {
-  // [新增] 静态缓存
+  // [新增] 静态缓存 - shadow 不再需要单独缓存，因为它直接来自 ResourceManager
   static cachedTextures = {
-      shadow: null,
       overlay: null
   };
 
@@ -49,8 +48,9 @@ export default class Striker {
     this.view.hitArea = new PIXI.Circle(0, 0, this.radius * 1.6);
     this.view.entity = this;
     
-    // 2. 阴影 (使用缓存)
+    // 2. 阴影 (使用通用图片资源)
     const shadow = this.createShadowSprite();
+    // 阴影位置稍微微调，根据图片实际边缘情况
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset); 
     this.view.addChild(shadow);
 
@@ -151,51 +151,37 @@ export default class Striker {
   }
 
   createShadowSprite() {
-    let texture = Striker.cachedTextures.shadow;
+    // [性能优化] 使用通用阴影贴图，替代原本昂贵的 Canvas 动态生成
+    // 这可以让所有阴影共享同一个 Texture，极大降低 DrawCall
+    const texture = ResourceManager.get('shadow');
 
-    if (!texture) {
-        const r = this.radius;
-        const blurPadding = 16; 
-        const size = (r + blurPadding) * 2;
-
-        if (typeof document !== 'undefined' && document.createElement) {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    const cx = size / 2;
-                    const cy = size / 2;
-                    const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r + blurPadding * 0.9);
-                    grad.addColorStop(0, 'rgba(0, 0, 0, 0.75)'); 
-                    grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.45)'); 
-                    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
-                    ctx.fill();
-                    texture = PIXI.Texture.from(canvas);
-                    Striker.cachedTextures.shadow = texture;
-                }
-            } catch(e) {}
-        }
-    }
-
+    let sprite;
     if (texture) {
-        const sprite = new PIXI.Sprite(texture);
+        sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
-        sprite.scale.set(1.05); 
+        
+        // 阴影比实体稍大，营造柔和感 (1.2 ~ 1.3倍半径)
+        // 假设 shadow.png 是包含透明渐变的 128x128 图
+        const scaleSize = this.radius * 2* 1.8; 
+        sprite.width = scaleSize;
+        sprite.height = scaleSize;
+        
+        // 使用正片叠底效果更自然，但消耗略高；普通混合(NORMAL)性能最好
+        // 为了追求 "1:1 完美复刻"，Multiply 效果更好
         sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-        return sprite;
+        
+        // 适当降低透明度，不要死黑
+        sprite.alpha = 1;
+    } else {
+        // 兜底：如果阴影图加载失败，回退到简单的黑色 Graphics
+        const g = new PIXI.Graphics();
+        g.beginFill(0x000000, 0.4);
+        g.drawCircle(0, 0, this.radius * 1.1);
+        g.endFill();
+        sprite = g;
     }
-
-    const g = new PIXI.Graphics();
-    g.beginFill(0x000000, 0.4);
-    g.drawCircle(0, 0, this.radius);
-    g.endFill();
-    g.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-    return g;
+    
+    return sprite;
   }
 
   getLightingOverlayTexture() {

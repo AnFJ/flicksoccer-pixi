@@ -17,6 +17,10 @@ class ResourceManager {
       field_border: 'assets/images/field_border.png',
       bg_grass: 'assets/images/grass_texture.png',
       ball: 'assets/images/ball.png', 
+      
+      // [新增] 通用柔光阴影贴图 (优化 DrawCall 关键)
+      // 请确保 assets/images/shadow.png 存在，是一张边缘柔和的黑色圆形径向渐变图
+      shadow: 'assets/images/shadow.png',
 
       // UI
       main_bg: 'assets/images/main_bg.png',

@@ -8,7 +8,6 @@ import ResourceManager from '../managers/ResourceManager.js';
 export default class Ball {
   // [新增] 静态纹理缓存，全局复用
   static cachedTextures = {
-      shadow: null,
       trail: null,
       overlay: null
   };
@@ -53,7 +52,7 @@ export default class Ball {
     // 2. 视图容器
     this.view = new PIXI.Container();
     
-    // A. 阴影 (优化版：使用缓存纹理)
+    // A. 阴影 (优化版：使用通用图片)
     const shadow = this.createShadowSprite();
     shadow.position.set(GameConfig.visuals.shadowOffset, GameConfig.visuals.shadowOffset);
     this.view.addChild(shadow);
@@ -149,54 +148,30 @@ export default class Ball {
   // --- 资源创建与缓存方法 ---
 
   createShadowSprite() {
-      // 1. 尝试从缓存获取纹理
-      let texture = Ball.cachedTextures.shadow;
+      // [性能优化] 使用通用阴影贴图
+      const texture = ResourceManager.get('shadow');
 
-      // 2. 如果没有，则生成并缓存
-      if (!texture) {
-          const r = this.radius;
-          const blurPadding = 20; 
-          const size = (r + blurPadding) * 2;
-
-          if (typeof document !== 'undefined' && document.createElement) {
-              try {
-                  const canvas = document.createElement('canvas');
-                  canvas.width = size;
-                  canvas.height = size;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) {
-                      const cx = size / 2;
-                      const cy = size / 2;
-                      const grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r + blurPadding * 0.8);
-                      grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)'); 
-                      grad.addColorStop(0.4, 'rgba(0, 0, 0, 0.35)'); 
-                      grad.addColorStop(0.8, 'rgba(0, 0, 0, 0.05)'); 
-                      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');   
-                      ctx.fillStyle = grad;
-                      ctx.beginPath();
-                      ctx.arc(cx, cy, r + blurPadding, 0, Math.PI * 2);
-                      ctx.fill();
-                      texture = PIXI.Texture.from(canvas);
-                      Ball.cachedTextures.shadow = texture;
-                  }
-              } catch(e) {}
-          }
-      }
-
-      // 3. 使用纹理创建 Sprite (或 fallback 到 Graphics)
+      let sprite;
       if (texture) {
-          const sprite = new PIXI.Sprite(texture);
+          sprite = new PIXI.Sprite(texture);
           sprite.anchor.set(0.5);
+          
+          // 足球阴影尺寸设定 (半径的2.4倍，略大于球体)
+          const scaleSize = this.radius * 2 * 1.8; 
+          sprite.width = scaleSize;
+          sprite.height = scaleSize;
+          
           sprite.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-          return sprite;
+          sprite.alpha = 1;
       } else {
+          // 兜底
           const g = new PIXI.Graphics();
-          g.beginFill(0x000000, 0.3);
-          g.drawCircle(0, 0, this.radius + 4);
+          g.beginFill(0x000000, 0.4);
+          g.drawCircle(0, 0, this.radius * 1.15);
           g.endFill();
-          g.blendMode = PIXI.BLEND_MODES.MULTIPLY;
-          return g;
+          sprite = g;
       }
+      return sprite;
   }
 
   getTrailTexture() {
