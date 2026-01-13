@@ -1,22 +1,52 @@
 
 import * as PIXI from 'pixi.js';
 
+// [优化] 全局共享的粒子纹理，避免每个粒子单独绘制 Graphics
+let sharedParticleTexture = null;
+
+function getParticleTexture() {
+    if (sharedParticleTexture) return sharedParticleTexture;
+
+    // 创建一个 16x16 的白色圆形纹理 (半径8，高清一点)
+    // 实际显示时可以通过 scale 缩放
+    if (typeof document !== 'undefined' && document.createElement) {
+        const size = 16;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+        ctx.fill();
+        sharedParticleTexture = PIXI.Texture.from(canvas);
+    } else {
+        // 兜底方案
+        sharedParticleTexture = PIXI.Texture.WHITE;
+    }
+    return sharedParticleTexture;
+}
+
 /**
  * 单个火星粒子
+ * [优化] 继承 Sprite 而非 Graphics
  */
-class Spark extends PIXI.Graphics {
+class Spark extends PIXI.Sprite {
     constructor() {
-        super();
+        super(getParticleTexture());
+        this.anchor.set(0.5); // 设置锚点在中心
+        
         this.active = false;
         this.vx = 0;
         this.vy = 0;
         this.life = 0;
         this.maxLife = 0;
         
-        // 绘制一个白色的小圆形或菱形
-        this.beginFill(0xFFFFFF);
-        this.drawCircle(0, 0, 4); // 基础半径4
-        this.endFill();
+        // 原始逻辑 drawCircle(0,0,4) 半径为4，直径8
+        // 现在的纹理直径为 16
+        // 所以默认 scale 应该是 0.5 才能保持原大小
+        this.baseScaleMult = 0.5;
+        this.scale.set(this.baseScaleMult);
     }
 
     reset(x, y, speed, angle, scale, life) {
@@ -24,12 +54,17 @@ class Spark extends PIXI.Graphics {
         this.y = y;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed;
-        this.scale.set(scale);
+        
+        // 叠加基础缩放比例
+        const finalScale = scale * this.baseScaleMult;
+        this.scale.set(finalScale);
+        
         this.alpha = 1;
         this.life = life;
         this.maxLife = life;
         this.active = true;
         this.visible = true;
+        this.currentScale = finalScale; // 记录当前缩放用于update递减
     }
 
     update(dt) {
@@ -48,7 +83,10 @@ class Spark extends PIXI.Graphics {
         // 生命周期动画
         const ratio = this.life / this.maxLife;
         this.alpha = ratio; // 慢慢变透明
-        this.scale.set(this.scale.x * 0.95); // 慢慢变小
+        
+        // 慢慢变小
+        this.currentScale *= 0.95;
+        this.scale.set(this.currentScale);
 
         if (this.life <= 0 || this.alpha < 0.01) {
             this.active = false;

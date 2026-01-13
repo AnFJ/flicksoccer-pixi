@@ -65,13 +65,14 @@ export default class Striker {
     this.mainContainer = new PIXI.Container();
     this.view.addChild(this.mainContainer);
 
-    // 遮罩
-    const mask = new PIXI.Graphics();
-    mask.beginFill(0xffffff);
-    mask.drawCircle(0, 0, this.radius);
-    mask.endFill();
-    this.mainContainer.addChild(mask);
-    this.mainContainer.mask = mask;
+    // [优化] 移除了 Graphics 遮罩，以减少 DrawCall 和 Stencil 开销
+    // 请确保加载的棋子纹理 (striker_red/blue) 本身就是透明背景的圆形 PNG
+    // const mask = new PIXI.Graphics();
+    // mask.beginFill(0xffffff);
+    // mask.drawCircle(0, 0, this.radius);
+    // mask.endFill();
+    // this.mainContainer.addChild(mask);
+    // this.mainContainer.mask = mask;
 
     // 绘制本体
     const colorKey = teamId === TeamId.LEFT ? 'red' : 'blue';
