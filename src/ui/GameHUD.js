@@ -165,6 +165,9 @@ export default class GameHUD extends PIXI.Container {
     const size = 100; 
     const teamColor = teamId === TeamId.LEFT ? 0xe74c3c : 0x3498db;
 
+    // [优化] 将静态矢量图形放入独立容器并缓存
+    const staticGroup = new PIXI.Container();
+
     const frame = new PIXI.Graphics();
     frame.beginFill(0xB8860B); 
     frame.drawRoundedRect(-size/2 - 4, -size/2 - 4, size + 8, size + 8, 12);
@@ -179,6 +182,21 @@ export default class GameHUD extends PIXI.Container {
     bg.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     bg.endFill();
 
+    // 名字背景条也放入静态组
+    const nameTag = new PIXI.Graphics();
+    nameTag.beginFill(0x000000, 0.7);
+    const tagW = 120;
+    const tagH = 30;
+    nameTag.drawRoundedRect(-tagW/2, size/2 + 5, tagW, tagH, 15);
+    nameTag.endFill();
+
+    staticGroup.addChild(frame, bg, nameTag);
+    // [优化] 核心：开启缓存
+    staticGroup.cacheAsBitmap = true;
+    container.addChild(staticGroup);
+
+    // --- 动态内容部分 ---
+
     let avatarNode;
     let avatarMask = null;
     
@@ -189,7 +207,7 @@ export default class GameHUD extends PIXI.Container {
 
     if (info.avatar) {
         if (info.avatar instanceof PIXI.Texture) {
-            // [新增] 如果传入的是 Texture (AI 头像)，直接使用
+            // Texture (AI 头像)
             const sprite = new PIXI.Sprite(info.avatar);
             sprite.anchor.set(0.5);
             const scale = Math.max(innerSize / info.avatar.width, innerSize / info.avatar.height);
@@ -197,7 +215,7 @@ export default class GameHUD extends PIXI.Container {
             sprite.mask = avatarMask;
             avatarNode = sprite;
         } else if (typeof info.avatar === 'string' && info.avatar.startsWith('http')) {
-            // 远程 URL (微信头像)
+            // URL (微信头像)
             const sprite = new PIXI.Sprite(); 
             sprite.anchor.set(0.5);
             PIXI.Texture.fromURL(info.avatar).then(tex => {
@@ -248,27 +266,20 @@ export default class GameHUD extends PIXI.Container {
     maskG.beginFill(0xffffff);
     maskG.drawRoundedRect(-innerSize/2, -innerSize/2, innerSize, innerSize, 6);
     maskG.endFill();
-    container.addChild(maskG);
+    container.addChild(maskG); // Timer Mask
     timerG.mask = maskG;
 
-    const nameTag = new PIXI.Graphics();
-    nameTag.beginFill(0x000000, 0.7);
-    const tagW = 120;
-    const tagH = 30;
-    nameTag.drawRoundedRect(-tagW/2, size/2 + 5, tagW, tagH, 15);
-    nameTag.endFill();
-    
     let displayName = info.name;
     if (displayName.length > 8) displayName = displayName.substring(0, 7) + '..';
     const nameText = new PIXI.Text(displayName, { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
     nameText.anchor.set(0.5);
     nameText.position.set(0, size/2 + 20);
 
-    container.addChild(frame, bg, avatarNode);
+    container.addChild(avatarNode);
     if (avatarMask) container.addChild(avatarMask);
     if (levelTag) container.addChild(levelTag); 
     
-    container.addChild(timerG, nameTag, nameText);
+    container.addChild(timerG, nameText);
 
     let isInteractive = false;
     if (this.gameMode === 'pvp_local') {
@@ -400,12 +411,19 @@ export default class GameHUD extends PIXI.Container {
               countBg.drawCircle(0, 0, 18); 
               countBg.endFill();
               countBg.position.set(btnSize - 10, 10);
+              
+              // [优化] 小圆形背景静态化
+              countBg.cacheAsBitmap = true;
+
               const countText = new PIXI.Text(count.toString(), {
                   fontFamily: 'Arial', fontSize: 20, fill: 0xffffff, fontWeight: 'bold'
               });
               countText.anchor.set(0.5);
-              countBg.addChild(countText);
+              // countBg 是 static，不能加 dynamic children，所以 countText 单独加到 btn
+              countText.position.set(btnSize - 10, 10);
+              
               btn.addChild(countBg);
+              btn.addChild(countText);
               btn.countText = countText;
 
               parent.addChild(btn);
@@ -426,6 +444,8 @@ export default class GameHUD extends PIXI.Container {
                   iconBg.beginFill(0x555555); 
                   iconBg.drawCircle(0, 0, btnSize/2);
                   iconBg.endFill();
+                  // [优化] 静态化
+                  iconBg.cacheAsBitmap = true;
               }
               iconBg.alpha = 0.3;
               

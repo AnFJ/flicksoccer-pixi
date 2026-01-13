@@ -124,6 +124,7 @@ export default class ResultScene extends BaseScene {
     }
 
     createPanelBackground(w, h) {
+        // [优化] 将面板背景放入单独 Graphics 并开启缓存
         const bg = new PIXI.Graphics();
         bg.beginFill(0x000000, 0.75);
         bg.lineStyle(2, 0xffffff, 0.15);
@@ -133,6 +134,9 @@ export default class ResultScene extends BaseScene {
         bg.beginFill(0xffffff, 0.08);
         bg.drawRoundedRect(-w/2, -h/2, w, 100, 40);
         bg.endFill();
+
+        // 核心优化：开启缓存
+        bg.cacheAsBitmap = true;
 
         this.mainPanel.addChild(bg);
     }
@@ -236,6 +240,10 @@ export default class ResultScene extends BaseScene {
         starContainer.addChild(scoreBg);
 
         starContainer.position.set(x, y);
+        
+        // [优化] 对星星容器进行缓存 (包含大量多边形绘制指令)
+        starContainer.cacheAsBitmap = true;
+
         this.mainPanel.addChild(starContainer);
     }
 
@@ -457,6 +465,10 @@ export default class ResultScene extends BaseScene {
         glow.beginFill(0xFFD700, 0.2);
         glow.drawCircle(0, 0, 70); 
         glow.endFill();
+        
+        // [优化] 缓存发光圆圈
+        glow.cacheAsBitmap = true;
+        
         container.addChild(glow);
 
         const icon = new PIXI.Text('💰', { fontSize: 50 });
@@ -491,6 +503,9 @@ export default class ResultScene extends BaseScene {
         bg.lineStyle(2, 0xFFD700);
         bg.drawRoundedRect(-40, -40, 80, 80, 10);
         bg.endFill();
+        
+        // [优化] 缓存背景
+        bg.cacheAsBitmap = true;
         container.addChild(bg);
 
         // [修改] 针对足球类型进行特殊渲染，使其显示为圆形球体

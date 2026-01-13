@@ -102,6 +102,9 @@ export default class Button extends PIXI.Container {
         // 绘制相对于中心的矩形
         this.bg.drawRoundedRect(-width / 2, -height / 2, width, height, 20);
         this.bg.endFill();
+        
+        // [优化] 绘制完成后开启缓存
+        this.bg.cacheAsBitmap = true;
     }
   }
 
