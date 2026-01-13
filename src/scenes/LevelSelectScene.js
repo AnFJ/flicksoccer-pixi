@@ -9,9 +9,9 @@ import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import { getLevelConfig } from '../config/LevelConfig.js';
 import Platform from '../managers/Platform.js';
-import { LevelRewards } from '../config/RewardConfig.js'; // [新增]
-import ResourceManager from '../managers/ResourceManager.js'; // [新增]
-import { SkillType } from '../constants.js'; // [新增]
+import { LevelRewards } from '../config/RewardConfig.js'; 
+import ResourceManager from '../managers/ResourceManager.js'; 
+import { SkillType } from '../constants.js'; 
 
 export default class LevelSelectScene extends BaseScene {
     constructor() {
@@ -29,9 +29,12 @@ export default class LevelSelectScene extends BaseScene {
         this.totalPages = Math.ceil(this.totalLevels / this.itemsPerPage);
 
         // UI 引用
+        this.backBtn = null;
         this.prevBtn = null;
         this.nextBtn = null;
         this.pageIndicator = null;
+        this.titleText = null;
+        this.infoText = null;
     }
 
     onEnter() {
@@ -46,45 +49,105 @@ export default class LevelSelectScene extends BaseScene {
         this.container.addChild(bg);
 
         // 2. 标题
-        const title = new PIXI.Text('选择关卡', {
+        this.titleText = new PIXI.Text('选择关卡', {
             fontFamily: 'Arial', fontSize: 60, fill: 0xFFD700, fontWeight: 'bold'
         });
-        title.anchor.set(0.5);
-        title.position.set(designWidth / 2, 80);
-        this.container.addChild(title);
+        this.titleText.anchor.set(0.5);
+        this.titleText.position.set(designWidth / 2, 80);
+        this.container.addChild(this.titleText);
 
-        // 3. 返回按钮
-        const backBtn = new Button({
+        // 3. 返回按钮 (先创建，位置在 alignUI 中动态设置)
+        this.backBtn = new Button({
             text: '返回', width: 160, height: 60, color: 0x95a5a6,
             onClick: () => SceneManager.changeScene(MenuScene)
         });
-        backBtn.position.set(50, 50);
-        this.container.addChild(backBtn);
+        this.container.addChild(this.backBtn);
 
         // 4. 当前进度信息
         const currentProgress = AccountMgr.userInfo.level || 1;
-        const infoText = new PIXI.Text(`当前进度: 第 ${currentProgress} 关`, {
+        this.infoText = new PIXI.Text(`当前进度: 第 ${currentProgress} 关`, {
             fontFamily: 'Arial', fontSize: 32, fill: 0xffffff
         });
-        infoText.anchor.set(1, 0.5);
-        infoText.position.set(designWidth - 50, 80);
-        this.container.addChild(infoText);
+        this.infoText.anchor.set(1, 0.5);
+        // infoText 的位置也需要在 alignUI 中根据安全区域调整
+        this.container.addChild(this.infoText);
 
         // 5. 初始化网格容器 (位于标题下方，分页栏上方)
         this.gridContainer = new PIXI.Container();
-        // 简单定位，具体位置在 renderPage 里根据布局计算，这里设置一个起始 Y
-        this.gridContainer.position.set(0, 150);
         this.container.addChild(this.gridContainer);
 
         // 6. 创建分页控制栏 (底部)
         this.createPaginationUI(designWidth, designHeight);
 
-        // 7. 渲染第一页
-        // 自动跳转到最新进度所在的页
+        // 7. 自动跳转到最新进度所在的页
         const targetPage = Math.floor((currentProgress - 1) / this.itemsPerPage);
         this.currentPage = Math.min(Math.max(0, targetPage), this.totalPages - 1);
         
+        // 8. 执行首次布局对齐和渲染
+        this.alignUI();
         this.renderPage(this.currentPage);
+    }
+
+    // [新增] 响应屏幕尺寸变化
+    onResize(width, height) {
+        this.alignUI();
+        this.renderPage(this.currentPage);
+    }
+
+    // [新增] UI 贴边适配逻辑
+    alignUI() {
+        if (!this.app) return;
+        
+        const margin = 20; // 边距
+        const { designWidth } = GameConfig;
+
+        // 1. 计算屏幕边界在场景坐标系下的位置
+        // 屏幕左上角 (0,0) -> 场景坐标
+        const globalTopLeft = new PIXI.Point(margin, margin);
+        const localTopLeft = this.container.toLocal(globalTopLeft);
+
+        // 屏幕右上角 (screenW, 0) -> 场景坐标
+        const globalTopRight = new PIXI.Point(this.app.screen.width - margin, margin);
+        const localTopRight = this.container.toLocal(globalTopRight);
+
+        // 2. 调整返回按钮位置 (左上角)
+        if (this.backBtn) {
+            this.backBtn.position.set(localTopLeft.x + this.backBtn.options.width/2, localTopLeft.y + this.backBtn.options.height/2);
+        }
+
+        // 3. 调整进度信息位置 (右上角)
+        if (this.infoText) {
+            this.infoText.position.set(localTopRight.x, localTopRight.y + 30);
+        }
+
+        // 4. 调整标题 (始终水平居中)
+        // 注意：designWidth/2 可能不是屏幕视觉中心，如果屏幕被裁剪了。
+        // 使用 (Left + Right) / 2 计算视觉中心
+        const centerX = (localTopLeft.x + localTopRight.x) / 2;
+        if (this.titleText) {
+            this.titleText.x = centerX;
+        }
+        
+        // 5. 调整底部分页按钮 (确保不溢出屏幕)
+        if (this.prevBtn && this.nextBtn && this.pageIndicator) {
+            const footerY = GameConfig.designHeight - 100;
+            const safeCenter = centerX;
+            
+            // 页码居中
+            this.pageIndicator.x = safeCenter;
+            
+            // [修正] 按钮均匀分布
+            // btnSpacing 定义为：中心点到按钮中心点的距离
+            const btnSpacing = 260; 
+            
+            // Button 的锚点在左上角，所以需要减去一半宽度来居中
+            this.prevBtn.x = safeCenter - btnSpacing - this.prevBtn.options.width / 2;
+            this.nextBtn.x = safeCenter + btnSpacing - this.nextBtn.options.width / 2;
+            
+            // 确保不超出屏幕左/右边界
+            if (this.prevBtn.x < localTopLeft.x + 50) this.prevBtn.x = localTopLeft.x + 50;
+            if (this.nextBtn.x > localTopRight.x - 50 - this.nextBtn.options.width) this.nextBtn.x = localTopRight.x - 50 - this.nextBtn.options.width;
+        }
     }
 
     createPaginationUI(w, h) {
@@ -95,7 +158,8 @@ export default class LevelSelectScene extends BaseScene {
             text: '上一页', width: 200, height: 80, color: 0x3498db,
             onClick: () => this.changePage(-1)
         });
-        this.prevBtn.position.set(w / 2 - 300, footerY - 40);
+        // 初始位置，会被 alignUI 覆盖
+        this.prevBtn.position.set(w / 2 - 220, footerY - 40);
         this.container.addChild(this.prevBtn);
 
         // 页码文字
@@ -111,7 +175,7 @@ export default class LevelSelectScene extends BaseScene {
             text: '下一页', width: 200, height: 80, color: 0x3498db,
             onClick: () => this.changePage(1)
         });
-        this.nextBtn.position.set(w / 2 + 100, footerY - 40); // 按钮宽200，中心偏移
+        this.nextBtn.position.set(w / 2 + 220, footerY - 40);
         this.container.addChild(this.nextBtn);
     }
 
@@ -124,10 +188,11 @@ export default class LevelSelectScene extends BaseScene {
     }
 
     renderPage(pageIndex) {
+        if (!this.app) return;
+
         // 1. 更新 UI 状态
         this.pageIndicator.text = `${pageIndex + 1} / ${this.totalPages}`;
         
-        // 控制按钮显隐或样式 (这里简单用透明度表示禁用)
         this.prevBtn.alpha = pageIndex === 0 ? 0.5 : 1;
         this.prevBtn.interactive = pageIndex !== 0;
         
@@ -143,27 +208,63 @@ export default class LevelSelectScene extends BaseScene {
         
         const unlockedProgress = AccountMgr.userInfo.level || 1;
 
-        // 4. 网格布局计算
-        const { designWidth, designHeight } = GameConfig;
-        const gridW = designWidth;
-        // 可用高度 = 总高 - 顶部(150) - 底部(150)
-        const availH = designHeight - 300; 
+        // 4. 网格布局动态计算 (核心优化)
+        const { designHeight } = GameConfig;
         
+        // 计算当前可视宽度
+        const globalLeft = 0;
+        const globalRight = this.app.screen.width;
+        // 转换为场景局部坐标
+        const localLeftX = this.container.toLocal(new PIXI.Point(globalLeft, 0)).x;
+        const localRightX = this.container.toLocal(new PIXI.Point(globalRight, 0)).x;
+        
+        // 可视区域宽度 (带有一定内边距)
+        const padding = 80;
+        const visibleWidth = (localRightX - localLeftX) - padding * 2;
+        const visibleCenterX = (localLeftX + localRightX) / 2;
+
         const btnSize = 160;
-        // 计算间距
-        const gapX = (gridW - (this.cols * btnSize)) / (this.cols + 1);
-        const gapY = (availH - (this.rows * btnSize)) / (this.rows + 1);
+        const gapX = 36; 
+        const gapY = 80; // [修改] 纵向间距再次增加，解决密集感
+        
+        // 计算 8 列所需的总宽度
+        const contentWidthNeeded = this.cols * btnSize + (this.cols - 1) * gapX;
+        
+        // 决定是否需要缩放
+        let scale = 1;
+        if (contentWidthNeeded > visibleWidth) {
+            scale = visibleWidth / contentWidthNeeded;
+        }
+        
+        // 设置网格容器缩放和位置
+        this.gridContainer.scale.set(scale);
+        
+        // Y 轴位置区间：标题下方 (150) 到 底部按钮上方 (designHeight - 150)
+        const topY = 150;
+        const bottomY = designHeight - 150;
+        const availH = bottomY - topY;
+        
+        const contentHeightNeeded = this.rows * btnSize + (this.rows - 1) * gapY;
+        
+        // [修正] 计算左上角起始点
+        // startY: 内容垂直居中后的顶部 Y 坐标 (相对于 gridContainer 的 Y=0)
+        // gridContainer.y 是 0
+        const startY = topY + (availH - contentHeightNeeded) / 2;
+
+        // [修正] startX: 内容的左边缘 X 坐标 (相对于 gridContainer 的 CenterX)
+        const startX = -contentWidthNeeded / 2;
+        
+        this.gridContainer.position.set(visibleCenterX, 0); 
 
         // 5. 循环创建按钮
         for (let i = startLevel; i <= endLevel; i++) {
-            // 在本页内的索引 (0 ~ itemsPerPage-1)
             const localIdx = i - startLevel;
-            
             const row = Math.floor(localIdx / this.cols);
             const col = localIdx % this.cols;
 
-            const x = gapX + col * (btnSize + gapX) + btnSize/2;
-            const y = gapY + row * (btnSize + gapY) + btnSize/2;
+            // 计算的是按钮 左上角 的坐标
+            const x = startX + col * (btnSize + gapX);
+            const y = startY + row * (btnSize + gapY);
 
             const isLocked = i > unlockedProgress;
             const config = getLevelConfig(i);
@@ -184,13 +285,11 @@ export default class LevelSelectScene extends BaseScene {
     }
 
     createLevelButton(level, x, y, size, isLocked, config) {
-        // x, y 是网格单元的中心点
-        const btnX = x - size / 2;
-        const btnY = y - size / 2;
-
+        // x, y 是网格单元的 左上角 坐标 (相对于 gridContainer)
+        
         const currentProgress = AccountMgr.userInfo.level || 1;
         let color = 0x3498db; // 默认蓝色
-        let stateType = 'locked'; // 'cleared', 'current', 'locked'
+        let stateType = 'locked'; 
 
         if (isLocked) {
             color = 0x7f8c8d; // 灰色 (锁定)
@@ -204,10 +303,7 @@ export default class LevelSelectScene extends BaseScene {
         }
 
         const textStr = isLocked ? '🔒' : level.toString();
-        
-        // 如果有关卡描述或奖励
         const hasReward = !!LevelRewards[level];
-        // 如果有关卡描述 (例如 "教学")
         const hasDesc = !isLocked && config.description && (level <= 10 || level % 10 === 0);
         
         const btn = new Button({
@@ -227,9 +323,9 @@ export default class LevelSelectScene extends BaseScene {
             }
         });
         
-        btn.position.set(btnX, btnY);
+        // Button 的锚点是 top-left，直接设置位置
+        btn.position.set(x, y);
 
-        // 如果有关卡描述，显示在按钮内部
         if (hasDesc) {
             if (btn.label) {
                 btn.label.y -= 20;
@@ -239,98 +335,72 @@ export default class LevelSelectScene extends BaseScene {
                 dropShadow: true, dropShadowBlur: 2
             });
             descText.anchor.set(0.5);
-            descText.position.set(size / 2, size / 2 + 35);
-            btn.addChild(descText);
+            descText.position.set(0, 35); // 相对按钮中心
+            btn.inner.addChild(descText);
         }
 
         this.gridContainer.addChild(btn);
 
-        // [修改] 如果有奖励，在按钮外部下方展示，并根据状态显示不同提示
         if (hasReward) {
             const reward = LevelRewards[level];
-            this.createRewardPreview(this.gridContainer, x, y + size/2 + 40, reward, stateType);
+            // [修正] 奖励位置对齐
+            // x + size/2: 按钮水平中心
+            // y + size: 按钮底部边缘
+            this.createRewardPreview(this.gridContainer, x + size/2, y + size + 25, reward, stateType);
         }
     }
 
-    // [修改] 创建奖励预览 (处理不同状态文案及图标大小)
-    createRewardPreview(parent, x, y, reward, stateType) {
+    createRewardPreview(parent, centerX, topY, reward, stateType) {
+        // [修改] 重构居中逻辑，使用容器自适应宽度
         const container = new PIXI.Container();
-        container.position.set(x, y); 
+        container.position.set(centerX, topY); 
         
         let labelStr = "";
         let labelColor = 0xFFFFFF;
         let isDimmed = false;
 
-        // 根据状态设置文案和颜色
         if (stateType === 'cleared') {
-            labelStr = "已解锁";
-            labelColor = 0x2ecc71; // 绿色
+            labelStr = "已解锁"; labelColor = 0x2ecc71;
         } else if (stateType === 'current') {
-            labelStr = "完成可解锁";
-            labelColor = 0xF1C40F; // 金色
+            labelStr = "可解锁"; labelColor = 0xF1C40F;
         } else {
-            labelStr = "待解锁";
-            labelColor = 0xAAAAAA; // 灰色
-            isDimmed = true;
+            labelStr = "待解锁"; labelColor = 0xAAAAAA; isDimmed = true;
         }
 
-        // 1. 提示文字
         const label = new PIXI.Text(labelStr, {
-            fontSize: 20, 
-            fill: labelColor, 
-            fontWeight: 'bold'
+            fontSize: 18, fill: labelColor, fontWeight: 'bold'
         });
-        label.anchor.set(0, 0.5); // 左对齐
+        label.anchor.set(0, 0.5); 
+        label.position.set(0, 0); // 先放在容器左侧
 
-        // 2. 准备图标
         let iconDisplay = null;
-        let targetSize = 46; // 默认图标尺寸
+        let targetSize = 40; 
 
-        // 特殊处理：球场图标放大 (放大约2倍)
-        if (reward.type === 'field') {
-            targetSize = 80;
-        }
+        if (reward.type === 'field') targetSize = 60;
 
         if (reward.type === 'ball') {
-            // 特殊处理足球：使用圆形遮罩渲染 + TilingSprite
             const radius = targetSize / 2;
             const texKey = reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`;
             const tex = ResourceManager.get(texKey);
-            
             if (tex) {
                 const ball = new PIXI.TilingSprite(tex, radius * 4, radius * 4);
                 ball.anchor.set(0.5);
                 ball.tileScale.set(0.8);
                 ball.width = targetSize;
                 ball.height = targetSize;
-                
-                const mask = new PIXI.Graphics();
-                mask.beginFill(0xffffff);
-                mask.drawCircle(0, 0, radius);
-                mask.endFill();
-                
+                const mask = new PIXI.Graphics().beginFill(0xffffff).drawCircle(0, 0, radius).endFill();
                 ball.mask = mask;
-                
                 iconDisplay = new PIXI.Container();
                 iconDisplay.addChild(mask, ball);
             }
         } else {
-            // 其他类型：普通 Sprite
             let tex = null;
-            
-            if (reward.type === 'striker') {
-                tex = ResourceManager.get(`striker_red_${reward.id}`);
-            } else if (reward.type === 'field') {
-                tex = ResourceManager.get(`field_${reward.id}`);
-            } else if (reward.type === 'skill') {
-                const map = { 
-                    [SkillType.SUPER_AIM]: 'skill_aim_bg', 
-                    [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', 
-                    [SkillType.SUPER_FORCE]: 'skill_force_bg' 
-                };
+            if (reward.type === 'striker') tex = ResourceManager.get(`striker_red_${reward.id}`);
+            else if (reward.type === 'field') tex = ResourceManager.get(`field_${reward.id}`);
+            else if (reward.type === 'skill') {
+                const map = { [SkillType.SUPER_AIM]: 'skill_aim_bg', [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', [SkillType.SUPER_FORCE]: 'skill_force_bg' };
                 tex = ResourceManager.get(map[reward.id]);
             }
-
             if (tex) {
                 const sprite = new PIXI.Sprite(tex);
                 sprite.anchor.set(0.5);
@@ -340,45 +410,31 @@ export default class LevelSelectScene extends BaseScene {
             }
         }
 
-        // 3. 组装布局 (单行居中：文字 + 间距 + 图标)
-        if (iconDisplay) {
-            // 变暗逻辑 (仅针对待解锁状态)
-            if (isDimmed) {
-                if (iconDisplay instanceof PIXI.Sprite || iconDisplay instanceof PIXI.TilingSprite) {
-                    iconDisplay.tint = 0x555555;
-                } else if (iconDisplay instanceof PIXI.Container) {
-                    iconDisplay.children.forEach(c => {
-                        if (c.tint !== undefined && c !== iconDisplay.mask) c.tint = 0x555555;
-                    });
-                }
-            }
+        // 组合内容
+        const contentContainer = new PIXI.Container();
+        contentContainer.addChild(label);
 
-            const gap = 10;
-            const totalWidth = label.width + gap + targetSize;
-            
-            // 计算起始X，使得整体居中
-            const startX = -totalWidth / 2;
-            
-            label.position.set(startX, 0);
-            
-            // 图标中心X
-            const iconX = startX + label.width + gap + targetSize / 2;
-            iconDisplay.position.set(iconX, 0);
-            
-            container.addChild(label, iconDisplay);
+        if (iconDisplay) {
+            if (isDimmed) {
+                if (iconDisplay.tint !== undefined) iconDisplay.tint = 0x555555;
+                else if (iconDisplay.children) iconDisplay.children.forEach(c => { if(c.tint!==undefined) c.tint=0x555555; });
+            }
+            const gap = 8;
+            iconDisplay.position.set(label.width + gap + targetSize / 2, 0);
+            contentContainer.addChild(iconDisplay);
         } else {
-            // 兜底文字
-            const fallback = new PIXI.Text(`${labelStr} ${reward.name}`, {fontSize: 16, fill: 0xffffff});
-            fallback.anchor.set(0.5);
-            container.addChild(fallback);
+            // 如果没有图标，追加文字描述
+            const fallback = new PIXI.Text(` ${reward.name}`, {fontSize: 14, fill: 0xffffff});
+            fallback.anchor.set(0, 0.5);
+            fallback.position.set(label.width, 0);
+            contentContainer.addChild(fallback);
         }
+
+        // [核心] 将内容整体居中
+        const totalW = contentContainer.width;
+        contentContainer.x = -totalW / 2;
+        container.addChild(contentContainer);
 
         parent.addChild(container);
     }
-
-    // 移除滚动相关的方法
-    onScrollStart(e) {}
-    onScrollMove(e) {}
-    onScrollEnd(e) {}
-    animateBounce() {}
 }
