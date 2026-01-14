@@ -4,7 +4,7 @@ import BaseScene from './BaseScene.js';
 import SceneManager from '../managers/SceneManager.js';
 import MenuScene from './MenuScene.js';
 import GameScene from './GameScene.js';
-import RoomScene from './RoomScene.js'; // [新增]
+import RoomScene from './RoomScene.js'; 
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
@@ -33,7 +33,7 @@ export default class ResultScene extends BaseScene {
         const opponentId = myTeamId === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
         
         let rewardCoins = 0;
-        let unlockedReward = null; // [新增] 存储解锁的物品
+        let unlockedReward = null; 
 
         if (isWin) {
             rewardCoins = 100;
@@ -45,7 +45,6 @@ export default class ResultScene extends BaseScene {
         
         if (rewardCoins > 0) AccountMgr.addCoins(rewardCoins, false);
         
-        // [修改] 通关逻辑调用，并接收奖励返回值
         if (gameMode === 'pve' && isWin) {
             unlockedReward = AccountMgr.completeLevel(currentLevel, false);
         }
@@ -70,23 +69,24 @@ export default class ResultScene extends BaseScene {
         this.container.addChild(this.mainPanel);
 
         // C. 绘制面板背景
-        this.createPanelBackground(920, 620);
+        this.createPanelBackground(960, 600);
 
-        // D. 标题
+        // D. 标题 (在面板上方)
         this.createHeader(designWidth, 120, isWin, winner);
 
-        // E. 星级
-        this.createRatingStars(0, -360, rating); 
+        // E. 星级 (在标题下方，面板上方)
+        this.createRatingStars(0, -370, rating); 
 
-        // F. 数据统计
-        this.createScoreBoard(0, -180, score, myTeamId, opponentId);
-        this.createStatsList(0, -50, stats, score, myTeamId, opponentId);
+        // F. 数据统计与头部 (都在面板内部)
+        this.createScoreBoard(0, score, myTeamId, opponentId);
+        this.createStatsList(0, -15, stats, score, myTeamId, opponentId);
 
-        // G. 奖励展示 (如果有物品解锁，优先显示物品，否则显示金币)
+        // G. 奖励展示 
+        const rewardY = 250; // 沉底
         if (unlockedReward) {
-            this.createUnlockDisplay(0, 240, unlockedReward, rewardCoins);
+            this.createUnlockDisplay(0, rewardY, unlockedReward, rewardCoins);
         } else if (isWin) {
-            this.createRewards(0, 240, rewardCoins);
+            this.createRewards(0, rewardY, rewardCoins);
         }
 
         // H. 按钮
@@ -110,7 +110,6 @@ export default class ResultScene extends BaseScene {
 
         // 2. 放射光 (聚光灯)
         const glowColor = isWin ? 0xF1C40F : 0x34495e; // 胜:金, 负:深蓝
-        
         const glowCircle = new PIXI.Graphics();
         glowCircle.beginFill(glowColor, 0.4);
         glowCircle.drawCircle(0, 0, w * 0.6);
@@ -124,19 +123,24 @@ export default class ResultScene extends BaseScene {
     }
 
     createPanelBackground(w, h) {
-        // [优化] 将面板背景放入单独 Graphics 并开启缓存
-        const bg = new PIXI.Graphics();
-        bg.beginFill(0x000000, 0.75);
-        bg.lineStyle(2, 0xffffff, 0.15);
-        bg.drawRoundedRect(-w/2, -h/2, w, h, 40);
-        bg.endFill();
+        // 使用 result_bg 素材作为 NineSlicePlane (金属大边框)
+        const bgTex = ResourceManager.get('result_bg');
+        let bg;
         
-        bg.beginFill(0xffffff, 0.08);
-        bg.drawRoundedRect(-w/2, -h/2, w, 100, 40);
-        bg.endFill();
-
-        // 核心优化：开启缓存
-        bg.cacheAsBitmap = true;
+        if (bgTex) {
+            // 切片边距
+            bg = new PIXI.NineSlicePlane(bgTex, 60, 60, 60, 60);
+            bg.width = w;
+            bg.height = h;
+            bg.pivot.set(w/2, h/2);
+        } else {
+            // 兜底绘制
+            bg = new PIXI.Graphics();
+            bg.beginFill(0x000000, 0.75);
+            bg.lineStyle(4, 0xaaaaaa, 1);
+            bg.drawRoundedRect(-w/2, -h/2, w, h, 30);
+            bg.endFill();
+        }
 
         this.mainPanel.addChild(bg);
     }
@@ -240,10 +244,6 @@ export default class ResultScene extends BaseScene {
         starContainer.addChild(scoreBg);
 
         starContainer.position.set(x, y);
-        
-        // [优化] 对星星容器进行缓存 (包含大量多边形绘制指令)
-        starContainer.cacheAsBitmap = true;
-
         this.mainPanel.addChild(starContainer);
     }
 
@@ -281,177 +281,248 @@ export default class ResultScene extends BaseScene {
         return g;
     }
 
-    createScoreBoard(x, y, score, myId, oppId) {
+    createScoreBoard(x, score, myId, oppId) {
         const container = new PIXI.Container();
-        container.position.set(x, y);
+        
+        // [修改] 移除了原有的纯色背景条绘制，因为下方的统计框背景已经包含了对战条视觉元素
+        const headerY = -260;
 
+        // 2. 名字文本
         const p1Name = this.params.gameMode === 'pve' ? '玩家' : (this.params.gameMode === 'pvp_local' ? '红方' : '我方');
         const p2Name = this.params.gameMode === 'pve' ? '电脑' : (this.params.gameMode === 'pvp_local' ? '蓝方' : '对手');
 
-        const nameStyle = { fontSize: 32, fontWeight: 'bold' };
+        const nameStyle = { fontSize: 32, fontWeight: 'bold', fill: 0xffffff, dropShadow: true, dropShadowDistance: 1 };
         
-        const t1 = new PIXI.Text(p1Name, { ...nameStyle, fill: 0xe74c3c });
-        t1.anchor.set(0.5); t1.x = -150;
+        const t1 = new PIXI.Text(p1Name, nameStyle);
+        t1.anchor.set(0.5); t1.position.set(-250, headerY);
         
-        const t2 = new PIXI.Text(p2Name, { ...nameStyle, fill: 0x3498db });
-        t2.anchor.set(0.5); t2.x = 150;
+        const t2 = new PIXI.Text(p2Name, nameStyle);
+        t2.anchor.set(0.5); t2.position.set(250, headerY);
+        
+        // [修改] 移除了中间的闪电图标，因为背景图中已包含
+        // const lightning = new PIXI.Text('⚡', { fontSize: 40, fill: 0xFFD700 });
+        // lightning.anchor.set(0.5); lightning.position.set(0, headerY);
+
+        container.addChild(t1, t2);
+
+        // 3. 核心比分与头像
+        const scoreY = -140; // 调整位置
+
+        const myAvatar = this.createAvatarBox(myId, true);
+        myAvatar.position.set(-250, scoreY);
+        container.addChild(myAvatar);
+
+        const oppAvatar = this.createAvatarBox(oppId, false);
+        oppAvatar.position.set(250, scoreY);
+        container.addChild(oppAvatar);
 
         const scoreStyle = { fontFamily: 'Arial Black', fontSize: 100, fill: 0xffffff, dropShadow: true, dropShadowBlur: 4 };
         const s1 = new PIXI.Text(score[myId], scoreStyle);
-        s1.anchor.set(0.5); s1.x = -150;
+        s1.anchor.set(0.5); s1.position.set(-110, scoreY);
         
         const s2 = new PIXI.Text(score[oppId], scoreStyle);
-        s2.anchor.set(0.5); s2.x = 150;
+        s2.anchor.set(0.5); s2.position.set(110, scoreY);
 
-        const vs = new PIXI.Text('-', { fontSize: 100, fill: 0x666666 });
-        vs.anchor.set(0.5); vs.y = 30;
+        container.addChild(s1, s2);
 
-        t1.y = -80; t2.y = -80;
-        s1.y = 40; s2.y = 40;
-
-        container.addChild(t1, t2, s1, vs, s2);
         this.mainPanel.addChild(container);
+    }
+
+    createAvatarBox(teamId, isLeft) {
+        const box = new PIXI.Container();
+        const size = 100;
+        
+        const borderColor = (teamId === TeamId.LEFT) ? 0xe74c3c : 0x3498db;
+
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0xffffff);
+        bg.lineStyle(4, borderColor);
+        bg.drawRoundedRect(-size/2, -size/2, size, size, 15);
+        bg.endFill();
+        box.addChild(bg);
+
+        let avatarTex = null;
+        if (this.params.gameMode === 'pve' && teamId === TeamId.RIGHT) {
+            avatarTex = ResourceManager.get('ai_robot'); 
+        }
+
+        if (avatarTex) {
+            const sp = new PIXI.Sprite(avatarTex);
+            sp.width = sp.height = size - 10;
+            sp.anchor.set(0.5);
+            box.addChild(sp);
+        } else {
+            const txt = new PIXI.Text(teamId === TeamId.LEFT ? 'P1' : 'P2', {
+                fontSize: 36, fill: borderColor, fontWeight: 'bold'
+            });
+            txt.anchor.set(0.5);
+            box.addChild(txt);
+        }
+
+        return box;
     }
 
     createStatsList(x, y, stats, score, myId, oppId) {
         const container = new PIXI.Container();
         container.position.set(x, y);
 
+        // [核心] 添加 red/blue bar 背景图作为数据容器背景
+        const bgTex = ResourceManager.get('result_content_bg');
+        const boxW = 820;
+        const boxH = 290; // 容纳3行 + 底部时间
+        // [修改] 增加顶部切片高度 (30 -> 70) 以保护素材中的 Header 区域不被拉伸
+        const bg = new PIXI.NineSlicePlane(bgTex, 40, 70, 40, 40);
+        bg.width = boxW;
+        bg.height = boxH;
+        bg.pivot.set(boxW/2, boxH/2);
+        bg.y = 80; // 稍微下移以居中于数据行
+        container.addChild(bg);
+
         const myStats = stats[myId];
         const oppStats = stats[oppId];
+        const rowH = 70;
 
-        const items = [
-            { label: '射门次数', v1: myStats.shots, v2: oppStats.shots, type: 'number' },
-            { label: '进球效率', v1: this.fmtPct(score[myId], myStats.shots), v2: this.fmtPct(score[oppId], oppStats.shots), type: 'number' },
-            { label: '技能消耗', v1: myStats.skills, v2: oppStats.skills, type: 'skill' }
-        ];
+        // Row 1: Shots (进度条)
+        this.renderStatRow(container, 0, '射门次数', myStats.shots, oppStats.shots, true);
+        
+        // Row 2: Efficiency (进度条)
+        this.renderStatRow(container, rowH, '进球效率', this.fmtPct(score[myId], myStats.shots), this.fmtPct(score[oppId], oppStats.shots), true);
 
-        const rowH = 60;
+        // Row 3: Skills (Icon x Count)
+        this.renderSkillRow(container, rowH * 2, myStats.skills, oppStats.skills);
 
-        items.forEach((item, i) => {
-            const rowY = i * rowH;
-            
-            const label = new PIXI.Text(item.label, { fontSize: 32, fill: 0x999999 });
-            label.anchor.set(0.5); label.y = rowY;
-            container.addChild(label);
-
-            if (item.type === 'skill') {
-                this.createSkillRow(container, rowY, item.v1, item.v2);
-            } else {
-                const val1 = new PIXI.Text(item.v1, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
-                val1.anchor.set(1, 0.5); val1.position.set(-150, rowY);
-                
-                const val2 = new PIXI.Text(item.v2, { fontSize: 36, fill: 0xffffff, fontWeight: 'bold' });
-                val2.anchor.set(0, 0.5); val2.position.set(150, rowY);
-
-                container.addChild(val1, val2);
-
-                this.createStatBar(container, -260, rowY, item.v1, item.v2, true);
-                this.createStatBar(container, 260, rowY, item.v2, item.v1, false);
-            }
-        });
-
+        // Time
         const duration = (stats.endTime - stats.startTime) / 1000;
         const min = Math.floor(duration / 60);
         const sec = Math.floor(duration % 60);
-        const totalTurns = myStats.shots + oppStats.shots;
-        
-        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒  (共 ${totalTurns} 回合)`, { fontSize: 26, fill: 0x666666 });
+        const timeText = new PIXI.Text(`比赛耗时: ${min}分${sec}秒`, { fontSize: 24, fill: 0x999999 });
         timeText.anchor.set(0.5);
-        timeText.y = items.length * rowH + 15;
+        timeText.y = rowH * 3 - 10;
         container.addChild(timeText);
 
         this.mainPanel.addChild(container);
     }
 
-    createSkillRow(parent, y, mySkills, oppSkills) {
-        this.renderSkillGroup(parent, -150, y, mySkills, true);
-        this.renderSkillGroup(parent, 150, y, oppSkills, false);
+    renderStatRow(container, y, labelStr, v1, v2, showBars) {
+        // Label
+        const label = new PIXI.Text(labelStr, { fontSize: 28, fill: 0xcccccc });
+        label.anchor.set(0.5); label.y = y;
+        container.addChild(label);
+
+        // Values
+        const style = { fontSize: 30, fill: 0xffffff, fontWeight: 'bold' };
+        const t1 = new PIXI.Text(v1, style);
+        t1.anchor.set(1, 0.5); t1.position.set(-100, y);
+        const t2 = new PIXI.Text(v2, style);
+        t2.anchor.set(0, 0.5); t2.position.set(100, y);
+        container.addChild(t1, t2);
+
+        // Bars
+        if (showBars) {
+            this.createStatBar(container, -180, y, v1, v2, true);
+            this.createStatBar(container, 180, y, v2, v1, false);
+        }
     }
 
-    renderSkillGroup(parent, startX, y, skills, isAlignRight) {
-        const list = [];
-        if (skills) {
-            for (let k in skills) {
-                if (skills[k] > 0) list.push({ type: k, count: skills[k] });
-            }
-        }
+    // [新增] 技能行渲染 (图标x数量)
+    renderSkillRow(container, y, skills1, skills2) {
+        const label = new PIXI.Text('技能消耗', { fontSize: 28, fill: 0xcccccc });
+        label.anchor.set(0.5); label.y = y;
+        container.addChild(label);
 
-        if (list.length === 0) {
-            const t = new PIXI.Text('-', { fontSize: 36, fill: 0x555555, fontWeight: 'bold' });
-            t.anchor.set(isAlignRight ? 1 : 0, 0.5);
-            t.position.set(startX, y);
-            parent.addChild(t);
+        // P1 图标 (向左增长)
+        this.renderSkillIcons(container, -100, y, skills1, true);
+
+        // P2 图标 (向右增长)
+        this.renderSkillIcons(container, 100, y, skills2, false);
+    }
+
+    renderSkillIcons(container, startX, y, skills, isLeft) {
+        const skillTypes = [SkillType.SUPER_AIM, SkillType.UNSTOPPABLE, SkillType.SUPER_FORCE];
+        const map = { 
+            [SkillType.SUPER_AIM]: 'skill_aim_bg', 
+            [SkillType.UNSTOPPABLE]: 'skill_unstoppable_bg', 
+            [SkillType.SUPER_FORCE]: 'skill_force_bg' 
+        };
+
+        let xPos = startX;
+        const iconSize = 40;
+        const gap = 10;
+        const dir = isLeft ? -1 : 1;
+
+        // 检查是否有技能使用记录
+        let hasSkills = false;
+        skillTypes.forEach(type => {
+            if (skills && skills[type] > 0) hasSkills = true;
+        });
+
+        if (!hasSkills) {
+            const dash = new PIXI.Text('-', { fontSize: 30, fill: 0x666666 });
+            dash.anchor.set(isLeft ? 1 : 0, 0.5);
+            dash.position.set(startX, y);
+            container.addChild(dash);
             return;
         }
 
-        const iconSize = 36;
-        const gap = 15;
-        let currentX = startX;
+        skillTypes.forEach(type => {
+            const count = skills ? (skills[type] || 0) : 0;
+            if (count > 0) {
+                // Icon
+                const tex = ResourceManager.get(map[type]);
+                if (tex) {
+                    const icon = new PIXI.Sprite(tex);
+                    icon.width = iconSize; icon.height = iconSize;
+                    icon.anchor.set(isLeft ? 1 : 0, 0.5);
+                    icon.position.set(xPos, y);
+                    container.addChild(icon);
+                }
 
-        list.forEach(item => {
-            const grp = new PIXI.Container();
-            const texName = this.getSkillTextureName(item.type);
-            const tex = ResourceManager.get(texName);
-            const icon = new PIXI.Sprite(tex || PIXI.Texture.WHITE);
-            icon.width = iconSize; 
-            icon.height = iconSize;
-            icon.anchor.set(0, 0.5);
-            if (!tex) icon.tint = 0x888888; 
+                // Count text
+                const textX = xPos + (isLeft ? -iconSize - 5 : iconSize + 5);
+                const txt = new PIXI.Text(`x${count}`, { fontSize: 20, fill: 0xffffff });
+                txt.anchor.set(isLeft ? 1 : 0, 0.5);
+                txt.position.set(textX, y);
+                container.addChild(txt);
 
-            const txt = new PIXI.Text(`x${item.count}`, { 
-                fontSize: 24, fill: 0xffffff, fontWeight: 'bold' 
-            });
-            txt.anchor.set(0, 0.5);
-            txt.x = iconSize + 4; 
-
-            grp.addChild(icon, txt);
-            const groupW = iconSize + 4 + txt.width;
-
-            if (isAlignRight) {
-                currentX -= groupW;
-                grp.position.set(currentX, y);
-                currentX -= gap; 
-            } else {
-                grp.position.set(currentX, y);
-                currentX += groupW + gap;
+                // Advance X
+                const itemWidth = iconSize + txt.width + 15;
+                xPos += dir * (itemWidth + gap);
             }
-            
-            parent.addChild(grp);
         });
     }
 
-    getSkillTextureName(type) {
-        const map = {
-            'super_aim': 'skill_aim_bg',
-            'super_force': 'skill_force_bg',
-            'unstoppable': 'skill_unstoppable_bg'
-        };
-        return map[type];
+    sumSkills(skills) {
+        let sum = 0;
+        if (skills) Object.values(skills).forEach(v => sum += v);
+        return sum;
     }
 
     createStatBar(parent, x, y, val, otherVal, isLeft) {
-        let max = Math.max(parseFloat(val), parseFloat(otherVal));
-        if (isNaN(max) || max === 0) max = 1;
-        let ratio = parseFloat(val) / max;
-        if (isNaN(ratio)) ratio = 0;
+        // 简单的归一化逻辑，避免除以0
+        let v1 = parseFloat(val); if(isNaN(v1)) v1 = 0;
+        let v2 = parseFloat(otherVal); if(isNaN(v2)) v2 = 0;
         
-        const w = 120 * ratio; 
-        const h = 10;
-        const color = isLeft ? 0x3498db : 0xe74c3c;
+        let max = Math.max(v1, v2);
+        if (max === 0) max = 1;
+        let ratio = v1 / max;
+        
+        const maxW = 200; 
+        const w = maxW * ratio;
+        const h = 12;
+        const color = isLeft ? 0x3498db : 0xe74c3c; // 左蓝右红
 
         const g = new PIXI.Graphics();
+        // 灰色底槽
+        g.beginFill(0x333333);
+        g.drawRoundedRect(0, -h/2, isLeft ? -maxW : maxW, h, h/2);
+        g.endFill();
+
+        // 亮色进度
         g.beginFill(color);
-        g.drawRoundedRect(0, -h/2, w, h, h/2);
+        g.drawRoundedRect(0, -h/2, isLeft ? -w : w, h, h/2);
         g.endFill();
         
-        if (isLeft) {
-            g.scale.x = -1;
-            g.x = x;
-        } else {
-            g.x = x;
-        }
-        g.y = y;
+        g.position.set(x, y);
         parent.addChild(g);
     }
 
@@ -461,18 +532,9 @@ export default class ResultScene extends BaseScene {
         const container = new PIXI.Container();
         container.position.set(x, y);
 
-        const glow = new PIXI.Graphics();
-        glow.beginFill(0xFFD700, 0.2);
-        glow.drawCircle(0, 0, 70); 
-        glow.endFill();
-        
-        // [优化] 缓存发光圆圈
-        glow.cacheAsBitmap = true;
-        
-        container.addChild(glow);
-
+        // [优化] 金币堆效果
         const icon = new PIXI.Text('💰', { fontSize: 50 });
-        icon.anchor.set(0.5); icon.x = -50;
+        icon.anchor.set(0.5); icon.x = -60;
         
         const text = new PIXI.Text(`+${coins}`, { 
             fontSize: 50, fill: 0xFFD700, fontWeight: 'bold',
@@ -503,12 +565,9 @@ export default class ResultScene extends BaseScene {
         bg.lineStyle(2, 0xFFD700);
         bg.drawRoundedRect(-40, -40, 80, 80, 10);
         bg.endFill();
-        
-        // [优化] 缓存背景
-        bg.cacheAsBitmap = true;
         container.addChild(bg);
 
-        // [修改] 针对足球类型进行特殊渲染，使其显示为圆形球体
+        // [修改] 针对足球类型进行特殊渲染
         if (reward.type === 'ball') {
             const texKey = reward.id === 1 ? 'ball_texture' : `ball_texture_${reward.id}`;
             const tex = ResourceManager.get(texKey);
@@ -577,12 +636,10 @@ export default class ResultScene extends BaseScene {
         let rightAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
         let rightColor = 0x27ae60;
 
-        // [核心修改] 针对 PVP Online 的按钮逻辑
         if (this.params.gameMode === 'pvp_online') {
             leftText = '结束游戏';
-            leftColor = 0xc0392b; // 红色
+            leftColor = 0xc0392b; 
             leftAction = () => {
-                // 彻底退出：发送 LEAVE 并断开连接
                 NetworkMgr.send({ type: NetMsg.LEAVE });
                 NetworkMgr.close();
                 Platform.removeStorage('last_room_id');
@@ -592,8 +649,6 @@ export default class ResultScene extends BaseScene {
             rightText = '再来一局';
             rightColor = 0x27ae60;
             rightAction = () => {
-                // 复玩：保持连接，回到房间等待界面 (状态已重置)
-                // [Change] 传递 autoReady: true，让 RoomScene 自动准备
                 SceneManager.changeScene(RoomScene, { roomId: this.params.roomId, autoReady: true });
             };
         }

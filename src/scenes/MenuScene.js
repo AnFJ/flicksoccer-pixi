@@ -325,7 +325,35 @@ export default class MenuScene extends BaseScene {
 
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
-        Platform.handleSocialAction();
+        // Platform.handleSocialAction();
+        let resultParms = {
+            "winner": 0,
+            "gameMode": "pve",
+            "currentLevel": 2,
+            "score": {
+                "0": 2,
+                "1": 0
+            },
+            "stats": {
+                "0": {
+                    "shots": 9,
+                    "skills": {
+                        "super_force": 7
+                    }
+                },
+                "1": {
+                    "shots": 8,
+                    "skills": {}
+                },
+                "startTime": 1768366353347,
+                "endTime": 1768366440828
+            },
+            "players": [],
+            "myTeamId": 0,
+            "roomId": null
+        };
+        SceneManager.changeScene(ResultScene, resultParms);
+
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;

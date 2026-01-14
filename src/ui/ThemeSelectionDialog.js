@@ -41,7 +41,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     this.addChild(panel);
 
     // [修改] 背景作为子元素添加
-    const bgTex = ResourceManager.get('theme_bg');
+    const bgTex = ResourceManager.get('dialog_bg');
     const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
     bg.width = panelW;
     bg.height = panelH;

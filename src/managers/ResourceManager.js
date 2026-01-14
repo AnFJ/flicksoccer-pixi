@@ -28,7 +28,11 @@ class ResourceManager {
       hud_bg: 'assets/images/hud_bg.png',
       
       // [新增] 对话框背景 (外部素材)
-      theme_bg: 'remote:theme_bg.png',
+      dialog_bg: 'remote:dialog_bg.png',
+      
+      // [新增] 结果页素材
+      result_bg: 'remote:result_bg.png', // 金属边框对话框
+      result_content_bg: 'remote:result_content_bg.png', // 红蓝对战条
 
       // 菜单功能图标
       icon_social: 'assets/images/icon_social.png',
@@ -112,7 +116,11 @@ class ResourceManager {
 
         count++;
         
-        if (rawUrl.startsWith('remote:')) {
+        // 简单判断是否是完整URL
+        if (rawUrl.startsWith('http') || rawUrl.startsWith('https')) {
+             // 完整URL直接添加 (Pixi Loader 支持)
+             loadQueue.push({ key, type: 'local', url: rawUrl });
+        } else if (rawUrl.startsWith('remote:')) {
             const fileName = rawUrl.split(':')[1];
             loadQueue.push({ key, type: 'remote', fileName });
         } else {

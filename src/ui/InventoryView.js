@@ -40,7 +40,7 @@ export default class InventoryView extends PIXI.Container {
     this.addChild(panel);
 
     // [修改] 背景绘制逻辑：优先使用图片，兜底使用绘图
-    const bgTex = ResourceManager.get('theme_bg'); // 复用主题背景
+    const bgTex = ResourceManager.get('dialog_bg'); // 复用主题背景
     // 使用九宫格拉伸
     const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
     bg.width = panelW;
