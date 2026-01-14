@@ -30,16 +30,25 @@ export default class InventoryView extends PIXI.Container {
     overlay.interactive = true;
     this.addChild(overlay);
 
-    // 2. 主面板
+    // 2. 主面板容器
     const panelW = 900;
     const panelH = 700;
-    const panel = new PIXI.Graphics();
-    panel.beginFill(0x2c3e50);
-    panel.lineStyle(4, 0xecf0f1);
-    panel.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
-    panel.endFill();
+    
+    // [修改] 使用 Container 作为父容器，保持原点在中心
+    const panel = new PIXI.Container();
     panel.position.set(designWidth/2, designHeight/2);
     this.addChild(panel);
+
+    // [修改] 背景绘制逻辑：优先使用图片，兜底使用绘图
+    const bgTex = ResourceManager.get('theme_bg'); // 复用主题背景
+    // 使用九宫格拉伸
+    const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
+    bg.width = panelW;
+    bg.height = panelH;
+    // 居中定位 (NineSlicePlane 默认锚点在左上角)
+    bg.x = -panelW / 2;
+    bg.y = -panelH / 2;
+    panel.addChild(bg);
 
     // 3. 标题
     const title = new PIXI.Text('我的背包', {
@@ -51,7 +60,7 @@ export default class InventoryView extends PIXI.Container {
 
     // 4. 顶部信息栏 (金币 & 等级)
     const statsContainer = new PIXI.Container();
-    statsContainer.position.set(0, -panelH/2 + 150);
+    statsContainer.position.set(0, -panelH/2 + 135);
     panel.addChild(statsContainer);
 
     // --- 金币区域 ---
@@ -80,16 +89,9 @@ export default class InventoryView extends PIXI.Container {
     levelText.anchor.set(0.5);
     levelText.position.set(200, 0);
     statsContainer.addChild(levelText);
-    
-    // 分割线
-    const line = new PIXI.Graphics();
-    line.lineStyle(2, 0x7f8c8d);
-    line.moveTo(-panelW/2 + 50, -panelH/2 + 220); // 稍微下移一点给金币按钮留空间
-    line.lineTo(panelW/2 - 50, -panelH/2 + 220);
-    panel.addChild(line);
 
     // 5. 道具网格 (下移起始Y坐标)
-    this.createItemGrid(panel, 0, 80);
+    this.createItemGrid(panel, 0, -40);
 
     // 6. [修改] 关闭按钮 (放在面板外面，正下方)
     const btnW = 200;
@@ -100,9 +102,7 @@ export default class InventoryView extends PIXI.Container {
             if (this.parent) this.parent.removeChild(this);
         }
     });
-    // 面板底部 Y = designHeight/2 + panelH/2 = 540 + 350 = 890
-    // 按钮放在 890 + 50 = 940 的位置
-    closeBtn.position.set(designWidth/2 - btnW/2, designHeight/2 + panelH/2 + 50);
+    closeBtn.position.set(designWidth/2 - btnW/2, designHeight/2 + panelH/2 - 100);
     
     // 注意：将按钮直接添加到 this (InventoryView)，而不是 panel
     this.addChild(closeBtn);

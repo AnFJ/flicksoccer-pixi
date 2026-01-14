@@ -42,24 +42,13 @@ export default class ThemeSelectionDialog extends PIXI.Container {
 
     // [修改] 背景作为子元素添加
     const bgTex = ResourceManager.get('theme_bg');
-    
-    if (bgTex) {
-        // 使用九宫格拉伸，边距设为 110 以保护边框细节
-        const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
-        bg.width = panelW;
-        bg.height = panelH;
-        // 关键：将九宫格背景向左上偏移一半宽高，使其视觉中心位于 panel 的原点 (0,0)
-        bg.x = -panelW / 2;
-        bg.y = -panelH / 2;
-        panel.addChild(bg);
-    } else {
-        // 兜底绘制
-        const bg = new PIXI.Graphics();
-        bg.beginFill(0x2c3e50);
-        bg.lineStyle(4, 0xecf0f1);
-        bg.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
-        panel.addChild(bg);
-    }
+    const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
+    bg.width = panelW;
+    bg.height = panelH;
+    // 关键：将九宫格背景向左上偏移一半宽高，使其视觉中心位于 panel 的原点 (0,0)
+    bg.x = -panelW / 2;
+    bg.y = -panelH / 2;
+    panel.addChild(bg);
 
     // 调整标题位置 (因为背景图可能有比较厚的上边框，稍微下移一点)
     const title = new PIXI.Text('个性化主题', { fontSize: 50, fill: 0xffffff, fontWeight: 'bold' });
