@@ -59,7 +59,7 @@ export default class ResultScene extends BaseScene {
         AccountMgr.sync();
 
         // 2. 视觉构建
-        // A. 动态背景
+        // A. 动态背景 (使用胜/负专属球场图)
         this.createAtmosphere(designWidth, designHeight, isWin);
 
         // B. 主面板容器 (居中)
@@ -74,7 +74,7 @@ export default class ResultScene extends BaseScene {
         // D. 标题 (在面板上方)
         this.createHeader(designWidth, 120, isWin, winner);
 
-        // E. 星级 (在标题下方，面板上方)
+        // E. 星级 (在标题下方，面板上方，使用图片素材)
         this.createRatingStars(0, -370, rating); 
 
         // F. 数据统计与头部 (都在面板内部)
@@ -89,7 +89,7 @@ export default class ResultScene extends BaseScene {
             this.createRewards(0, rewardY, rewardCoins);
         }
 
-        // H. 按钮
+        // H. 按钮 (使用图片素材)
         this.createButtons(designWidth, designHeight, isWin);
 
         // I. 胜利特效
@@ -101,14 +101,43 @@ export default class ResultScene extends BaseScene {
     // --- 视觉构建方法 ---
 
     createAtmosphere(w, h, isWin) {
-        // 1. 深色底图
-        const bg = new PIXI.Graphics();
-        bg.beginFill(0x111111);
-        bg.drawRect(0, 0, w, h);
-        bg.endFill();
-        this.container.addChild(bg);
+        // 1. 根据胜负选择全屏背景
+        const bgKey = isWin ? 'bg_result_victory' : 'bg_result_failed';
+        let bgTex = ResourceManager.get(bgKey);
+        
+        // 如果特定背景加载失败，尝试回退到之前的通用背景(如果有)
+        if (!bgTex) bgTex = ResourceManager.get('bg_result_field');
 
-        // 2. 放射光 (聚光灯)
+        if (bgTex) {
+            const bg = new PIXI.Sprite(bgTex);
+            bg.anchor.set(0.5);
+            bg.position.set(w / 2, h / 2);
+            
+            // Cover 模式适配：优先填满
+            // 比例取 max(屏宽/图宽, 屏高/图高)
+            const scale = Math.max(w / bg.texture.width, h / bg.texture.height);
+            bg.scale.set(scale);
+            
+            this.container.addChild(bg);
+        } else {
+            // 兜底纯色
+            const bg = new PIXI.Graphics();
+            bg.beginFill(0x1a1a1a);
+            bg.drawRect(0, 0, w, h);
+            bg.endFill();
+            this.container.addChild(bg);
+        }
+
+        // 2. 黑色遮罩 (压暗背景，让面板突出)
+        // 失败时可以让背景稍微暗一点，胜利时亮一点
+        const overlayAlpha = isWin ? 0.6 : 0.75;
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, overlayAlpha); 
+        overlay.drawRect(0, 0, w, h);
+        overlay.endFill();
+        this.container.addChild(overlay);
+
+        // 3. 放射光 (聚光灯效果)
         const glowColor = isWin ? 0xF1C40F : 0x34495e; // 胜:金, 负:深蓝
         const glowCircle = new PIXI.Graphics();
         glowCircle.beginFill(glowColor, 0.4);
@@ -191,48 +220,61 @@ export default class ResultScene extends BaseScene {
     createRatingStars(x, y, rating) {
         const starContainer = new PIXI.Container();
         const starCount = 5;
-        const size = 45; 
+        const size = 90; // 星星显示大小
         const gap = 15;
         
         const fullStars = Math.floor(rating / 2);
         const hasHalf = (rating % 2) >= 1;
 
-        const totalW = starCount * (size * 2 + gap) - gap;
-        let startX = -totalW / 2 + size;
+        const totalW = starCount * (size + gap) - gap;
+        let startX = -totalW / 2 + size / 2;
+
+        const fullTex = ResourceManager.get('icon_star_full');
+        const halfTex = ResourceManager.get('icon_star_half');
 
         for (let i = 0; i < starCount; i++) {
-            const starX = startX + i * (size * 2 + gap);
+            const starX = startX + i * (size + gap);
             
-            const bg = this.drawStar(0x333333, size, true);
-            bg.position.set(starX, 0);
-            starContainer.addChild(bg);
+            // 1. 底图：未激活的星星 (深色)
+            if (fullTex) {
+                const bgStar = new PIXI.Sprite(fullTex);
+                bgStar.anchor.set(0.5);
+                bgStar.width = size;
+                bgStar.height = size;
+                bgStar.tint = 0x333333; // 压黑
+                bgStar.position.set(starX, 0);
+                starContainer.addChild(bgStar);
+            } else {
+                // 兜底绘制
+                const bg = new PIXI.Graphics().beginFill(0x333333).drawCircle(0,0,size/2).endFill();
+                bg.position.set(starX, 0);
+                starContainer.addChild(bg);
+            }
 
-            let fillType = 'none'; 
-            if (i < fullStars) fillType = 'full';
-            else if (i === fullStars && hasHalf) fillType = 'half';
+            // 2. 激活的星星 (金色)
+            let starSprite = null;
+            if (i < fullStars) {
+                if (fullTex) starSprite = new PIXI.Sprite(fullTex);
+            } else if (i === fullStars && hasHalf) {
+                if (halfTex) starSprite = new PIXI.Sprite(halfTex);
+            }
 
-            if (fillType !== 'none') {
-                const fill = this.drawStar(0xFFD700, size, false);
-                fill.position.set(starX, 0);
-                
-                if (fillType === 'half') {
-                    const mask = new PIXI.Graphics();
-                    mask.beginFill(0xffffff);
-                    mask.drawRect(starX - size, -size, size, size * 2); 
-                    mask.endFill();
-                    fill.mask = mask;
-                    starContainer.addChild(mask);
-                }
-                starContainer.addChild(fill);
+            if (starSprite) {
+                starSprite.anchor.set(0.5);
+                starSprite.width = size;
+                starSprite.height = size;
+                starSprite.position.set(starX, 0);
+                starContainer.addChild(starSprite);
             }
         }
 
+        // 分数小胶囊
         const scoreBg = new PIXI.Graphics();
         scoreBg.beginFill(0x000000, 0.8);
         scoreBg.lineStyle(2, 0xFFD700);
         scoreBg.drawRoundedRect(0, 0, 90, 44, 22);
         scoreBg.endFill();
-        scoreBg.position.set(totalW/2 + 40, -22);
+        scoreBg.position.set(totalW/2 + 30, -22);
         
         const scoreText = new PIXI.Text(rating.toFixed(1), {
             fontSize: 30, fill: 0xFFD700, fontWeight: 'bold'
@@ -247,44 +289,8 @@ export default class ResultScene extends BaseScene {
         this.mainPanel.addChild(starContainer);
     }
 
-    drawStar(color, r, isOutline) {
-        const g = new PIXI.Graphics();
-        if (isOutline) {
-            g.lineStyle(4, 0x555555);
-            g.beginFill(0x222222);
-        } else {
-            g.beginFill(color);
-        }
-        
-        const spikes = 5;
-        const outerRadius = r;
-        const innerRadius = r * 0.45;
-        const cx = 0, cy = 0;
-        let rot = Math.PI / 2 * 3;
-        let step = Math.PI / spikes;
-
-        g.moveTo(cx, cy - outerRadius);
-        for (let i = 0; i < spikes; i++) {
-            let x = cx + Math.cos(rot) * outerRadius;
-            let y = cy + Math.sin(rot) * outerRadius;
-            g.lineTo(x, y);
-            rot += step;
-
-            x = cx + Math.cos(rot) * innerRadius;
-            y = cy + Math.sin(rot) * innerRadius;
-            g.lineTo(x, y);
-            rot += step;
-        }
-        g.lineTo(cx, cy - outerRadius);
-        g.closePath();
-        g.endFill();
-        return g;
-    }
-
     createScoreBoard(x, score, myId, oppId) {
         const container = new PIXI.Container();
-        
-        // [修改] 移除了原有的纯色背景条绘制，因为下方的统计框背景已经包含了对战条视觉元素
         const headerY = -260;
 
         // 2. 名字文本
@@ -299,10 +305,6 @@ export default class ResultScene extends BaseScene {
         const t2 = new PIXI.Text(p2Name, nameStyle);
         t2.anchor.set(0.5); t2.position.set(250, headerY);
         
-        // [修改] 移除了中间的闪电图标，因为背景图中已包含
-        // const lightning = new PIXI.Text('⚡', { fontSize: 40, fill: 0xFFD700 });
-        // lightning.anchor.set(0.5); lightning.position.set(0, headerY);
-
         container.addChild(t1, t2);
 
         // 3. 核心比分与头像
@@ -424,7 +426,6 @@ export default class ResultScene extends BaseScene {
         }
     }
 
-    // [新增] 技能行渲染 (图标x数量)
     renderSkillRow(container, y, skills1, skills2) {
         const label = new PIXI.Text('技能消耗', { fontSize: 28, fill: 0xcccccc });
         label.anchor.set(0.5); label.y = y;
@@ -546,7 +547,6 @@ export default class ResultScene extends BaseScene {
         this.mainPanel.addChild(container);
     }
 
-    // [新增] 专门用于展示解锁奖励的UI
     createUnlockDisplay(x, y, reward, coins) {
         const container = new PIXI.Container();
         container.position.set(x, y);
@@ -630,15 +630,12 @@ export default class ResultScene extends BaseScene {
 
         let leftText = '返回主页';
         let leftAction = () => SceneManager.changeScene(MenuScene);
-        let leftColor = 0x7f8c8d;
-
+        
         let rightText = "再来一局";
         let rightAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
-        let rightColor = 0x27ae60;
-
+        
         if (this.params.gameMode === 'pvp_online') {
             leftText = '结束游戏';
-            leftColor = 0xc0392b; 
             leftAction = () => {
                 NetworkMgr.send({ type: NetMsg.LEAVE });
                 NetworkMgr.close();
@@ -647,7 +644,6 @@ export default class ResultScene extends BaseScene {
             };
 
             rightText = '再来一局';
-            rightColor = 0x27ae60;
             rightAction = () => {
                 SceneManager.changeScene(RoomScene, { roomId: this.params.roomId, autoReady: true });
             };
@@ -656,23 +652,26 @@ export default class ResultScene extends BaseScene {
             if (isWin) {
                 rightText = "下一关";
                 rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
-                rightColor = 0xF39C12;
             } else {
                 rightText = "重新挑战";
                 rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
-                rightColor = 0x3498db;
             }
         }
 
+        // 使用图片背景
         const menuBtn = new Button({
-            text: leftText, width: btnW, height: btnH, color: leftColor,
+            text: leftText, 
+            texture: ResourceManager.get('btn_result_end'),
+            width: btnW, height: btnH,
             onClick: leftAction
         });
         menuBtn.position.set(startX, btnY - btnH/2);
         this.container.addChild(menuBtn);
 
         const nextBtn = new Button({
-            text: rightText, width: btnW, height: btnH, color: rightColor,
+            text: rightText,
+            texture: ResourceManager.get('btn_result_continue'),
+            width: btnW, height: btnH,
             onClick: rightAction
         });
         nextBtn.position.set(startX + btnW + gap, btnY - btnH/2);

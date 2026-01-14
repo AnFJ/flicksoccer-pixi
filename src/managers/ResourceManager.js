@@ -33,6 +33,15 @@ class ResourceManager {
       // [新增] 结果页素材
       result_bg: 'remote:result_bg.png', // 金属边框对话框
       result_content_bg: 'remote:result_content_bg.png', // 红蓝对战条
+      bg_result_field: 'remote:pure_field_bg.png', // [保留] 备用通用背景
+      bg_result_victory: 'remote:victory_field_bg.png', // [新增] 胜利背景
+      bg_result_failed: 'remote:failed_field_bg.png',   // [新增] 失败背景
+
+      // 结果页按钮与图标
+      btn_result_end: 'assets/images/btn/result_end_btn.png',
+      btn_result_continue: 'assets/images/btn/result_continue_btn.png',
+      icon_star_full: 'assets/images/icon/full_star.png',
+      icon_star_half: 'assets/images/icon/half_star.png',
 
       // 菜单功能图标
       icon_social: 'assets/images/icon_social.png',

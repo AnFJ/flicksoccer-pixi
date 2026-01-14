@@ -331,8 +331,8 @@ export default class MenuScene extends BaseScene {
             "gameMode": "pve",
             "currentLevel": 2,
             "score": {
-                "0": 2,
-                "1": 0
+                "0": 1,
+                "1": 2
             },
             "stats": {
                 "0": {
