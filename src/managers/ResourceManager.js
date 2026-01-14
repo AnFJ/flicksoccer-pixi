@@ -26,6 +26,9 @@ class ResourceManager {
       main_bg: 'assets/images/main_bg.png',
       btn_menu: 'assets/images/btn_menu.png',
       hud_bg: 'assets/images/hud_bg.png',
+      
+      // [新增] 对话框背景 (外部素材)
+      theme_bg: 'remote:theme_bg.png',
 
       // 菜单功能图标
       icon_social: 'assets/images/icon_social.png',

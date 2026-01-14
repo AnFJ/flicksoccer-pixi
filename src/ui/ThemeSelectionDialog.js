@@ -34,20 +34,41 @@ export default class ThemeSelectionDialog extends PIXI.Container {
 
     const panelW = 1200;
     const panelH = 800;
-    const panel = new PIXI.Graphics();
-    panel.beginFill(0x2c3e50);
-    panel.lineStyle(4, 0xecf0f1);
-    panel.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
+    
+    // [修改] 修复布局问题：panel 作为父容器保持坐标系原点在中心
+    const panel = new PIXI.Container();
     panel.position.set(designWidth/2, designHeight/2);
     this.addChild(panel);
 
+    // [修改] 背景作为子元素添加
+    const bgTex = ResourceManager.get('theme_bg');
+    
+    if (bgTex) {
+        // 使用九宫格拉伸，边距设为 110 以保护边框细节
+        const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
+        bg.width = panelW;
+        bg.height = panelH;
+        // 关键：将九宫格背景向左上偏移一半宽高，使其视觉中心位于 panel 的原点 (0,0)
+        bg.x = -panelW / 2;
+        bg.y = -panelH / 2;
+        panel.addChild(bg);
+    } else {
+        // 兜底绘制
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x2c3e50);
+        bg.lineStyle(4, 0xecf0f1);
+        bg.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
+        panel.addChild(bg);
+    }
+
+    // 调整标题位置 (因为背景图可能有比较厚的上边框，稍微下移一点)
     const title = new PIXI.Text('个性化主题', { fontSize: 50, fill: 0xffffff, fontWeight: 'bold' });
     title.anchor.set(0.5);
-    title.position.set(0, -panelH/2 + 50);
+    title.position.set(0, -panelH/2 + 60); // 原 50 -> 70
     panel.addChild(title);
 
     this.tabContainer = new PIXI.Container();
-    this.tabContainer.position.set(0, -panelH/2 + 130);
+    this.tabContainer.position.set(0, -panelH/2 + 150); // 原 130 -> 150
     panel.addChild(this.tabContainer);
     this.renderTabs();
 
@@ -120,7 +141,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
       const cols = 4;
       const itemW = 240, itemH = 200;
       const startX = -((cols * itemW + (cols-1)*30) / 2) + itemW/2;
-      const startY = -60;
+      const startY = -80;
 
       items.forEach((id, idx) => {
           const col = idx % cols;
@@ -177,7 +198,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
 
   renderFormationContent() {
       const listX = -350;
-      const startY = -150;
+      const startY = -180;
       const gapY = 85;
 
       Formations.forEach((fmt, idx) => {
