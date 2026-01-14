@@ -227,7 +227,6 @@ export default class InputController {
                 // 本地特效 + 音效
                 if (this.scene.ball) this.scene.ball.setLightningMode(true);
                 AudioManager.playSFX('skill_lightning'); // [新增]
-                Platform.showToast("大力水手触发！");
             }
             
             if (this.scene.skillMgr.isActive(SkillType.UNSTOPPABLE)) {
@@ -236,7 +235,6 @@ export default class InputController {
                 // 本地特效 + 音效
                 if (this.scene.ball) this.scene.ball.activateUnstoppable(GameConfig.gameplay.skills.unstoppable.duration);
                 AudioManager.playSFX('skill_fire'); // [新增]
-                Platform.showToast("无敌战车触发！");
             }
         }
 

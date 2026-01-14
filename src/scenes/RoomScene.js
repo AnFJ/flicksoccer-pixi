@@ -7,12 +7,14 @@ import GameScene from './GameScene.js';
 import NetworkMgr from '../managers/NetworkMgr.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
+import BackButton from '../ui/BackButton.js'; // [新增]
 import EventBus from '../managers/EventBus.js';
 import { Events, NetMsg, TeamId } from '../constants.js';
 import { GameConfig } from '../config.js';
 import Platform from '../managers/Platform.js';
 import FormationSelectionDialog from '../ui/FormationSelectionDialog.js';
 import { Formations } from '../config/FormationConfig.js';
+import ResourceManager from '../managers/ResourceManager.js'; 
 
 export default class RoomScene extends BaseScene {
   constructor() {
@@ -20,7 +22,8 @@ export default class RoomScene extends BaseScene {
     this.players = [];
     this.readyBtn = null;
     this.formationBtn = null;
-    this.inviteBtn = null; // [修改] 添加引用
+    this.inviteBtn = null; 
+    this.exitBtn = null; 
     this.isReady = false;
     this.statusText = null;
     this.p1Container = null;
@@ -39,19 +42,42 @@ export default class RoomScene extends BaseScene {
         Platform.setStorage('last_room_id', params.roomId);
     }
 
-    const bg = new PIXI.Graphics().beginFill(0x2c3e50).drawRect(0, 0, designWidth, designHeight);
-    this.container.addChild(bg);
+    // 1. 背景 (使用球场图 + 遮罩)
+    const bgTex = ResourceManager.get('bg_result_field');
+    if (bgTex) {
+        const bg = new PIXI.Sprite(bgTex);
+        bg.anchor.set(0.5);
+        bg.position.set(designWidth / 2, designHeight / 2);
+        
+        // Cover 模式适配
+        const scale = Math.max(designWidth / bg.texture.width, designHeight / bg.texture.height);
+        bg.scale.set(scale);
+        
+        this.container.addChild(bg);
+    } else {
+        const bg = new PIXI.Graphics().beginFill(0x2c3e50).drawRect(0, 0, designWidth, designHeight);
+        this.container.addChild(bg);
+    }
 
+    // 添加深色半透明遮罩
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(0x000000, 0.6); // 60% 透明度黑色
+    overlay.drawRect(0, 0, designWidth, designHeight);
+    overlay.endFill();
+    this.container.addChild(overlay);
+
+    // 2. 标题 (始终水平居中)
     const title = new PIXI.Text(`房间号: ${this.roomId}`, { fontSize: 60, fill: 0xFFD700, fontWeight: 'bold' });
     title.anchor.set(0.5); title.position.set(designWidth / 2, 100);
     this.container.addChild(title);
+    this.titleText = title; // 保存引用以便适配
 
-    const exitBtn = new Button({
-        text: '离开', width: 160, height: 60, color: 0x95a5a6,
+    // 3. 离开按钮 (使用 BackButton 组件)
+    this.exitBtn = new BackButton({
+        text: '离开', 
         onClick: () => { NetworkMgr.send({ type: NetMsg.LEAVE }); NetworkMgr.close(); SceneManager.changeScene(LobbyScene); }
     });
-    exitBtn.position.set(50, 50);
-    this.container.addChild(exitBtn);
+    this.container.addChild(this.exitBtn);
 
     this.p1Container = this.createPlayerSlot(designWidth * 0.25, designHeight / 2);
     this.p2Container = this.createPlayerSlot(designWidth * 0.75, designHeight / 2);
@@ -108,6 +134,38 @@ export default class RoomScene extends BaseScene {
             this.readyBtn.label.text = '取消准备';
         }
     }
+
+    // 执行首次布局对齐
+    this.alignUI();
+  }
+
+  // [新增] 响应屏幕尺寸变化
+  onResize(width, height) {
+      this.alignUI();
+  }
+
+  // [新增] UI 贴边适配逻辑
+  alignUI() {
+      if (!this.app) return;
+      
+      const margin = 20; // 边距
+      
+      // 1. 自动适配离开按钮
+      if (this.exitBtn) {
+          this.exitBtn.updateLayout();
+      }
+
+      // 计算屏幕边界用于其他元素布局
+      const globalTopLeft = new PIXI.Point(margin, margin);
+      const localTopLeft = this.container.toLocal(globalTopLeft);
+      const globalTopRight = new PIXI.Point(this.app.screen.width - margin, margin);
+      const localTopRight = this.container.toLocal(globalTopRight);
+
+      // 2. 调整标题 (始终水平居中)
+      if (this.titleText) {
+          const centerX = (localTopLeft.x + localTopRight.x) / 2;
+          this.titleText.x = centerX;
+      }
   }
 
   createPlayerSlot(x, y) {

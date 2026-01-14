@@ -6,6 +6,7 @@ import GameScene from './GameScene.js';
 import MenuScene from './MenuScene.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
+import BackButton from '../ui/BackButton.js'; // [新增]
 import { GameConfig } from '../config.js';
 import { getLevelConfig } from '../config/LevelConfig.js';
 import Platform from '../managers/Platform.js';
@@ -77,9 +78,9 @@ export default class LevelSelectScene extends BaseScene {
         this.titleText.position.set(designWidth / 2, 80);
         this.container.addChild(this.titleText);
 
-        // 3. 返回按钮 (先创建，位置在 alignUI 中动态设置)
-        this.backBtn = new Button({
-            text: '返回', width: 160, height: 60, color: 0x95a5a6,
+        // 3. 返回按钮 (使用 BackButton 组件)
+        this.backBtn = new BackButton({
+            text: '返回',
             onClick: () => SceneManager.changeScene(MenuScene)
         });
         this.container.addChild(this.backBtn);
@@ -122,19 +123,17 @@ export default class LevelSelectScene extends BaseScene {
         const margin = 20; // 边距
         const { designWidth } = GameConfig;
 
-        // 1. 计算屏幕边界在场景坐标系下的位置
-        // 屏幕左上角 (0,0) -> 场景坐标
+        // 1. 自动适配返回按钮
+        if (this.backBtn) {
+            this.backBtn.updateLayout();
+        }
+
+        // 计算屏幕边界在场景坐标系下的位置
         const globalTopLeft = new PIXI.Point(margin, margin);
         const localTopLeft = this.container.toLocal(globalTopLeft);
 
-        // 屏幕右上角 (screenW, 0) -> 场景坐标
         const globalTopRight = new PIXI.Point(this.app.screen.width - margin, margin);
         const localTopRight = this.container.toLocal(globalTopRight);
-
-        // 2. 调整返回按钮位置 (左上角)
-        if (this.backBtn) {
-            this.backBtn.position.set(localTopLeft.x + this.backBtn.options.width/2, localTopLeft.y + this.backBtn.options.height/2);
-        }
 
         // 3. 调整进度信息位置 (右上角)
         if (this.infoText) {
@@ -142,8 +141,6 @@ export default class LevelSelectScene extends BaseScene {
         }
 
         // 4. 调整标题 (始终水平居中)
-        // 注意：designWidth/2 可能不是屏幕视觉中心，如果屏幕被裁剪了。
-        // 使用 (Left + Right) / 2 计算视觉中心
         const centerX = (localTopLeft.x + localTopRight.x) / 2;
         if (this.titleText) {
             this.titleText.x = centerX;
@@ -158,7 +155,6 @@ export default class LevelSelectScene extends BaseScene {
             this.pageIndicator.x = safeCenter;
             
             // [修正] 按钮均匀分布
-            // btnSpacing 定义为：中心点到按钮中心点的距离
             const btnSpacing = 260; 
             
             // Button 的锚点在左上角，所以需要减去一半宽度来居中

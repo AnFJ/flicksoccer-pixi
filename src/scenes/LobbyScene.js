@@ -9,7 +9,8 @@ import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import Platform from '../managers/Platform.js';
-import RoomListDialog from '../ui/RoomListDialog.js'; // [新增]
+import RoomListDialog from '../ui/RoomListDialog.js'; 
+import ResourceManager from '../managers/ResourceManager.js'; // [新增]
 
 export default class LobbyScene extends BaseScene {
   constructor() {
@@ -24,12 +25,33 @@ export default class LobbyScene extends BaseScene {
     super.onEnter();
     const { designWidth, designHeight } = GameConfig;
 
-    // 1. 基础背景 (始终显示)
-    const bg = new PIXI.Graphics();
-    bg.beginFill(0x2c3e50);
-    bg.drawRect(0, 0, designWidth, designHeight);
-    bg.endFill();
-    this.container.addChild(bg);
+    // 1. 背景 (使用球场图 + 遮罩)
+    const bgTex = ResourceManager.get('bg_result_field');
+    if (bgTex) {
+        const bg = new PIXI.Sprite(bgTex);
+        bg.anchor.set(0.5);
+        bg.position.set(designWidth / 2, designHeight / 2);
+        
+        // Cover 模式适配：优先填满屏幕
+        const scale = Math.max(designWidth / bg.texture.width, designHeight / bg.texture.height);
+        bg.scale.set(scale);
+        
+        this.container.addChild(bg);
+    } else {
+        // 兜底纯色
+        const bg = new PIXI.Graphics();
+        bg.beginFill(0x2c3e50);
+        bg.drawRect(0, 0, designWidth, designHeight);
+        bg.endFill();
+        this.container.addChild(bg);
+    }
+
+    // 添加深色半透明遮罩
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(0x000000, 0.6); // 60% 透明度黑色
+    overlay.drawRect(0, 0, designWidth, designHeight);
+    overlay.endFill();
+    this.container.addChild(overlay);
 
     // 2. 标题 (始终显示)
     const title = new PIXI.Text('加入对战', {
