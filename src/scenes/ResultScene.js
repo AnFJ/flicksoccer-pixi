@@ -137,18 +137,8 @@ export default class ResultScene extends BaseScene {
         overlay.endFill();
         this.container.addChild(overlay);
 
-        // 3. 放射光 (聚光灯效果)
-        const glowColor = isWin ? 0xF1C40F : 0x34495e; // 胜:金, 负:深蓝
-        const glowCircle = new PIXI.Graphics();
-        glowCircle.beginFill(glowColor, 0.4);
-        glowCircle.drawCircle(0, 0, w * 0.6);
-        glowCircle.endFill();
-        
-        const glow = glowCircle;
-        glow.position.set(w/2, h/3);
-        this.container.addChild(glow);
-
-        this.glowSprite = glow;
+        // [修改] 移除了橘黄色的放射光 (聚光灯效果)，使用户提到的"橘黄色蒙版"消失
+        this.glowSprite = null;
     }
 
     createPanelBackground(w, h) {

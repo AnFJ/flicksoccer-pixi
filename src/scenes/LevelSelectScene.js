@@ -41,12 +41,33 @@ export default class LevelSelectScene extends BaseScene {
         super.onEnter();
         const { designWidth, designHeight } = GameConfig;
 
-        // 1. 背景
-        const bg = new PIXI.Graphics();
-        bg.beginFill(0x2c3e50);
-        bg.drawRect(0, 0, designWidth, designHeight);
-        bg.endFill();
-        this.container.addChild(bg);
+        // 1. 背景 (使用球场图 + 遮罩)
+        const bgTex = ResourceManager.get('bg_result_field'); // 复用已有的纯净球场背景资源
+        if (bgTex) {
+            const bg = new PIXI.Sprite(bgTex);
+            bg.anchor.set(0.5);
+            bg.position.set(designWidth / 2, designHeight / 2);
+            
+            // Cover 模式适配：优先填满屏幕
+            const scale = Math.max(designWidth / bg.texture.width, designHeight / bg.texture.height);
+            bg.scale.set(scale);
+            
+            this.container.addChild(bg);
+        } else {
+            // 兜底纯色
+            const bg = new PIXI.Graphics();
+            bg.beginFill(0x2c3e50);
+            bg.drawRect(0, 0, designWidth, designHeight);
+            bg.endFill();
+            this.container.addChild(bg);
+        }
+
+        // 添加深色半透明遮罩，确保关卡按钮和文字清晰可见
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, 0.6); // 60% 透明度黑色
+        overlay.drawRect(0, 0, designWidth, designHeight);
+        overlay.endFill();
+        this.container.addChild(overlay);
 
         // 2. 标题
         this.titleText = new PIXI.Text('选择关卡', {
