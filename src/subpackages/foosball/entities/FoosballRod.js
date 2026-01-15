@@ -21,7 +21,7 @@ export default class FoosballRod {
         this.players = [];
         this.kickState = 0; // 0:Idle, 1:Kicking(Out), 2:Returning(In)
         this.kickOffset = 0;
-        this.maxKickOffset = 35; // 踢球伸出的最大距离
+        this.maxKickOffset = 55; // 踢球伸出的最大距离
         this.kickSpeed = 8;      // 踢出速度
         this.returnSpeed = 4;    // 收回速度
 

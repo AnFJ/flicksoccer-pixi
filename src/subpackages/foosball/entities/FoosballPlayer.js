@@ -2,6 +2,7 @@
 import * as PIXI from 'pixi.js';
 import Matter from 'matter-js';
 import ResourceManager from '../../../managers/ResourceManager.js';
+import { CollisionCategory } from '../../../constants.js';
 
 export default class FoosballPlayer {
     /**
@@ -30,7 +31,12 @@ export default class FoosballPlayer {
             restitution: 0.5,
             mass: 50, 
             label: 'FoosballPlayer',
-            render: { visible: false }
+            render: { visible: false },
+            // [修复] 添加碰撞过滤器，使其被识别为 STRIKER 并与 BALL 碰撞
+            collisionFilter: {
+                category: CollisionCategory.STRIKER,
+                mask: CollisionCategory.BALL
+            }
         });
         
         // 2. 视图

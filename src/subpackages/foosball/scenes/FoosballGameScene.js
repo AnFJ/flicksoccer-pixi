@@ -63,7 +63,7 @@ export default class FoosballGameScene extends BaseScene {
         // 后卫 (2人)
         this.createRod(cX - 2.0 * step, 0, 2, constraints);
         // 前锋 (3人)
-        this.createRod(cX - 0.5 * step, 0, 3, constraints);
+        this.createRod(cX - 0.3 * step, 0, 3, constraints);
 
         // --- 蓝方 (右侧，AI控制) ---
         // 门将
@@ -71,7 +71,7 @@ export default class FoosballGameScene extends BaseScene {
         // 后卫
         this.createRod(cX + 2.0 * step, 1, 2, constraints);
         // 前锋
-        this.createRod(cX + 0.5 * step, 1, 3, constraints);
+        this.createRod(cX + 0.3 * step, 1, 3, constraints);
 
         // 4. UI
         this.createUI(designWidth, designHeight);
