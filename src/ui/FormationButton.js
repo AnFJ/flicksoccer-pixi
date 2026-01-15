@@ -74,6 +74,9 @@ export default class FormationButton extends PIXI.Container {
     icon.drawCircle(22, -8, 5);
 
     this.addChild(icon);
+
+    // [性能优化] 开启缓存，将矢量绘制转为位图
+    this.cacheAsBitmap = true;
   }
 
   // 辅助绘制 X

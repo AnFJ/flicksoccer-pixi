@@ -325,7 +325,8 @@ export default class MenuScene extends BaseScene {
 
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
-        // Platform.handleSocialAction();
+        Platform.handleSocialAction();
+        return
         let resultParms = {
             "winner": 0,
             "gameMode": "pve",

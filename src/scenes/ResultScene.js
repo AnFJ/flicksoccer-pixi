@@ -78,7 +78,8 @@ export default class ResultScene extends BaseScene {
         this.createRatingStars(0, -370, rating); 
 
         // F. 数据统计与头部 (都在面板内部)
-        this.createScoreBoard(0, score, myTeamId, opponentId);
+        // [核心修改] 传入完整的参数以便解析名字头像
+        this.createScoreBoard(0, score, params);
         this.createStatsList(0, -15, stats, score, myTeamId, opponentId);
 
         // G. 奖励展示 
@@ -279,40 +280,109 @@ export default class ResultScene extends BaseScene {
         this.mainPanel.addChild(starContainer);
     }
 
-    createScoreBoard(x, score, myId, oppId) {
+    // [核心优化] 获取玩家信息（头像、昵称）
+    getPlayerInfo(teamId, params) {
+        const myInfo = AccountMgr.userInfo;
+        const isLeft = teamId === TeamId.LEFT;
+        
+        // 默认兜底
+        let info = {
+            name: isLeft ? 'Player 1' : 'Player 2',
+            avatar: null, // null 表示用文字头像
+            isTexture: false // 是否是 Pixi Texture
+        };
+
+        if (params.gameMode === 'pve') {
+            if (isLeft) {
+                // 左侧：玩家自己
+                info.name = myInfo.nickname || 'Player';
+                info.avatar = myInfo.avatarUrl;
+            } else {
+                // 右侧：AI
+                if (params.aiInfo) {
+                    info.name = params.aiInfo.name;
+                    // 从资源管理器获取 AI 头像 Texture
+                    info.avatar = ResourceManager.get(params.aiInfo.avatar);
+                    info.isTexture = true;
+                } else {
+                    info.name = "AI Opponent";
+                    info.avatar = ResourceManager.get('ai_robot');
+                    info.isTexture = true;
+                }
+            }
+        } else if (params.gameMode === 'pvp_local') {
+            if (isLeft) {
+                // 左侧：P1 (账号持有者)
+                info.name = myInfo.nickname || 'Player 1';
+                info.avatar = myInfo.avatarUrl;
+            } else {
+                // 右侧：本地 Guest
+                info.name = 'Player 2';
+                info.avatar = null;
+            }
+        } else if (params.gameMode === 'pvp_online') {
+            // 网络对战：从 players 数组查找
+            const players = params.players || [];
+            const player = players.find(p => p.teamId === teamId);
+            
+            if (player) {
+                info.name = player.nickname || (isLeft ? 'Red' : 'Blue');
+                info.avatar = player.avatar;
+            } else {
+                // 如果找不到数据 (理论上不应发生)，尝试用本地数据兜底自己
+                if (teamId === params.myTeamId) {
+                    info.name = myInfo.nickname;
+                    info.avatar = myInfo.avatarUrl;
+                } else {
+                    info.name = "Waiting...";
+                }
+            }
+        }
+
+        return info;
+    }
+
+    createScoreBoard(x, score, params) {
         const container = new PIXI.Container();
         const headerY = -260;
 
-        // 2. 名字文本
-        const p1Name = this.params.gameMode === 'pve' ? '玩家' : (this.params.gameMode === 'pvp_local' ? '红方' : '我方');
-        const p2Name = this.params.gameMode === 'pve' ? '电脑' : (this.params.gameMode === 'pvp_local' ? '蓝方' : '对手');
+        // 获取左右双方信息
+        const leftInfo = this.getPlayerInfo(TeamId.LEFT, params);
+        const rightInfo = this.getPlayerInfo(TeamId.RIGHT, params);
 
+        // 1. 名字文本
         const nameStyle = { fontSize: 32, fontWeight: 'bold', fill: 0xffffff, dropShadow: true, dropShadowDistance: 1 };
         
-        const t1 = new PIXI.Text(p1Name, nameStyle);
+        // 名字截断 (超过7个字用...)
+        const trunc = (str) => str.length > 8 ? str.substring(0, 7) + '..' : str;
+
+        const t1 = new PIXI.Text(trunc(leftInfo.name), nameStyle);
         t1.anchor.set(0.5); t1.position.set(-250, headerY);
         
-        const t2 = new PIXI.Text(p2Name, nameStyle);
+        const t2 = new PIXI.Text(trunc(rightInfo.name), nameStyle);
         t2.anchor.set(0.5); t2.position.set(250, headerY);
         
         container.addChild(t1, t2);
 
-        // 3. 核心比分与头像
-        const scoreY = -140; // 调整位置
+        // 2. 核心比分与头像
+        const scoreY = -140; 
 
-        const myAvatar = this.createAvatarBox(myId, true);
+        // 左头像
+        const myAvatar = this.createAvatarBox(TeamId.LEFT, leftInfo);
         myAvatar.position.set(-250, scoreY);
         container.addChild(myAvatar);
 
-        const oppAvatar = this.createAvatarBox(oppId, false);
+        // 右头像
+        const oppAvatar = this.createAvatarBox(TeamId.RIGHT, rightInfo);
         oppAvatar.position.set(250, scoreY);
         container.addChild(oppAvatar);
 
+        // 比分
         const scoreStyle = { fontFamily: 'Arial Black', fontSize: 100, fill: 0xffffff, dropShadow: true, dropShadowBlur: 4 };
-        const s1 = new PIXI.Text(score[myId], scoreStyle);
+        const s1 = new PIXI.Text(score[TeamId.LEFT], scoreStyle);
         s1.anchor.set(0.5); s1.position.set(-110, scoreY);
         
-        const s2 = new PIXI.Text(score[oppId], scoreStyle);
+        const s2 = new PIXI.Text(score[TeamId.RIGHT], scoreStyle);
         s2.anchor.set(0.5); s2.position.set(110, scoreY);
 
         container.addChild(s1, s2);
@@ -320,12 +390,13 @@ export default class ResultScene extends BaseScene {
         this.mainPanel.addChild(container);
     }
 
-    createAvatarBox(teamId, isLeft) {
+    createAvatarBox(teamId, info) {
         const box = new PIXI.Container();
         const size = 100;
         
         const borderColor = (teamId === TeamId.LEFT) ? 0xe74c3c : 0x3498db;
 
+        // 背景框
         const bg = new PIXI.Graphics();
         bg.beginFill(0xffffff);
         bg.lineStyle(4, borderColor);
@@ -333,25 +404,53 @@ export default class ResultScene extends BaseScene {
         bg.endFill();
         box.addChild(bg);
 
-        let avatarTex = null;
-        if (this.params.gameMode === 'pve' && teamId === TeamId.RIGHT) {
-            avatarTex = ResourceManager.get('ai_robot'); 
-        }
+        // 遮罩
+        const mask = new PIXI.Graphics();
+        mask.beginFill(0xffffff);
+        mask.drawRoundedRect(-size/2 + 2, -size/2 + 2, size - 4, size - 4, 12);
+        mask.endFill();
+        box.addChild(mask);
 
-        if (avatarTex) {
-            const sp = new PIXI.Sprite(avatarTex);
-            sp.width = sp.height = size - 10;
+        if (info.isTexture && info.avatar) {
+            // 本地 Texture (AI)
+            const sp = new PIXI.Sprite(info.avatar);
             sp.anchor.set(0.5);
+            // 缩放以适应盒子
+            const scale = (size - 4) / Math.max(sp.width, sp.height);
+            sp.scale.set(scale);
+            sp.mask = mask;
             box.addChild(sp);
-        } else {
-            const txt = new PIXI.Text(teamId === TeamId.LEFT ? 'P1' : 'P2', {
-                fontSize: 36, fill: borderColor, fontWeight: 'bold'
+        } else if (info.avatar && typeof info.avatar === 'string' && info.avatar.startsWith('http')) {
+            // 网络 URL
+            const sp = new PIXI.Sprite();
+            sp.anchor.set(0.5);
+            sp.mask = mask;
+            box.addChild(sp);
+            
+            PIXI.Texture.fromURL(info.avatar).then(tex => {
+                if (box.destroyed) return;
+                sp.texture = tex;
+                const scale = (size - 4) / Math.min(tex.width, tex.height);
+                sp.scale.set(scale);
+            }).catch(() => {
+                // 加载失败显示首字母
+                this.addFallbackText(box, info.name, borderColor);
             });
-            txt.anchor.set(0.5);
-            box.addChild(txt);
+        } else {
+            // 无头像/Guest -> 文字兜底
+            this.addFallbackText(box, info.name, borderColor);
         }
 
         return box;
+    }
+
+    addFallbackText(container, name, color) {
+        const char = (name || '?').charAt(0).toUpperCase();
+        const txt = new PIXI.Text(char, {
+            fontSize: 40, fill: color, fontWeight: 'bold'
+        });
+        txt.anchor.set(0.5);
+        container.addChild(txt);
     }
 
     createStatsList(x, y, stats, score, myId, oppId) {

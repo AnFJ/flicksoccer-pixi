@@ -552,6 +552,9 @@ export default class GameScene extends BaseScene {
     setTimeout(() => {
         const roomId = Platform.getStorage('last_room_id');
         
+        // [修改] 获取 AI 信息传递给结算页
+        const aiPersona = this.gameMode === 'pve' ? this.aiChatCtrl.getPersona() : null;
+
         SceneManager.changeScene(ResultScene, {
             winner: data.winner,
             gameMode: this.gameMode,
@@ -560,7 +563,8 @@ export default class GameScene extends BaseScene {
             stats: this.matchStats,
             players: this.players,
             myTeamId: this.myTeamId,
-            roomId: roomId 
+            roomId: roomId,
+            aiInfo: aiPersona // [新增] 传递 AI 信息
         });
     }, 2000);
   }

@@ -9,7 +9,8 @@ export default class Ball {
   // [新增] 静态纹理缓存，全局复用
   static cachedTextures = {
       trail: null,
-      overlay: null
+      overlay: null,
+      fire: null // [新增] 火焰粒子纹理缓存
   };
 
   /**
@@ -85,7 +86,20 @@ export default class Ball {
     this.view.addChild(this.lightningTrail);
 
     // D. 火焰特效容器
-    this.fireContainer = new PIXI.Container();
+    // [性能优化] 使用 ParticleContainer 替代普通 Container
+    // 预估最大粒子数 1000 (无敌时间持续3秒，产生大量粒子)
+    // 启用 scale, position, alpha, tint 变换
+    this.fireContainer = new PIXI.ParticleContainer(1000, {
+        scale: true,
+        position: true,
+        rotation: false, // 火焰粒子圆形不需要旋转
+        uvs: false,
+        alpha: true,
+        tint: true
+    });
+    // [修复] 设置容器的 BlendMode 为 ADD，让火焰发亮
+    this.fireContainer.blendMode = PIXI.BLEND_MODES.ADD;
+    
     this.view.addChild(this.fireContainer);
 
     // E. 足球本体容器
@@ -190,6 +204,31 @@ export default class Ball {
                   return tex;
               }
           } catch (e) {}
+      }
+      return PIXI.Texture.WHITE;
+  }
+
+  // [新增] 获取火焰粒子纹理 (缓存)
+  getFireTexture() {
+      if (Ball.cachedTextures.fire) return Ball.cachedTextures.fire;
+
+      if (typeof document !== 'undefined' && document.createElement) {
+          try {
+              const size = 16; // 高清一点，显示时缩小
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d');
+              // 绘制白色圆形，颜色由 Sprite.tint 控制
+              ctx.fillStyle = '#FFFFFF';
+              ctx.beginPath();
+              ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+              ctx.fill();
+              
+              const tex = PIXI.Texture.from(canvas);
+              Ball.cachedTextures.fire = tex;
+              return tex;
+          } catch(e) {}
       }
       return PIXI.Texture.WHITE;
   }
@@ -364,7 +403,10 @@ export default class Ball {
               this.spawnFireParticles(speed, this.moveAngle);
           }
       } else {
-          this.fireContainer.removeChildren();
+          // 清空 ParticleContainer
+          if (this.fireContainer.children.length > 0) {
+              this.fireContainer.removeChildren();
+          }
           
           if (this.skillStates.lightning && speed > 0.5) {
               this.updateLightningTrail(speed);
@@ -523,32 +565,61 @@ export default class Ball {
   spawnFireParticles(speed, moveAngle) {
       const vx = this.body.velocity.x;
       const vy = this.body.velocity.y;
-      const steps = Math.ceil(speed / 5); 
+      
+      // [优化] 增加粒子密度：低速时至少每帧生成2个粒子，保证连贯
+      const steps = Math.max(2, Math.ceil(speed)); 
+      
+      const texture = this.getFireTexture(); 
+
       for (let s = 0; s < steps; s++) {
           const t = s / steps;
           const spawnX = -vx * t; 
           const spawnY = -vy * t; 
-          const p = new PIXI.Graphics();
-          const isGold = Math.random() > 0.4;
-          const color = isGold ? 0xFFD700 : 0xFF4500; 
-          const intensity = Math.min(speed, 12) / 12;
-          const size = (6 + Math.random() * 8) * intensity;
-          p.beginFill(color, (0.4 + Math.random() * 0.4) * intensity);
-          p.drawCircle(0, 0, size);
-          p.endFill();
+          
+          const p = new PIXI.Sprite(texture);
+          p.anchor.set(0.5);
+
+          // [优化] 真实的火焰颜色分布：白(核) -> 黄 -> 橙 -> 红
+          const randColor = Math.random();
+          let color;
+          if (randColor > 0.9) color = 0xFFFFFF;      // 核心高热白
+          else if (randColor > 0.6) color = 0xFFD700; // 亮黄
+          else if (randColor > 0.3) color = 0xFF8C00; // 深橙
+          else color = 0xFF4500;                      // 红橙
+          p.tint = color; 
+
+          // [优化] 即使球速很慢，强度也有下限 (0.5)，保证肉眼可见
+          const intensity = Math.max(0.5, Math.min(speed, 15) / 15);
+          
+          // [优化] 初始透明度高，不透明
+          const startAlpha = 0.8 + Math.random() * 0.2;
+          p.alpha = startAlpha;
+
+          // [优化] 粒子尺寸 (20px ~ 48px)，保证浑厚感
+          const targetSize = (20 + Math.random() * 12) * intensity;
+          p.scale.set(targetSize / 16); // 纹理原始尺寸16
+
+          // [优化] 收拢发散范围 (0.35倍半径)，让火焰聚拢
           const offsetAngle = Math.random() * Math.PI * 2;
-          const offsetR = Math.random() * this.radius * 0.6;
+          const offsetR = Math.random() * this.radius * 0.35; 
           p.x = spawnX + Math.cos(offsetAngle) * offsetR;
           p.y = spawnY + Math.sin(offsetAngle) * offsetR;
+          
           const angle = moveAngle + Math.PI; 
-          const spread = 0.6; 
+          const spread = 0.5; // 喷射角度
           const pAngle = angle + (Math.random() - 0.5) * spread;
-          const pSpeed = speed * (0.1 + Math.random() * 0.2); 
+          // 粒子初速度略高于球速，产生向后喷射感
+          const pSpeed = speed * (0.2 + Math.random() * 0.3); 
+          
           p.vx = Math.cos(pAngle) * pSpeed;
           p.vy = Math.sin(pAngle) * pSpeed;
-          p.vx += vx * 0.1;
-          p.vy += vy * 0.1;
-          p.alphaDecay = 0.015 + Math.random() * 0.02;
+          p.vx += vx * 0.15; // 继承一点球的惯性
+          p.vy += vy * 0.15;
+          
+          // [优化] 衰减速度：随机范围 0.015 ~ 0.03
+          // 这个速度能保证在低速时粒子也能存活 30~60 帧 (0.5s~1s)，避免空气拖尾
+          p.alphaDecay = 0.015 + Math.random() * 0.015;
+          
           this.fireContainer.addChild(p);
       }
   }
@@ -559,8 +630,10 @@ export default class Ball {
           p.x += p.vx;
           p.y += p.vy;
           p.alpha -= p.alphaDecay;
-          p.scale.x *= 0.96;
-          p.scale.y *= 0.96;
+          p.scale.x *= 0.95; // 稍微快一点变小，模拟燃烧殆尽
+          p.scale.y *= 0.95;
+          
+          // 死亡逻辑
           if (p.alpha <= 0 || p.scale.x < 0.1) {
               this.fireContainer.removeChild(p);
           }

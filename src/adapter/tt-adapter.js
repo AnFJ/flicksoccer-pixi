@@ -1,3 +1,4 @@
+
 (function() {
   "use strict";
   const style$1 = {
@@ -1472,7 +1473,62 @@
       return this.canvas.height;
     }
     getContext(contextType, contextAttributes) {
-      return this.canvas.getContext(contextType, contextAttributes);
+      const ctx = this.canvas.getContext(contextType, contextAttributes);
+      if (ctx && (contextType === 'webgl' || contextType === 'experimental-webgl')) {
+          try {
+              // 1. Hook getExtension (屏蔽 EXT_shader_texture_lod)
+              const _getExtension = ctx.getExtension;
+              ctx.getExtension = function(name) {
+                  if (name && (name.indexOf('EXT_shader_texture_lod') > -1 || name.indexOf('texture_lod') > -1)) {
+                      return null;
+                  }
+                  return _getExtension.apply(this, arguments);
+              };
+
+              // 2. Hook shaderSource (屏蔽 Shader 源码中的 Lod 宏)
+              const _shaderSource = ctx.shaderSource;
+              Object.defineProperty(ctx, 'shaderSource', {
+                  value: function(shader, source) {
+                      if (typeof source === 'string' && source.indexOf('GL_EXT_shader_texture_lod') > -1) {
+                          // Force disable GL_EXT_shader_texture_lod in shader source
+                          source = source.replace(/#extension\s+GL_EXT_shader_texture_lod/g, '// #extension GL_EXT_shader_texture_lod');
+                          source = source.replace(/GL_EXT_shader_texture_lod/g, 'GL_EXT_shader_texture_lod_DISABLED');
+                      }
+                      return _shaderSource.call(this, shader, source);
+                  },
+                  writable: true
+              });
+
+              // 3. [修复] Hook texImage2D (解包 Canvas 包装类)
+              // 必须在 Context 内部拦截，因为 main-tt.js 的全局拦截可能晚于 adapter 初始化
+              const _texImage2D = ctx.texImage2D;
+              ctx.texImage2D = function(...args) {
+                  // texImage2D(target, level, internalformat, format, type, source) -> 6 args
+                  if (args.length === 6) {
+                      const source = args[5];
+                      if (source && source.tagName === 'CANVAS' && source.canvas) {
+                          args[5] = source.canvas; // Unwrap
+                      }
+                  }
+                  return _texImage2D.apply(this, args);
+              };
+
+              // 4. [修复] Hook texSubImage2D
+              const _texSubImage2D = ctx.texSubImage2D;
+              ctx.texSubImage2D = function(...args) {
+                  // texSubImage2D(target, level, xoffset, yoffset, format, type, source) -> 7 args
+                  if (args.length === 7) {
+                      const source = args[6];
+                      if (source && source.tagName === 'CANVAS' && source.canvas) {
+                          args[6] = source.canvas; // Unwrap
+                      }
+                  }
+                  return _texSubImage2D.apply(this, args);
+              };
+
+          } catch(e) { }
+      }
+      return ctx;
     }
     toDataURL(type, encoderOptions) {
       return this.canvas.toDataURL(type, encoderOptions);

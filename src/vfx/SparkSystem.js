@@ -59,6 +59,7 @@ class Spark extends PIXI.Sprite {
         const finalScale = scale * this.baseScaleMult;
         this.scale.set(finalScale);
         
+        // [修复] 重置时确保 alpha 为 1
         this.alpha = 1;
         this.life = life;
         this.maxLife = life;
@@ -88,7 +89,10 @@ class Spark extends PIXI.Sprite {
         this.currentScale *= 0.95;
         this.scale.set(this.currentScale);
 
+        // [核心修复] 当粒子死亡时，强制 alpha = 0
+        // ParticleContainer 往往忽略 visible 属性，必须通过 alpha=0 来隐藏
         if (this.life <= 0 || this.alpha < 0.01) {
+            this.alpha = 0; 
             this.active = false;
             this.visible = false;
         }
@@ -97,16 +101,27 @@ class Spark extends PIXI.Sprite {
 
 /**
  * 火星特效管理器
+ * [性能优化] 继承 ParticleContainer 以批量渲染
  */
-export default class SparkSystem extends PIXI.Container {
+export default class SparkSystem extends PIXI.ParticleContainer {
     constructor() {
-        super();
+        // 容量 50，启用 scale, position, alpha 变换
+        super(50, {
+            scale: true,
+            position: true,
+            rotation: false, // 火花使用圆形，不需要旋转
+            uvs: false,
+            alpha: true
+        });
+
         this.pool = [];
         this.maxParticles = 50; // 最大同时存在的粒子数
         
         // 预创建粒子池
         for (let i = 0; i < this.maxParticles; i++) {
             const p = new Spark();
+            // 初始完全隐藏
+            p.alpha = 0;
             p.visible = false;
             p.active = false;
             this.addChild(p);
@@ -153,7 +168,6 @@ export default class SparkSystem extends PIXI.Container {
             if (!p.active) return p;
         }
         // 如果池子满了，强制复用第一个（最早生成的），形成循环覆盖
-        // 或者简单地返回 null 忽略本次发射（为了性能）
         return this.pool[0]; 
     }
 

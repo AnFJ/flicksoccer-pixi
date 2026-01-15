@@ -24,7 +24,7 @@ class ResourceManager {
 
       // UI
       main_bg: 'assets/images/main_bg.png',
-      btn_menu: 'assets/images/btn_menu.png',
+      btn_menu: 'assets/images/btn/btn_menu.png',
       hud_bg: 'assets/images/hud_bg.png',
       
       // [新增] 对话框背景 (外部素材)
@@ -44,15 +44,15 @@ class ResourceManager {
       icon_star_half: 'assets/images/icon/half_star.png',
 
       // 菜单功能图标
-      icon_social: 'assets/images/icon_social.png',
-      icon_bag: 'assets/images/icon_bag.png',
-      icon_checkin: 'assets/images/icon_checkin.png',
-      icon_theme: 'assets/images/icon_theme.png', // [新增] 主题图标 (如果没有图会回退到文字)
+      icon_social: 'assets/images/icon/icon_social.png',
+      icon_bag: 'assets/images/icon/icon_bag.png',
+      icon_checkin: 'assets/images/icon/icon_checkin.png',
+      icon_theme: 'assets/images/icon/icon_theme.png', // [新增] 主题图标 (如果没有图会回退到文字)
 
       // 技能按键背景素材
-      skill_aim_bg: 'assets/images/skill_aim_bg.png',
-      skill_force_bg: 'assets/images/skill_force_bg.png',
-      skill_unstoppable_bg: 'assets/images/skill_unstoppable_bg.png',
+      skill_aim_bg: 'assets/images/icon/skill_aim_bg.png',
+      skill_force_bg: 'assets/images/icon/skill_force_bg.png',
+      skill_unstoppable_bg: 'assets/images/icon/skill_unstoppable_bg.png',
 
       // [新增] AI 头像 (占位路径，请确保资源存在)
       ai_hot: 'assets/images/avatars/ai_hot.png',

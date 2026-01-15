@@ -560,6 +560,9 @@ class Platform {
    * @returns {Promise<boolean>} 是否完整观看 (true=发放奖励, false=中途关闭/失败)
    */
   async showRewardedVideoAd(adUnitId) {
+      if(this.env = 'douyin') {
+        return true;
+      }
       if (this.env === 'web') {
           console.log(`[Platform] Mock Reward Video: ${adUnitId} - Default Success`);
           this.showToast('广告模拟成功');
@@ -671,7 +674,22 @@ class Platform {
     if (this.env === 'wechat') {
         const wx = this.getProvider();
         if (wx.createPageManager) {
-            // 微信游戏圈逻辑...
+            const pageManager = wx.createPageManager();
+            pageManager.load({
+              openlink: '-SSEykJvFV3pORt5kTNpSxd30-TvafFgaZqHSUv3S6kVRb84TEE5RwHDiSF5f7nrJ6jVNpIsfaLHpurmt0qQJ2oX03HgDnc57u_Jz-MxLhkW8BahDJx2uHr0THo_701Wfg8QgkLfZchjnilapXRsz5r7YJsb36Aq6fN0F-H_QzDNoqaZBCiHIGX36PZuElKlWwSxqwIX4ruc0zAVFyp1EE3MCH2VXe4icADWEwO7P0LDqZHaESNstcVG-EskNEyncO_k-AE6oq542gY2m0IUAwEGxclH4yCHpNHKRnkeVFqYUbWxMY7Gj1h5o-c7agzhkD_ia8qOF6x8NtcEnxbuXw', // 由不同渠道获得的OPENLINK值
+            }).then((res) => {
+              // 加载成功，res 可能携带不同活动、功能返回的特殊回包信息（具体请参阅渠道说明）
+              console.log(res);
+
+              // 加载成功后按需显示
+              pageManager.show();
+
+            }).catch((err) => {
+              // 加载失败，请查阅 err 给出的错误信息
+              console.error(err);
+              this.showToast('无法打开游戏圈');
+            })
+        } else if (wx.createGameClubButton) {
              this.showToast('请使用右上角菜单进入游戏圈');
         } else {
             this.showToast('当前版本不支持游戏圈');
