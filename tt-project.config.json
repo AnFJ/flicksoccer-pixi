@@ -11,5 +11,50 @@
     "minified": true,
     "newFeature": true
   },
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "vite.config.js",
+        "type": "file"
+      },
+      {
+        "value": "node_modules",
+        "type": "folder"
+      },
+      {
+        "value": "package-lock.json",
+        "type": "file"
+      },
+      {
+        "value": "package.json",
+        "type": "file"
+      },
+      {
+        "value": "src",
+        "type": "folder"
+      },
+      {
+        "value": "dist-h5",
+        "type": "folder"
+      },
+      {
+        "value": ".gitignore",
+        "type": "file"
+      },
+      {
+        "value": "index.html",
+        "type": "file"
+      },
+      {
+        "value": "doc",
+        "type": "folder"
+      },
+      {
+        "value": "assets-origin",
+        "type": "folder"
+      }
+    ],
+    "include": []
+  },
   "compileType": "miniprogram"
 }
