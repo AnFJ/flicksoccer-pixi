@@ -39,6 +39,12 @@ export default defineConfig(({ mode }) => {
   if (isH5) outDir = '../game_dist/flicksoccer';
   else if (isDouyin) outDir = 'dist-tt';
 
+  // [修改] 根据模式选择入口文件
+  let entryFile = 'src/main-mini.js';
+  if (isDouyin) {
+      entryFile = 'src/main-tt.js';
+  }
+
   return {
     root: './',
     base: './', // H5 部署时通常使用相对路径
@@ -53,7 +59,7 @@ export default defineConfig(({ mode }) => {
       // H5 模式下不需要 lib 配置
       // 小游戏模式下需要 lib 配置，打包成单个 JS 文件
       lib: isH5 ? false : {
-        entry: path.resolve(__dirname, isDouyin ? 'src/main-tt.js' : 'src/main-mini.js'),
+        entry: path.resolve(__dirname, entryFile), // [修改] 使用动态入口
         name: 'Game',
         // 强制输出文件名为 game.js
         fileName: () => 'game.js', 
@@ -66,18 +72,35 @@ export default defineConfig(({ mode }) => {
         output: {
           // 确保全局变量不冲突
           extend: true,
+          // [移除] 移除 banner "use strict"; 以兼容旧适配器代码
         }
       },
       // 使用 esbuild 压缩
       minify: 'esbuild',
-      sourcemap: true
+      // 小游戏环境下使用 inline sourcemap，避免开发者工具加载 .map 文件 404
+      sourcemap: isDouyin ?  'inline': true
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src')
+        '@': path.resolve(__dirname, 'src'),
+        '@foosball': path.resolve(__dirname, 'src/subpackages/foosball')
       }
     },
     plugins: [
+      // [新增] 开发服务器中间件：映射分包资源路径
+      {
+        name: 'serve-subpackages-in-dev',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            // 将 /subpackages/... 请求重写为 /src/subpackages/...
+            // 这样 Vite 开发服务器就能在 src 目录下找到资源
+            if (req.url.startsWith('/subpackages/')) {
+              req.url = '/src' + req.url;
+            }
+            next();
+          });
+        }
+      },
       // 自定义内联插件：构建完成后复制静态资源 assets 文件夹及配置文件
       {
         name: 'copy-static-assets',
@@ -87,7 +110,7 @@ export default defineConfig(({ mode }) => {
           const srcAssetsOrigin = path.resolve(__dirname, 'assets-origin');
           const destAssetsOrigin = path.resolve(__dirname, outDir, 'assets-origin');
           
-          // 1. 复制资源文件
+          // 1. 复制通用资源文件
           if (fs.existsSync(srcAssets)) {
             try {
               console.log(`[Vite] Copying assets from ${srcAssets} to ${destAssets}...`);
@@ -99,7 +122,24 @@ export default defineConfig(({ mode }) => {
             }
           }
 
-          // 2. 复制小游戏核心配置文件 (根据平台区分)
+          // 2. [新增] 复制分包资源 (src/subpackages/*/assets -> dist/subpackages/*/assets)
+          const srcSubPkgDir = path.resolve(__dirname, 'src/subpackages');
+          if (fs.existsSync(srcSubPkgDir)) {
+              try {
+                  fs.readdirSync(srcSubPkgDir).forEach(pkgName => {
+                      const srcPkgAssets = path.join(srcSubPkgDir, pkgName, 'assets');
+                      if (fs.existsSync(srcPkgAssets)) {
+                          const destPkgAssets = path.resolve(__dirname, outDir, 'subpackages', pkgName, 'assets');
+                          console.log(`[Vite] Copying subpackage assets for ${pkgName}...`);
+                          copyRecursiveSync(srcPkgAssets, destPkgAssets);
+                      }
+                  });
+              } catch (err) {
+                  console.error('[Vite] Failed to copy subpackages:', err);
+              }
+          }
+
+          // 3. 复制小游戏核心配置文件 (根据平台区分)
           if (!isH5) {
               const srcGameJson = path.resolve(__dirname, 'game.json');
               const destGameJson = path.resolve(__dirname, outDir, 'game.json');

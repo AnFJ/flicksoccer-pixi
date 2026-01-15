@@ -59,7 +59,16 @@ class ResourceManager {
       ai_troll: 'assets/images/avatars/ai_troll.png',
       ai_robot: 'assets/images/avatars/ai_robot.png',
       ai_noble: 'assets/images/avatars/ai_noble.png',
-      ai_cute: 'assets/images/avatars/ai_cute.png'
+      ai_cute: 'assets/images/avatars/ai_cute.png',
+
+      // --- [新增] 桌上足球分包资源 ---
+      // 指向分包目录 subpackages/foosball/assets/images/
+      fb_bg: 'subpackages/foosball/assets/images/fb_bg.png',
+      fb_rod_metal: 'subpackages/foosball/assets/images/fb_rod_metal.png',
+      fb_puppet_red: 'subpackages/foosball/assets/images/fb_puppet_red.png',
+      fb_puppet_blue: 'subpackages/foosball/assets/images/fb_puppet_blue.png',
+      fb_bumper: 'subpackages/foosball/assets/images/fb_bumper.png',
+      fb_table_frame: 'subpackages/foosball/assets/images/fb_table_frame.png'
     };
 
     // [新增] 动态注册主题资源

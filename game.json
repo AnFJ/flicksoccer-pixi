@@ -7,6 +7,13 @@
     "uploadFile": 10000,
     "downloadFile": 10000
   },
-  "iOSHighPerformance": false,
-  "subpackages": []
+  "openDataContext": "",
+  "subpackages": [
+    {
+      "name": "foosball",
+      "root": "subpackages/foosball"
+    }
+  ],
+  "workers": "",
+  "iOSHighPerformance": false
 }

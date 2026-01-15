@@ -6,6 +6,7 @@ import AccountMgr from '../managers/AccountMgr.js';
 import GameScene from './GameScene.js';
 import LobbyScene from './LobbyScene.js';
 import LevelSelectScene from './LevelSelectScene.js'; 
+import FoosballMenuScene from '../subpackages/foosball/scenes/FoosballMenuScene.js'; // [新增] 静态导入分包场景
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
@@ -13,8 +14,8 @@ import Platform from '../managers/Platform.js';
 import InventoryView from '../ui/InventoryView.js'; 
 import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; 
 import MessageDialog from '../ui/MessageDialog.js'; 
-import LotteryDialog from '../ui/LotteryDialog.js'; // [新增]
-import { drawLottery } from '../config/LotteryConfig.js'; // [新增]
+import LotteryDialog from '../ui/LotteryDialog.js'; 
+import { drawLottery } from '../config/LotteryConfig.js'; 
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; 
 import ResultScene from './ResultScene.js'; 
@@ -52,15 +53,17 @@ export default class MenuScene extends BaseScene {
     // 按钮组
     const btnTexture = ResourceManager.get('btn_menu');
     const btnX = designWidth * 0.75;
-    const startY = designHeight * 0.35;
-    const gap = 160; 
+    
+    // [修改] 调整布局以容纳4个按钮
+    const startY = designHeight * 0.28; // 上移起始位置 (原0.35)
+    const gap = 135; // 减小间距 (原160)
 
     const btnConfig = {
-        width: 560,  
-        height: 144, 
+        width: 500,  // 稍微减小宽度 (原560)
+        height: 120, // 稍微减小高度 (原144)
         texture: btnTexture, 
         color: 0x3498db,     
-        fontSize: 50,        
+        fontSize: 44, // 稍微减小字号 (原50)
         textColor: 0xFFFFFF  
     };
     const entryFee = GameConfig.gameplay.economy.entryFee;
@@ -88,8 +91,6 @@ export default class MenuScene extends BaseScene {
     });
     pvpLocalBtn.position.set(btnX - 210, startY + gap);
     this.container.addChild(pvpLocalBtn);
-    
-    // 检查并添加锁图标
     this.updateLockStatus(pvpLocalBtn, 'local_pvp');
 
     // 3. 网络对战 (需每日解锁)
@@ -108,14 +109,56 @@ export default class MenuScene extends BaseScene {
     });
     pvpOnlineBtn.position.set(btnX - 200, startY + gap * 2);
     this.container.addChild(pvpOnlineBtn);
-
-    // 检查并添加锁图标
     this.updateLockStatus(pvpOnlineBtn, 'online_pvp');
+
+    // 4. [新增] 德式桌球 (独立入口)
+    const foosballBtn = new Button({
+        ...btnConfig,
+        text: '德式桌球',
+        color: 0x27ae60, // 使用绿色区分
+        onClick: () => {
+            // 目前无需解锁，直接进入
+            SceneManager.changeScene(FoosballMenuScene);
+        }
+    });
+    foosballBtn.position.set(btnX - 190, startY + gap * 3);
+    this.container.addChild(foosballBtn);
+
+    // 加上“新模式”角标
+    this.addNewBadge(foosballBtn);
 
     this.alignUserInfo();
 
     // [新增] 监听数据刷新事件
     EventBus.on(Events.USER_DATA_REFRESHED, this.refreshUI, this);
+  }
+
+  // [新增] 添加 NEW 角标
+  addNewBadge(parent) {
+      const badge = new PIXI.Graphics();
+      badge.beginFill(0xe74c3c);
+      badge.drawRoundedRect(0, 0, 80, 30, 10);
+      badge.endFill();
+      
+      const text = new PIXI.Text('NEW', { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
+      text.anchor.set(0.5);
+      text.position.set(40, 15);
+      badge.addChild(text);
+      
+      // 放在按钮左上角
+      badge.position.set(-parent.options.width/2 - 10, -parent.options.height/2 - 10);
+      // 简单的呼吸动画
+      let t = 0;
+      const animate = () => {
+          if (parent._destroyed) return;
+          t += 0.1;
+          const s = 1 + Math.sin(t) * 0.1;
+          badge.scale.set(s);
+          requestAnimationFrame(animate);
+      }
+      animate();
+      
+      parent.inner.addChild(badge);
   }
 
   /**
@@ -182,7 +225,7 @@ export default class MenuScene extends BaseScene {
 
           lockContainer.addChild(bg, icon);
           // 放置在按钮右上角区域 (相对于中心)
-          lockContainer.position.set(btn.options.width / 2 - 140, -btn.options.height / 2 + 65);
+          lockContainer.position.set(btn.options.width / 2 - 40, -btn.options.height / 2 + 10);
           
           btn.inner.addChild(lockContainer);
       }
@@ -326,35 +369,6 @@ export default class MenuScene extends BaseScene {
     // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         Platform.handleSocialAction();
-        return
-        let resultParms = {
-            "winner": 0,
-            "gameMode": "pve",
-            "currentLevel": 2,
-            "score": {
-                "0": 1,
-                "1": 2
-            },
-            "stats": {
-                "0": {
-                    "shots": 9,
-                    "skills": {
-                        "super_force": 7
-                    }
-                },
-                "1": {
-                    "shots": 8,
-                    "skills": {}
-                },
-                "startTime": 1768366353347,
-                "endTime": 1768366440828
-            },
-            "players": [],
-            "myTeamId": 0,
-            "roomId": null
-        };
-        SceneManager.changeScene(ResultScene, resultParms);
-
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
