@@ -111,14 +111,25 @@ export default class MenuScene extends BaseScene {
     this.container.addChild(pvpOnlineBtn);
     this.updateLockStatus(pvpOnlineBtn, 'online_pvp');
 
-    // 4. [新增] 德式桌球 (独立入口)
+    // 4. [新增] 德式桌球 (独立入口，需加载分包)
     const foosballBtn = new Button({
         ...btnConfig,
         text: '德式桌球',
         color: 0x27ae60, // 使用绿色区分
-        onClick: () => {
-            // 目前无需解锁，直接进入
-            SceneManager.changeScene(FoosballMenuScene);
+        onClick: async () => {
+            // [修复] 先加载分包
+            Platform.showToast('正在加载玩法...');
+            try {
+                // 1. 挂载分包
+                await Platform.loadSubpackage('foosball');
+                // 2. 加载分包内的图片资源 (依赖分包已挂载)
+                await ResourceManager.loadFoosballResources();
+                // 3. 跳转场景
+                SceneManager.changeScene(FoosballMenuScene);
+            } catch (e) {
+                console.error(e);
+                Platform.showToast('加载失败，请重试');
+            }
         }
     });
     foosballBtn.position.set(btnX - 190, startY + gap * 3);
@@ -161,11 +172,7 @@ export default class MenuScene extends BaseScene {
       parent.inner.addChild(badge);
   }
 
-  /**
-   * [新增] 处理模式入口逻辑（含广告锁）
-   * @param {string} modeKey 
-   * @param {Function} onSuccess 
-   */
+  // ... (保留 handleModeEntry, updateLockStatus, refreshLockIcons, refreshUI, onResize, onExit, update, alignUserInfo, createUserInfo, createIconBtn, handleDailyCheckIn, createDefaultAvatar 等方法不变) ...
   handleModeEntry(modeKey, onSuccess) {
       if (AccountMgr.isModeUnlocked(modeKey)) {
           // 已解锁，直接进入
@@ -193,29 +200,22 @@ export default class MenuScene extends BaseScene {
       }
   }
 
-  /**
-   * [新增] 更新按钮上的锁图标
-   */
   updateLockStatus(btn, modeKey) {
-      // 如果已存在锁图标，先移除
       const existingLock = btn.inner.getChildByName('lockIcon');
       if (existingLock) {
           btn.inner.removeChild(existingLock);
       }
 
-      // 如果未解锁，添加图标
       if (!AccountMgr.isModeUnlocked(modeKey)) {
           const lockContainer = new PIXI.Container();
           lockContainer.name = 'lockIcon';
           
-          // 黄色背景圆
           const bg = new PIXI.Graphics();
           bg.beginFill(0xF1C40F);
           bg.lineStyle(2, 0xFFFFFF);
           bg.drawCircle(0, 0, 24);
           bg.endFill();
           
-          // 播放三角形 (代表看视频)
           const icon = new PIXI.Graphics();
           icon.beginFill(0x333333);
           icon.moveTo(-5, -8);
@@ -224,19 +224,13 @@ export default class MenuScene extends BaseScene {
           icon.endFill();
 
           lockContainer.addChild(bg, icon);
-          // 放置在按钮右上角区域 (相对于中心)
           lockContainer.position.set(btn.options.width / 2 - 40, -btn.options.height / 2 + 10);
           
           btn.inner.addChild(lockContainer);
       }
   }
 
-  /**
-   * [新增] 刷新所有按钮的锁状态
-   */
   refreshLockIcons() {
-      // 遍历容器子对象寻找按钮 (简单起见，按添加顺序或文本内容找，这里简化假设)
-      // 在实际项目中最好保存按钮引用。这里我们简单重新 update 所有可能带锁的按钮
       this.container.children.forEach(child => {
           if (child instanceof Button) {
               if (child.options.text.includes('本地双人')) {
@@ -248,56 +242,35 @@ export default class MenuScene extends BaseScene {
       });
   }
 
-  // [新增] 刷新 UI 数据
   refreshUI() {
       if (this.destroyed) return;
       const user = AccountMgr.userInfo;
-      
-      // 刷新金币
-      if (this.coinsText) {
-          this.coinsText.text = `💰 ${user.coins}`;
-      }
-      
-      // 刷新等级
-      if (this.levelText) {
-          this.levelText.text = `Lv.${user.level}`;
-      }
-
-      // 刷新昵称 (如果后台变了)
-      if (this.nameText) {
-          this.nameText.text = user.nickname;
-      }
-      
-      // 刷新解锁状态
+      if (this.coinsText) this.coinsText.text = `💰 ${user.coins}`;
+      if (this.levelText) this.levelText.text = `Lv.${user.level}`;
+      if (this.nameText) this.nameText.text = user.nickname;
       this.refreshLockIcons();
   }
 
-  // 响应屏幕尺寸变化
   onResize(width, height) {
       this.alignUserInfo();
   }
   
   onExit() {
       super.onExit();
-      // [新增] 移除监听
       EventBus.off(Events.USER_DATA_REFRESHED, this.refreshUI, this);
   }
 
   update(delta) {
-      // 签到按钮动效: 间隔10秒左右晃动
       if (this.checkInBtn && this.checkInBtn.parent && this.checkInBtn.visible) {
           this.shakeTimer += delta;
-          const interval = 10000; // 10秒
+          const interval = 10000; 
           const shakeDuration = 900; 
           
           if (this.shakeTimer >= interval) {
               if (this.shakeTimer < interval + shakeDuration) {
-                  // 晃动中
                   const t = this.shakeTimer - interval;
-                  // 频率 0.03, 幅度 0.15弧度 (约8.5度)
                   this.checkInBtn.rotation = Math.sin(t * 0.03) * 0.15;
               } else {
-                  // 晃动结束，重置
                   this.checkInBtn.rotation = 0;
                   this.shakeTimer = 0;
               }
@@ -320,7 +293,6 @@ export default class MenuScene extends BaseScene {
     const avatarRadius = 60; 
     const avatarContainer = new PIXI.Container();
 
-    // 头像背景
     const bg = new PIXI.Graphics();
     bg.beginFill(0xFFFFFF);
     bg.drawCircle(avatarRadius, avatarRadius, avatarRadius + 4); 
@@ -330,26 +302,21 @@ export default class MenuScene extends BaseScene {
     bg.endFill();
     avatarContainer.addChild(bg);
 
-    // 头像图片
     if (user.avatarUrl) {
          PIXI.Texture.fromURL(user.avatarUrl).then(tex => {
              if (this.container.destroyed) return;
-             
              const sprite = new PIXI.Sprite(tex);
              sprite.anchor.set(0.5);
              sprite.position.set(avatarRadius, avatarRadius);
              const scale = (avatarRadius * 2) / Math.min(tex.width, tex.height);
              sprite.scale.set(scale);
-             
              const mask = new PIXI.Graphics();
              mask.beginFill(0xffffff);
              mask.drawCircle(avatarRadius, avatarRadius, avatarRadius);
              mask.endFill();
              sprite.mask = mask;
-             
              avatarContainer.addChild(sprite);
              avatarContainer.addChild(mask);
-             
          }).catch(() => {
              this.createDefaultAvatar(avatarContainer, user.nickname, avatarRadius);
          });
@@ -358,7 +325,6 @@ export default class MenuScene extends BaseScene {
     }
     container.addChild(avatarContainer);
 
-    // --- 左侧按钮布局 ---
     const btnRadius = avatarRadius * 0.8; 
     const btnDiameter = btnRadius * 2;
     const btnGap = 50; 
@@ -366,14 +332,12 @@ export default class MenuScene extends BaseScene {
     let currentY = avatarRadius * 2 + 20 + btnRadius; 
     const btnX = avatarRadius; 
 
-    // 1. 游戏圈
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
 
-    // 2. 背包
     const bagBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_bag', '我的背包', 0x8E44AD, () => {
         const bagView = new InventoryView(() => {
             if (this.coinsText) {
@@ -385,7 +349,6 @@ export default class MenuScene extends BaseScene {
     container.addChild(bagBtn);
     currentY += btnDiameter + btnGap;
 
-    // 3. 主题
     const themeBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_theme', '主题装扮', 0xF39C12, () => {
         const themeDialog = new ThemeSelectionDialog(() => {
         });
@@ -394,7 +357,6 @@ export default class MenuScene extends BaseScene {
     container.addChild(themeBtn);
     currentY += btnDiameter + btnGap;
 
-    // 4. 每日签到
     if (!AccountMgr.isCheckedInToday()) {
         this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '每日一抽', 0xFF5722, () => {
             this.handleDailyCheckIn(this.checkInBtn);
@@ -402,7 +364,6 @@ export default class MenuScene extends BaseScene {
         container.addChild(this.checkInBtn);
     }
 
-    // --- 右侧用户信息文字 ---
     const textX = avatarRadius * 2 + 30;
     const textStartY = 10;
     
@@ -411,7 +372,7 @@ export default class MenuScene extends BaseScene {
         dropShadow: true, dropShadowBlur: 2
     });
     nameText.position.set(textX, textStartY);
-    this.nameText = nameText; // 保存引用
+    this.nameText = nameText; 
     container.addChild(nameText);
 
     const levelBg = new PIXI.Graphics();
@@ -426,14 +387,14 @@ export default class MenuScene extends BaseScene {
     });
     levelText.anchor.set(0.5);
     levelText.position.set(textX + 50, textStartY + 80); 
-    this.levelText = levelText; // 保存引用
+    this.levelText = levelText; 
     container.addChild(levelText);
 
     const coinsText = new PIXI.Text(`💰 ${user.coins}`, {
         fontFamily: 'Arial', fontSize: 32, fill: 0xffffff
     });
     coinsText.position.set(textX + 120, textStartY + 62);
-    this.coinsText = coinsText; // 保存引用
+    this.coinsText = coinsText; 
     container.addChild(coinsText);
 
     this.container.addChild(container);
@@ -493,7 +454,6 @@ export default class MenuScene extends BaseScene {
   async handleDailyCheckIn(btn) {
       if (btn) btn.interactive = false;
       
-      // 1. 播放广告
       let success = false;
       try {
           success = await Platform.showInterstitialAd();
@@ -501,30 +461,21 @@ export default class MenuScene extends BaseScene {
           success = false;
       }
       
-      // 2. 广告结束后显示抽奖盘
       if (success) {
-          // 抽取奖品 (逻辑层)
           const prize = drawLottery();
-          
-          // 显示抽奖弹窗
           const lotteryDialog = new LotteryDialog(prize, () => {
-              // 动画结束后发放奖励并刷新 UI
               AccountMgr.processLotteryReward(prize);
               this.refreshUI();
-              
-              // 移除签到按钮
               if (btn && btn.parent) {
                   btn.parent.removeChild(btn);
               }
               this.checkInBtn = null;
           });
-          
           this.container.addChild(lotteryDialog);
       } else {
-          // 广告失败，给保底奖励
           Platform.showToast("广告加载失败，获得保底奖励: 50 金币");
           AccountMgr.addCoins(50, true);
-          AccountMgr.performCheckIn(0); // 记录签到
+          AccountMgr.performCheckIn(0); 
           
           if (btn && btn.parent) {
               btn.parent.removeChild(btn);

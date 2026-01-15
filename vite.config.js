@@ -122,16 +122,31 @@ export default defineConfig(({ mode }) => {
             }
           }
 
-          // 2. [新增] 复制分包资源 (src/subpackages/*/assets -> dist/subpackages/*/assets)
+          // 2. [新增] 复制分包资源 (src/subpackages/* -> dist/subpackages/*)
           const srcSubPkgDir = path.resolve(__dirname, 'src/subpackages');
           if (fs.existsSync(srcSubPkgDir)) {
               try {
                   fs.readdirSync(srcSubPkgDir).forEach(pkgName => {
-                      const srcPkgAssets = path.join(srcSubPkgDir, pkgName, 'assets');
+                      const pkgSourceDir = path.join(srcSubPkgDir, pkgName);
+                      const pkgDestDir = path.resolve(__dirname, outDir, 'subpackages', pkgName);
+
+                      // 2.1 复制 assets
+                      const srcPkgAssets = path.join(pkgSourceDir, 'assets');
                       if (fs.existsSync(srcPkgAssets)) {
-                          const destPkgAssets = path.resolve(__dirname, outDir, 'subpackages', pkgName, 'assets');
+                          const destPkgAssets = path.join(pkgDestDir, 'assets');
                           console.log(`[Vite] Copying subpackage assets for ${pkgName}...`);
                           copyRecursiveSync(srcPkgAssets, destPkgAssets);
+                      }
+
+                      // 2.2 [修复] 复制 game.js (分包入口文件)
+                      // 必须确保分包根目录下存在 game.js，否则微信开发者工具会报错
+                      const srcGameJs = path.join(pkgSourceDir, 'game.js');
+                      if (fs.existsSync(srcGameJs)) {
+                          if (!fs.existsSync(pkgDestDir)) {
+                              fs.mkdirSync(pkgDestDir, { recursive: true });
+                          }
+                          fs.copyFileSync(srcGameJs, path.join(pkgDestDir, 'game.js'));
+                          console.log(`[Vite] Copied game.js for subpackage ${pkgName}`);
                       }
                   });
               } catch (err) {

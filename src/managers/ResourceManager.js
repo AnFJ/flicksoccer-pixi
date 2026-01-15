@@ -11,7 +11,7 @@ class ResourceManager {
         login_bg: 'assets/images/main_bg.png', 
     };
 
-    // 2. 游戏主体资源
+    // 2. 游戏主体资源 (主包资源)
     this.gameManifest = {
       half_field: 'assets/images/half_field.png', // [新增] 半场预览图
       field_border: 'assets/images/field_border.png',
@@ -59,10 +59,12 @@ class ResourceManager {
       ai_troll: 'assets/images/avatars/ai_troll.png',
       ai_robot: 'assets/images/avatars/ai_robot.png',
       ai_noble: 'assets/images/avatars/ai_noble.png',
-      ai_cute: 'assets/images/avatars/ai_cute.png',
+      ai_cute: 'assets/images/avatars/ai_cute.png'
+    };
 
-      // --- [新增] 桌上足球分包资源 ---
-      // 指向分包目录 subpackages/foosball/assets/images/
+    // [新增] 桌上足球分包资源清单
+    // 只有在分包加载成功后才能加载这些资源
+    this.foosballManifest = {
       fb_bg: 'subpackages/foosball/assets/images/fb_bg.png',
       fb_rod_metal: 'subpackages/foosball/assets/images/fb_rod_metal.png',
       fb_puppet_red: 'subpackages/foosball/assets/images/fb_puppet_red.png',
@@ -104,11 +106,23 @@ class ResourceManager {
   }
 
   /**
-   * 加载剩余游戏资源
+   * 加载剩余游戏资源 (主包)
    * @param {Function} onProgress (progress: number) => void (0~100)
    */
   loadGameResources(onProgress) {
       return this._loadManifest(this.gameManifest, onProgress);
+  }
+
+  /**
+   * [新增] 加载桌球分包资源
+   */
+  loadFoosballResources(onProgress) {
+      // 检查是否已经加载过
+      if (this.get('fb_bg')) {
+          if (onProgress) onProgress(100);
+          return Promise.resolve();
+      }
+      return this._loadManifest(this.foosballManifest, onProgress);
   }
 
   /**

@@ -48,8 +48,10 @@ export default class FoosballGameScene extends BaseScene {
         // 3. 创建滑杆阵型
         // 场地范围
         const fieldRect = this.layout.fieldRect;
-        const minY = fieldRect.y + 60;
-        const maxY = fieldRect.y + fieldRect.h - 60;
+        // [修改] 限制杆子的移动范围，防止碰到上下墙壁
+        const frameThickness = 80; 
+        const minY = fieldRect.y + frameThickness;
+        const maxY = fieldRect.y + fieldRect.h - frameThickness;
         const constraints = { minY, maxY };
         
         const cX = fieldRect.x + fieldRect.w / 2;
@@ -87,22 +89,36 @@ export default class FoosballGameScene extends BaseScene {
      * [新增] 设置桌上足球视觉
      */
     setupFoosballVisuals(w, h) {
-        // 1. 清理 GameLayout 默认生成的背景和上层装饰 (保留物理墙，虽然可能位置不完美，暂且复用)
+        // 1. 清理 GameLayout 默认生成的背景和上层装饰
         this.layout.layers.bg.removeChildren();
         this.layout.layers.over.removeChildren();
 
         const cx = w / 2;
         const cy = h / 2;
 
-        // 2. 添加桌台背景 (fb_bg)
         const bgTex = ResourceManager.get('fb_bg');
+        const frameTex = ResourceManager.get('fb_table_frame');
+
+        // 计算统一的缩放比例
+        // 优先以边框为准来适配屏幕，留出一点边距
+        let scale = 1;
+        if (frameTex) {
+            const scaleX = w / frameTex.width;
+            const scaleY = h / frameTex.height;
+            scale = Math.min(scaleX, scaleY);
+        } else if (bgTex) {
+            const scaleX = w / bgTex.width;
+            const scaleY = h / bgTex.height;
+            scale = Math.min(scaleX, scaleY);
+        }
+
+        // 2. 添加桌台背景 (fb_bg)
         if (bgTex) {
             const bg = new PIXI.Sprite(bgTex);
             bg.anchor.set(0.5);
             bg.position.set(cx, cy);
-            // 简单适配：铺满屏幕 (因为是 tiling texture 风格或者大图)
-            bg.width = w;
-            bg.height = h;
+            // [优化] 背景稍微放大一点点 (1.05)，防止边框内侧露馅
+            bg.scale.set(scale * 1.05); 
             this.layout.layers.bg.addChild(bg);
         } else {
             // 兜底绿色
@@ -114,29 +130,26 @@ export default class FoosballGameScene extends BaseScene {
         }
 
         // 3. 添加桌台边框 (fb_table_frame)
-        const frameTex = ResourceManager.get('fb_table_frame');
         if (frameTex) {
             const frame = new PIXI.Sprite(frameTex);
             frame.anchor.set(0.5);
-            frame.position.set(cx, cy);
-            
-            // 缩放边框以适应屏幕，保留一点边距
-            const scaleX = w / frame.width;
-            const scaleY = h / frame.height;
-            const scale = Math.min(scaleX, scaleY); // 保持比例
+            frame.position.set(cx, cy); 
             frame.scale.set(scale);
             
             this.layout.layers.over.addChild(frame);
 
-            // 4. 创建遮罩 (Mask) - 核心代码
-            // 遮罩用于限制游戏层(球、杆子)只在桌框内部显示，防止杆子伸出桌外穿帮
+            // 4. 创建遮罩 (Mask)
+            // 遮罩区域应该对应边框的"内胆"区域，防止球和杆子穿模到边框木头上
             const mask = new PIXI.Graphics();
             mask.beginFill(0xffffff);
             
-            // 估算内框大小 (假设边框厚度占整体宽高的 8% 左右)
-            const innerW = frame.width * scale * 0.92;
-            const innerH = frame.height * scale * 0.86;
+            // [适配说明] 这里的系数 0.88 和 0.80 是假设边框厚度占比。
+            // 如果你的边框图片较厚，请减小这些数值 (如 0.85, 0.75)
+            // 如果你的边框图片很薄，请增大这些数值
+            const innerW = frameTex.width * scale * 0.88;
+            const innerH = frameTex.height * scale * 0.80;
             
+            // 绘制圆角矩形遮罩
             mask.drawRoundedRect(-innerW/2, -innerH/2, innerW, innerH, 20);
             mask.endFill();
             mask.position.set(cx, cy);

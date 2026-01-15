@@ -14,9 +14,9 @@ export default class FoosballPlayer {
         this.width = 25;  // 碰撞箱宽度 (厚度)
         this.height = 50; // 碰撞箱高度 (宽度)
         
-        // 视觉尺寸略大
-        this.viewWidth = 40;
-        this.viewHeight = 60;
+        // 视觉容器的最大尺寸限制
+        this.viewMaxWidth = 40;
+        this.viewMaxHeight = 60;
 
         // 1. 物理刚体
         // 技巧：虽然看起来是固定的，但为了产生物理反弹，我们不设为 isStatic，
@@ -39,7 +39,8 @@ export default class FoosballPlayer {
         // 阴影
         const shadow = new PIXI.Graphics();
         shadow.beginFill(0x000000, 0.3);
-        shadow.drawRoundedRect(-this.viewWidth/2 + 5, -this.viewHeight/2 + 5, this.viewWidth, this.viewHeight, 8);
+        // 阴影稍微画大一点点，位置偏移
+        shadow.drawRoundedRect(-this.viewMaxWidth/2 + 4, -this.viewMaxHeight/2 + 4, this.viewMaxWidth, this.viewMaxHeight, 8);
         shadow.endFill();
         this.view.addChild(shadow);
 
@@ -50,17 +51,28 @@ export default class FoosballPlayer {
         if (tex) {
             const sprite = new PIXI.Sprite(tex);
             sprite.anchor.set(0.5);
-            sprite.width = this.viewWidth;
-            sprite.height = this.viewHeight;
-            // 蓝方(右侧)需要水平翻转
-            if (teamId === 1) sprite.scale.x = -1; 
+            
+            // [优化] 保持纵横比缩放 (Contain 模式)
+            // 计算缩放比例，确保图片完全放入 40x60 的框内，且不拉伸
+            const scaleX = this.viewMaxWidth / tex.width;
+            const scaleY = this.viewMaxHeight / tex.height;
+            const scale = Math.min(scaleX, scaleY);
+            
+            // 应用缩放
+            // 蓝方(右侧)需要水平翻转，且保持比例
+            if (teamId === 1) {
+                sprite.scale.set(-scale, scale); 
+            } else {
+                sprite.scale.set(scale, scale);
+            }
+            
             this.view.addChild(sprite);
         } else {
-            // 兜底绘制
+            // 兜底绘制 (如果没有图片)
             const g = new PIXI.Graphics();
             const color = teamId === 0 ? 0xE74C3C : 0x3498DB;
             g.beginFill(color);
-            g.drawRoundedRect(-this.viewWidth/2, -this.viewHeight/2, this.viewWidth, this.viewHeight, 8);
+            g.drawRoundedRect(-this.viewMaxWidth/2, -this.viewMaxHeight/2, this.viewMaxWidth, this.viewMaxHeight, 8);
             g.endFill();
             
             // 头部标记
@@ -107,8 +119,9 @@ export default class FoosballPlayer {
         this.view.y = targetY;
         
         // 踢球动画效果 (简单的缩放模拟立体感)
+        // 踢出去的时候稍微放大一点点，模拟身体前倾
         const scaleBase = 1.0;
-        const scaleKick = 0.1 * (kickOffset / 30); 
+        const scaleKick = 0.15 * (kickOffset / 30); 
         this.view.scale.set(scaleBase + scaleKick);
     }
 }

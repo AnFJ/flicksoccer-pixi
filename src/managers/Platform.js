@@ -25,6 +25,7 @@ class Platform {
     return 'web';
   }
 
+  // ... (保留 registerDefaultShare, checkUpdate, loadRemoteAsset, checkLaunchOptions, shareRoom, setStorage, getStorage, removeStorage, isMobileWeb, enterFullscreen, getLoginCredentials, getUserProfile, vibrateShort, showToast, getProvider 方法不变) ...
   registerDefaultShare() {
       const provider = this.getProvider();
       if (!provider) return;
@@ -47,10 +48,6 @@ class Platform {
       }
   }
 
-  /**
-   * [新增] 检查并强制更新小程序版本
-   * 适用于微信和抖音小游戏
-   */
   checkUpdate() {
       if (this.env === 'web') return;
 
@@ -63,14 +60,12 @@ class Platform {
           });
 
           updateManager.onUpdateReady(() => {
-              // 新版本下载成功
               provider.showModal({
                   title: '更新提示',
                   content: '新版本已经准备好，为保证游戏体验，请重启应用。',
-                  showCancel: false, // 强制更新，隐藏取消按钮
+                  showCancel: false, 
                   success: (res) => {
                       if (res.confirm) {
-                          // 新的版本已经下载好，调用 applyUpdate 应用新版本并重启
                           updateManager.applyUpdate();
                       }
                   }
@@ -78,27 +73,16 @@ class Platform {
           });
 
           updateManager.onUpdateFailed(() => {
-              // 新版本下载失败
               console.warn('[Platform] Update failed');
-              // 可选：提示用户检查网络或手动删除小程序重进
           });
       }
   }
 
-  /**
-   * [新增] 加载远程资源 (支持自动缓存)
-   * @param {string} fileName 文件名 (如 'bg.mp3')
-   * @returns {Promise<string>} 本地路径 或 URL
-   */
   async loadRemoteAsset(fileName) {
-      // 1. Web 环境
       if (this.env === 'web') {
-          // 开发环境下，假设 assets-origin 在根目录可访问
-          // 生产环境下，如果是 H5 部署，您可能需要配置 Vite copy 或手动上传 CDN 并修改这里的逻辑
           return `assets-origin/${fileName}`;
       }
 
-      // 2. 小游戏环境 (微信/抖音)
       const provider = this.getProvider();
       if (!provider) return '';
 
@@ -109,7 +93,6 @@ class Platform {
       const cdnUrl = GameConfig.resourceConfig.cdnUrl.replace(/\/$/, '');
       const remoteUrl = `${cdnUrl}/${fileName}`;
 
-      // 确保缓存目录存在
       try {
           fs.accessSync(cacheDir);
       } catch (e) {
@@ -120,39 +103,31 @@ class Platform {
           }
       }
 
-      // 检查文件是否已缓存
       try {
           fs.accessSync(localPath);
-          console.log(`[Platform] Hit cache for: ${fileName}`);
           return localPath;
       } catch (e) {
-          // 未缓存，开始下载
           console.log(`[Platform] Downloading remote asset: ${remoteUrl}`);
           return new Promise((resolve) => {
               provider.downloadFile({
                   url: remoteUrl,
                   success: (res) => {
                       if (res.statusCode === 200) {
-                          // 保存文件
                           fs.saveFile({
                               tempFilePath: res.tempFilePath,
                               filePath: localPath,
                               success: (saveRes) => {
-                                  console.log(`[Platform] Cached ${fileName} to ${saveRes.savedFilePath}`);
                                   resolve(saveRes.savedFilePath);
                               },
                               fail: (err) => {
-                                  console.warn('[Platform] Save file failed, using temp path', err);
                                   resolve(res.tempFilePath);
                               }
                           });
                       } else {
-                          console.warn(`[Platform] Download failed status ${res.statusCode}, using remote url`);
                           resolve(remoteUrl);
                       }
                   },
                   fail: (err) => {
-                      console.warn('[Platform] Download failed, using remote url', err);
                       resolve(remoteUrl);
                   }
               });
@@ -160,28 +135,21 @@ class Platform {
       }
   }
 
-  /**
-   * [新增] 检查小游戏启动参数
-   */
   checkLaunchOptions() {
       const provider = this.getProvider();
       if (provider && provider.getLaunchOptionsSync) {
           try {
               const options = provider.getLaunchOptionsSync();
-              console.log('[Platform] Launch Options:', options);
-              
               if (options && options.query && options.query.roomId) {
                   this.pendingInvite = {
                       roomId: options.query.roomId,
                       fromUser: options.query.fromUser
                   };
-                  console.log('[Platform] Found pending invite:', this.pendingInvite);
               }
           } catch (e) {
               console.warn('[Platform] Get launch options failed', e);
           }
       } else if (this.env === 'web') {
-          // Web 端测试逻辑：解析 URL 参数
           const urlParams = new URLSearchParams(window.location.search);
           const roomId = urlParams.get('roomId');
           if (roomId) {
@@ -190,10 +158,6 @@ class Platform {
       }
   }
 
-  /**
-   * [新增] 分享房间邀请
-   * @param {string} roomId 
-   */
   shareRoom(roomId) {
       const provider = this.getProvider();
       const title = "来《弹指足球》和我一决高下！";
@@ -206,23 +170,15 @@ class Platform {
               this.showToast("请点击右上角 '...' 发送给朋友");
           }
       } else if (this.env === 'douyin') {
-          // 抖音小游戏分享
           if (provider.shareAppMessage) {
               provider.shareAppMessage({
                   title: title,
                   query: query,
                   success() { console.log('Share success'); },
-                  fail(e) { 
-                      console.log('Share failed', e);
-                      if (e && e.errMsg && e.errMsg.indexOf('cancel') === -1) {
-                          // 如果不是用户取消，可能是配置问题
-                          console.warn('Check Douyin share template config');
-                      }
-                  }
+                  fail(e) { console.log('Share failed', e); }
               });
           }
       } else {
-          // Web 环境：复制链接
           const url = `${window.location.origin}${window.location.pathname}?roomId=${roomId}`;
           if (navigator.clipboard && navigator.clipboard.writeText) {
               navigator.clipboard.writeText(url).then(() => {
@@ -234,9 +190,6 @@ class Platform {
       }
   }
 
-  /**
-   * 跨平台持久化存储：设置
-   */
   setStorage(key, value) {
     const provider = this.getProvider();
     if (provider) {
@@ -250,9 +203,6 @@ class Platform {
     }
   }
 
-  /**
-   * 跨平台持久化存储：获取
-   */
   getStorage(key) {
     const provider = this.getProvider();
     if (provider) {
@@ -266,9 +216,6 @@ class Platform {
     }
   }
 
-  /**
-   * 跨平台持久化存储：删除
-   */
   removeStorage(key) {
     const provider = this.getProvider();
     if (provider) {
@@ -280,9 +227,6 @@ class Platform {
     }
   }
 
-  /**
-   * 判断是否为移动端 Web 环境
-   */
   isMobileWeb() {
     if (this.env !== 'web') return false;
     if (typeof navigator === 'undefined') return false;
@@ -297,25 +241,16 @@ class Platform {
                           docEl.webkitRequestFullscreen || 
                           docEl.msRequestFullscreen || 
                           docEl.mozRequestFullScreen;
-      
       if (requestFull) {
-        requestFull.call(docEl).catch(err => {
-          console.warn('[Platform] Fullscreen API not supported');
-        });
+        requestFull.call(docEl).catch(err => {});
       }
-    } catch (e) {
-      console.warn('[Platform] Fullscreen API not supported');
-    }
+    } catch (e) {}
   }
 
-  /**
-   * 获取登录凭证
-   */
   async getLoginCredentials() {
     if (this.env === 'web') {
         let uuid = this.getStorage('finger_soccer_uuid');
         if (!uuid) {
-            // 简单生成 UUID
             uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
@@ -325,7 +260,6 @@ class Platform {
         return { type: 'h5', deviceId: uuid };
     } 
     else {
-        // 小游戏环境 (微信/抖音)
         const provider = this.getProvider();
         return new Promise((resolve, reject) => {
             provider.login({
@@ -344,9 +278,6 @@ class Platform {
     }
   }
 
-  /**
-   * 获取用户信息
-   */
   getUserProfile() {
     return new Promise((resolve) => {
       const provider = this.getProvider();
@@ -355,11 +286,9 @@ class Platform {
           provider.getUserProfile({
               desc: '用于展示玩家头像和昵称',
               success: (res) => {
-                  console.log('[Platform] WeChat profile success:', res.userInfo);
                   resolve(res.userInfo);
               },
               fail: (err) => {
-                  console.warn('[Platform] WeChat profile failed/rejected:', err);
                   resolve(null);
               }
           });
@@ -367,11 +296,9 @@ class Platform {
       else if (this.env === 'douyin') {
         provider.getUserInfo({
           success: (res) => {
-              console.log('[Platform] Douyin profile success:', res.userInfo);
               resolve(res.userInfo);
           },
           fail: (err) => {
-              console.warn('[Platform] Douyin profile failed:', err);
               resolve(null);
           }
         });
@@ -398,23 +325,51 @@ class Platform {
   }
 
   getProvider() {
+    if( this.env === 'web') return null;
     if (this.env === 'douyin') return tt;
     if (this.env === 'wechat') return wx;
-    return null;
   }
 
-  // --- 广告相关 ---
-
   /**
-   * 展示游戏场景内的广告 (微信原生模板 / 抖音 Banner)
-   * @param {Array<PIXI.DisplayObject>} adNodes 游戏中的广告牌 Pixi 节点数组
+   * [新增] 加载分包
+   * @param {string} name 分包名称 (在 game.json 中配置的 name)
+   * @returns {Promise}
    */
+  loadSubpackage(name) {
+      if (this.env === 'web') {
+          return Promise.resolve(); // Web 模式下所有代码都在一起
+      }
+
+      const provider = this.getProvider();
+      if (!provider || !provider.loadSubpackage) {
+          return Promise.resolve();
+      }
+
+      return new Promise((resolve, reject) => {
+          console.log(`[Platform] Loading subpackage: ${name}`);
+          const loadTask = provider.loadSubpackage({
+              name: name,
+              success: (res) => {
+                  console.log(`[Platform] Subpackage ${name} loaded successfully`);
+                  resolve(res);
+              },
+              fail: (err) => {
+                  console.error(`[Platform] Subpackage ${name} load failed`, err);
+                  reject(err);
+              }
+          });
+          
+          // 可选：监听进度
+          // loadTask.onProgressUpdate(res => { ... })
+      });
+  }
+
+  // ... (保留 showGameAds, hideGameAds, showInterstitialAd, showRewardedVideoAd, navigateToMiniProgram, handleSocialAction 等广告相关方法不变) ...
   showGameAds(adNodes) {
       if (this.env === 'web') return; 
       if (!adNodes || adNodes.length === 0) return;
 
       const provider = this.getProvider();
-      
       let bannerIds = [];
       if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
       if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
@@ -427,8 +382,6 @@ class Platform {
           if (!adUnitId || adUnitId.startsWith('adunit-xx')) return;
 
           const bounds = node.getBounds();
-          // bounds 在小游戏环境可能为 0，因为 Pixi 的计算依赖渲染循环
-          // 如果为0，跳过
           if (!bounds || bounds.width <= 0) return;
 
           try {
@@ -446,19 +399,15 @@ class Platform {
                   });
               }
               else if (this.env === 'douyin' && provider.createBannerAd) {
-                  // 抖音 Banner 样式调整
                   adInstance = provider.createBannerAd({
                       adUnitId: adUnitId,
                       style: {
                           left: bounds.x,
                           top: bounds.y,
                           width: bounds.width
-                          // 抖音 Banner 高度是自动的，不能直接指定 fixed
                       }
                   });
-                  // 抖音 Banner 需监听 resize 调整位置居中
                   adInstance.onResize(size => {
-                      // 垂直居中于广告牌区域
                       const offsetY = (bounds.height - size.height) / 2;
                       adInstance.style.top = bounds.y + offsetY;
                       adInstance.style.left = bounds.x + (bounds.width - size.width) / 2;
@@ -466,16 +415,12 @@ class Platform {
               }
 
               if (adInstance) {
-                  adInstance.onError(err => {
-                      console.warn(`[Platform] Game Ad ${index} Error:`, err);
-                  });
-                  adInstance.show().catch(err => console.warn('Ad Show Fail', err));
+                  adInstance.onError(err => {});
+                  adInstance.show().catch(err => {});
                   this._gameAds.push(adInstance);
               }
 
-          } catch (e) {
-              console.error(`[Platform] Create Game Ad ${index} failed`, e);
-          }
+          } catch (e) {}
       });
   }
 
@@ -488,28 +433,18 @@ class Platform {
                   } else if (ad.hide) {
                       ad.hide();
                   }
-              } catch(e) {
-                  console.warn('[Platform] Dispose ad failed', e);
-              }
+              } catch(e) {}
           });
           this._gameAds = [];
       }
   }
 
-  /**
-   * 展示插屏广告
-   */
   async showInterstitialAd() {
-      if (this.env === 'web') {
-          console.log('[Platform] Mock Interstitial Ad shown (Web) - Default Success');
-          // Web 环境下默认成功，方便测试逻辑
-          return true;
-      }
+      if (this.env === 'web') return true;
 
       const provider = this.getProvider();
       if (!provider || !provider.createInterstitialAd) return false;
 
-      // 根据平台获取 ID (这里示例写死，实际应从 Config 获取)
       const adUnitId = 'adunit-d0030597225347b3';
 
       return new Promise((resolve) => {
@@ -523,7 +458,6 @@ class Platform {
           };
 
           const onClose = () => {
-              console.log('[Platform] Interstitial Ad closed');
               cleanup();
               resolve(true); 
           };
@@ -554,20 +488,13 @@ class Platform {
       });
   }
 
-  /**
-   * [新增] 展示激励视频广告
-   * @param {string} adUnitId 广告位ID
-   * @returns {Promise<boolean>} 是否完整观看 (true=发放奖励, false=中途关闭/失败)
-   */
   async showRewardedVideoAd(adUnitId) {
-      if(this.env = 'douyin') {
+      if(this.env == 'douyin') {
         return true;
       }
       if (this.env === 'web') {
-          console.log(`[Platform] Mock Reward Video: ${adUnitId} - Default Success`);
           this.showToast('广告模拟成功');
           return new Promise(resolve => {
-              // Web 模拟延迟后自动成功
               setTimeout(() => {
                   const success = confirm("模拟：是否看完广告？");
                   resolve(success);
@@ -587,42 +514,32 @@ class Platform {
       }
 
       return new Promise((resolve) => {
-          // 复用广告实例 (避免多次创建导致内存泄漏)
           let videoAd = this._rewardedAds[adUnitId];
           if (!videoAd) {
               try {
                   videoAd = provider.createRewardedVideoAd({ adUnitId: adUnitId });
                   this._rewardedAds[adUnitId] = videoAd;
               } catch (e) {
-                  console.error('[Platform] Create Video Ad failed', e);
                   resolve(false);
                   return;
               }
           }
 
-          // 清理旧回调，防止重复绑定
           if (videoAd.offClose) videoAd.offClose();
           if (videoAd.offError) videoAd.offError();
 
-          // 绑定新回调
           const onClose = (res) => {
-              // 用户点击关闭广告后，res.isEnded 为 true 表示播放完毕
-              // 兼容性：小于 2.1.0 的基础库版本，res 可能为 undefined，默认视为成功
               const isEnded = (res && res.isEnded) || res === undefined;
               if (isEnded) {
-                  console.log('[Platform] Video Ad Finished');
                   resolve(true);
               } else {
-                  console.log('[Platform] Video Ad Cancelled');
                   this.showToast('观看完整视频才能获得奖励哦');
                   resolve(false);
               }
-              // 解绑
               videoAd.offClose(onClose);
           };
 
           const onError = (err) => {
-              console.warn('[Platform] Video Ad Error', err);
               this.showToast('广告加载失败，请稍后再试');
               resolve(false);
               videoAd.offError(onError);
@@ -631,46 +548,34 @@ class Platform {
           videoAd.onClose(onClose);
           videoAd.onError(onError);
 
-          // 加载并展示
           videoAd.load()
               .then(() => videoAd.show())
               .catch(err => {
-                  console.warn('[Platform] Video Ad Load Fail', err);
                   resolve(false);
               });
       });
   }
 
-  showBannerAd() {}
-  hideBannerAd() {}
-
   navigateToMiniProgram(appId, path = '') {
       if (!appId) return;
-      
       const provider = this.getProvider();
       if (provider && provider.navigateToMiniProgram) {
           provider.navigateToMiniProgram({
               appId: appId,
               path: path,
-              success(res) {
-                  console.log('[Platform] Navigate success');
-              },
+              success(res) {},
               fail(err) {
-                  console.warn('[Platform] Navigate failed', err);
                   if (this.env === 'douyin') {
                       this.showToast('跳转失败，请稍后重试');
                   }
               }
           });
       } else {
-          console.log(`[Platform] Mock Navigate to ${appId}`);
           this.showToast('跳转小程序: ' + appId);
       }
   }
 
   handleSocialAction() {
-    console.log('[Platform] Handling social action...');
-
     if (this.env === 'wechat') {
         const wx = this.getProvider();
         if (wx.createPageManager) {
@@ -694,7 +599,6 @@ class Platform {
         } else {
             this.showToast('当前版本不支持游戏圈');
         }
-
     } else if (this.env === 'douyin') {
         const tt = this.getProvider();
         if (tt.navigateToScene) {
@@ -711,7 +615,6 @@ class Platform {
         } else {
             this.showToast('请点击右上角收藏游戏');
         }
-
     } else if (this.env === 'web') {
         const url = window.location.href;
         if (navigator.clipboard && navigator.clipboard.writeText) {
