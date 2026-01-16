@@ -15,9 +15,10 @@ export const FoosballConfig = {
 
     // [新增] 足球物理参数
     ball: {
-        restitution: 0.6,   // 弹性 (0.0~1.0) - [降低] 稍微降低整体弹性，使球感更沉稳
+        restitution: 0.4,   // 弹性 (0.0~1.0) - [降低] 稍微降低整体弹性，使球感更沉稳
         frictionAir: 0.003, // 空气阻力 (惯性) - [微调] 保持适中
-        friction: 0.005     // 表面摩擦 - [增加] 增加一点摩擦，便于被杆子带动
+        friction: 0.005,    // 表面摩擦 - [增加] 增加一点摩擦，便于被杆子带动
+        density: 0.2     // [新增] 密度 (重量) - 标准 MatterJS 默认是 0.001，0.004 表示较重的实心球
     },
     
     // 棋子尺寸 (匹配提供的素材比例)
@@ -31,7 +32,10 @@ export const FoosballConfig = {
         // [物理核心优化]
         restitution: 0.1, // 弹性 (0.0~1.0) - [极低] 只有0.1，模拟硬物，静止时球撞上来不反弹
         friction: 0.6,    // 摩擦力 - [高] 侧面摩擦大，上下滑杆时能"带"动球
-        density: 0.2,     // 密度 - [极高] 质量很大，撞击时动量十足，不会被球反推
+        density: 0.2,     // 密度 (重量) - [极高] 质量很大，撞击时动量十足，不会被球反推
+
+        // [新增] 动力学传导系数
+        verticalForceScale: 1.2, // 垂直移动时的动量放大系数 (上下滑杆的力度)
 
         // [新增] 击球表现系数
         kickPhysicsRatio: 0.8, // 物理位移系数 (targetX = rodX + kickOffset * ratio)
@@ -46,8 +50,8 @@ export const FoosballConfig = {
         // [新增] 击球动力学配置
         kick: {
             maxOffset: 150,   // 最大击球延伸距离 (px)
-            speed: 45,        // 踢出速度 (每帧增加的offset)
-            returnSpeed: 24   // 收回速度 (每帧减少的offset)
+            speed: 25,        // [调整] 踢出速度 (每帧增加的offset)。原45 -> 25，降低击球爆发力
+            returnSpeed: 15   // [调整] 收回速度 (每帧减少的offset)。原24 -> 15
         },
 
         count: 8,       

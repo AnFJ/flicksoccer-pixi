@@ -39,8 +39,7 @@ export default class FoosballPlayer {
 
         // [调整] 视觉修正偏移量 (用于对齐杆子和肩膀)
         // 红色(0)需要左移，蓝色(1)需要右移
-        // 之前是 14px 仍然不够，根据截图调整为 24px 以完美对齐中心
-        const visualOffset = 24; 
+        const visualOffset = 0; 
 
         if (tex) {
             // A. 创建身体渲染器 (旋转 90 度，使肩膀垂直)
@@ -116,8 +115,9 @@ export default class FoosballPlayer {
         const vx = targetX - this.body.position.x;
         
         // [优化] 垂直速度增强
-        // 适当放大垂直速度 (1.2倍)，让滑杆击球更有力，补偿物理引擎对摩擦传导的损耗
-        let vy = (rodY - this.body.position.y) * 1.2;
+        // 适当放大垂直速度，让滑杆击球更有力，补偿物理引擎对摩擦传导的损耗
+        // [修改] 使用配置中的系数，默认 1.2
+        let vy = (rodY - this.body.position.y) * (cfg.verticalForceScale || 1.2);
         
         // 限制最大速度防止穿透
         if (Math.abs(vy) > 60) vy = Math.sign(vy) * 60;

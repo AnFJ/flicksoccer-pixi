@@ -131,14 +131,14 @@ export default class FoosballGameScene extends BaseScene {
         if (bgTex) {
             const bg = new PIXI.Sprite(bgTex);
             bg.anchor.set(0.5); bg.position.set(cx, cy);
-            bg.width = fieldW; bg.height = fieldH;
+            bg.width = fieldW * 1.08; bg.height = fieldH * 1.08;
             this.layout.layers.bg.addChild(bg);
         }
         
         if (frameTex) {
             const frame = new PIXI.Sprite(frameTex);
             frame.anchor.set(0.5); frame.position.set(cx, cy);
-            frame.width = fieldW * 1.15; frame.height = fieldH * 1.25;
+            frame.width = fieldW * 1.35; frame.height = fieldH * 1.25;
             this.layout.layers.over.addChild(frame);
         }
 
@@ -166,11 +166,16 @@ export default class FoosballGameScene extends BaseScene {
         const { x, y, w, h } = this.layout.fieldRect;
         this.ball = new Ball(x + w/2, y + h/2, 1);
         
-        // [核心优化] 从配置文件读取物理参数
+        // [核心优化] 从配置文件读取物理参数 (包括密度)
         const ballCfg = FoosballConfig.ball;
+        
+        // 设置基本物理属性
         this.ball.body.restitution = ballCfg.restitution; 
         this.ball.body.frictionAir = ballCfg.frictionAir;
         this.ball.body.friction = ballCfg.friction;
+        
+        // [新增] 显式设置密度 (这会自动重新计算质量 mass = density * area)
+        Matter.Body.setDensity(this.ball.body, ballCfg.density);
         
         this.physics.add(this.ball.body);
         this.layout.layers.game.addChild(this.ball.view);
