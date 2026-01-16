@@ -2,115 +2,107 @@
 import FoosballPlayer from './FoosballPlayer.js';
 import ResourceManager from '../../../managers/ResourceManager.js';
 import * as PIXI from 'pixi.js';
+import { FoosballConfig } from '../config/FoosballConfig.js';
 
 export default class FoosballRod {
-    /**
-     * @param {Object} scene 场景引用
-     * @param {number} x 杆子的固定X坐标
-     * @param {number} teamId 0/1
-     * @param {number} numPlayers 球员数量 (1~3)
-     * @param {Object} constraints { minY, maxY } 移动范围
-     */
     constructor(scene, x, teamId, numPlayers, constraints) {
         this.scene = scene;
         this.x = x;
-        this.y = (constraints.minY + constraints.maxY) / 2; // 初始在中间
+        this.y = (constraints.minY + constraints.maxY) / 2;
         this.teamId = teamId;
         this.constraints = constraints;
         
         this.players = [];
-        this.kickState = 0; // 0:Idle, 1:Kicking(Out), 2:Returning(In)
+        this.kickState = 0; 
         this.kickOffset = 0;
-        this.maxKickOffset = 55; // 踢球伸出的最大距离
-        this.kickSpeed = 8;      // 踢出速度
-        this.returnSpeed = 4;    // 收回速度
+        this.maxKickOffset = 150; 
+        this.kickSpeed = 15;      
+        this.returnSpeed = 8;    
 
-        // 创建视图 (杆子本身)
-        this.view = new PIXI.Container();
+        // 1. 层级容器 (为了实现杆子穿过肩膀，需要精细的层级顺序)
+        // 顺序：PlayerBody(下) -> Rod(中) -> PlayerHead(上)
+        this.rodContainer = new PIXI.Container();
+        this.headContainer = new PIXI.Container();
+
+        // 将容器添加到场景的 game 层
+        this.scene.layout.layers.game.addChild(this.rodContainer);
+        this.scene.layout.layers.game.addChild(this.headContainer);
+
+        // 2. 绘制金属滑杆 (纵向)
         this.rodSprite = this.createRodSprite();
-        this.view.addChild(this.rodSprite);
-        this.scene.layout.layers.game.addChild(this.view); 
+        this.rodContainer.addChild(this.rodSprite);
 
-        // 创建球员
-        const fieldH = constraints.maxY - constraints.minY + 200; // 估算覆盖区域
-        // 球员分布间距
-        const spacing = fieldH / (numPlayers + 1) * 1.2; 
+        // 3. 创建球员
+        const fieldH = FoosballConfig.pitch.height;
+        const spacing = fieldH / (numPlayers + 1);
         
-        // 计算球员相对于杆子中心的Y偏移
         for (let i = 0; i < numPlayers; i++) {
-            const offsetY = (i - (numPlayers - 1) / 2) * spacing;
-            
+            const offsetY = (i - (numPlayers - 1) / 2) * (spacing * 1.1);
             const player = new FoosballPlayer(this.x, this.y + offsetY, teamId);
-            player.offsetY = offsetY; // 记录相对偏移
+            player.offsetY = offsetY;
             
             this.players.push(player);
             this.scene.physics.add(player.body);
-            this.scene.layout.layers.game.addChild(player.view);
+            
+            // 物理层级安排：
+            // 身体在杆子下
+            this.scene.layout.layers.game.addChildAt(player.view, this.scene.layout.layers.game.getChildIndex(this.rodContainer));
+            // 头部在杆子上
+            this.headContainer.addChild(player.headGroup);
         }
     }
 
     createRodSprite() {
-        const h = 1000; // 杆子足够长
-        const w = 14;
+        const thickness = FoosballConfig.rod.thickness;
+        const h = 1080; // 贯穿屏幕
         
-        const tex = ResourceManager.get('fb_rod_metal');
-        if (tex) {
-            const sp = new PIXI.TilingSprite(tex, w, h);
-            sp.anchor.set(0.5);
-            return sp;
-        } 
-        
+        const container = new PIXI.Container();
         const g = new PIXI.Graphics();
-        g.beginFill(0xBDC3C7); // 银色
-        g.lineStyle(2, 0x7F8C8D);
-        g.drawRect(-w/2, -h/2, w, h);
+        
+        // 金属质感：深浅渐变模拟圆柱体
+        g.beginFill(0x7f8c8d); // 暗色边
+        g.drawRect(-thickness/2, -h/2, thickness, h);
         g.endFill();
-        return g;
+        
+        g.beginFill(0xecf0f1, 0.4); // 高光中心
+        g.drawRect(-thickness/4, -h/2, thickness/2, h);
+        g.endFill();
+
+        container.addChild(g);
+        
+        // 添加两端的把手/固定环 (装饰)
+        const ring = new PIXI.Graphics().beginFill(0x333333).drawRect(-thickness*0.8, -h/2, thickness*1.6, 20).endFill();
+        container.addChild(ring);
+
+        return container;
     }
 
-    /**
-     * 移动杆子
-     * @param {number} targetY 目标Y坐标 (绝对坐标)
-     */
     moveTo(targetY) {
-        // 限制范围
         this.y = Math.max(this.constraints.minY, Math.min(this.constraints.maxY, targetY));
     }
 
-    /**
-     * 触发击球
-     */
     kick() {
-        if (this.kickState === 0) {
-            this.kickState = 1;
-        }
+        if (this.kickState === 0) this.kickState = 1;
     }
 
     update() {
-        // 1. 处理击球动画状态
+        // 击球动画状态机
         if (this.kickState === 1) {
-            // 踢出阶段
             this.kickOffset += this.kickSpeed;
-            if (this.kickOffset >= this.maxKickOffset) {
-                this.kickOffset = this.maxKickOffset;
-                this.kickState = 2; // 开始收回
-            }
+            if (this.kickOffset >= this.maxKickOffset) this.kickState = 2;
         } else if (this.kickState === 2) {
-            // 收回阶段
             this.kickOffset -= this.returnSpeed;
             if (this.kickOffset <= 0) {
                 this.kickOffset = 0;
-                this.kickState = 0; // 回到待机
+                this.kickState = 0;
             }
         }
 
-        // 2. 更新杆子视图位置
-        this.view.x = this.x;
-        this.view.y = this.y;
+        // 同步杆子位置
+        this.rodSprite.position.set(this.x, this.y);
 
-        // 3. 更新所有球员位置
+        // 同步所有球员
         this.players.forEach(p => {
-            // 球员Y = 杆子Y + 相对偏移
             p.updatePosition(this.x, this.y + p.offsetY, this.kickOffset);
         });
     }

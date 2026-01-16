@@ -3,131 +3,97 @@ import * as PIXI from 'pixi.js';
 import Matter from 'matter-js';
 import ResourceManager from '../../../managers/ResourceManager.js';
 import { CollisionCategory } from '../../../constants.js';
+import { FoosballConfig } from '../config/FoosballConfig.js';
 
 export default class FoosballPlayer {
-    /**
-     * @param {number} x 初始X (杆的位置)
-     * @param {number} y 初始Y
-     * @param {number} teamId 0:红方(左), 1:蓝方(右)
-     */
     constructor(x, y, teamId) {
         this.teamId = teamId;
-        this.width = 25;  // 碰撞箱宽度 (厚度)
-        this.height = 50; // 碰撞箱高度 (宽度)
-        
-        // 视觉容器的最大尺寸限制
-        this.viewMaxWidth = 40;
-        this.viewMaxHeight = 60;
+        const cfg = FoosballConfig.puppet;
 
         // 1. 物理刚体
-        // 技巧：虽然看起来是固定的，但为了产生物理反弹，我们不设为 isStatic，
-        // 而是通过每一帧手动 setPosition / setVelocity 来控制它 (Kinematic 风格)。
-        // 赋予较大的质量使其不易被球撞偏。
-        this.body = Matter.Bodies.rectangle(x, y, this.width, this.height, {
+        this.body = Matter.Bodies.rectangle(x, y, cfg.hitWidth, cfg.hitHeight, {
             isStatic: false, 
-            inertia: Infinity, // 锁定旋转
-            friction: 0,
-            frictionAir: 0,
-            restitution: 0.5,
-            mass: 50, 
+            inertia: Infinity,
+            friction: 0.1,
+            restitution: 0.8,
+            mass: 100, 
             label: 'FoosballPlayer',
-            render: { visible: false },
-            // [修复] 添加碰撞过滤器，使其被识别为 STRIKER 并与 BALL 碰撞
             collisionFilter: {
                 category: CollisionCategory.STRIKER,
                 mask: CollisionCategory.BALL
             }
         });
         
-        // 2. 视图
-        this.view = new PIXI.Container();
+        // 2. 视图结构
+        this.view = new PIXI.Container();       // 身体层 (杆下)
+        this.headGroup = new PIXI.Container();  // 头部层 (杆上)
         
-        // 阴影
-        const shadow = new PIXI.Graphics();
-        shadow.beginFill(0x000000, 0.3);
-        // 阴影稍微画大一点点，位置偏移
-        shadow.drawRoundedRect(-this.viewMaxWidth/2 + 4, -this.viewMaxHeight/2 + 4, this.viewMaxWidth, this.viewMaxHeight, 8);
-        shadow.endFill();
-        this.view.addChild(shadow);
+        this.initVisuals(teamId);
+    }
 
-        // 主体
+    initVisuals(teamId) {
+        const cfg = FoosballConfig.puppet;
         const spriteKey = teamId === 0 ? 'fb_puppet_red' : 'fb_puppet_blue';
         const tex = ResourceManager.get(spriteKey);
-        
-        if (tex) {
-            const sprite = new PIXI.Sprite(tex);
-            sprite.anchor.set(0.5);
-            
-            // [优化] 保持纵横比缩放 (Contain 模式)
-            // 计算缩放比例，确保图片完全放入 40x60 的框内，且不拉伸
-            const scaleX = this.viewMaxWidth / tex.width;
-            const scaleY = this.viewMaxHeight / tex.height;
-            const scale = Math.min(scaleX, scaleY);
-            
-            // 应用缩放
-            // 蓝方(右侧)需要水平翻转，且保持比例
-            if (teamId === 1) {
-                sprite.scale.set(-scale, scale); 
-            } else {
-                sprite.scale.set(scale, scale);
-            }
-            
-            this.view.addChild(sprite);
-        } else {
-            // 兜底绘制 (如果没有图片)
-            const g = new PIXI.Graphics();
-            const color = teamId === 0 ? 0xE74C3C : 0x3498DB;
-            g.beginFill(color);
-            g.drawRoundedRect(-this.viewMaxWidth/2, -this.viewMaxHeight/2, this.viewMaxWidth, this.viewMaxHeight, 8);
-            g.endFill();
-            
-            // 头部标记
-            g.beginFill(0xFFFFFF, 0.3);
-            g.drawCircle(0, 0, 10);
-            g.endFill();
-            
-            // 脚部方向指示
-            g.beginFill(0xFFFFFF, 0.8);
-            const dirX = teamId === 0 ? 10 : -10;
-            g.drawRect(dirX - 2, -15, 4, 30);
-            g.endFill();
 
-            this.view.addChild(g);
+        if (tex) {
+            // A. 创建身体渲染器 (旋转 90 度，使肩膀垂直)
+            this.bodySprite = new PIXI.Sprite(tex);
+            this.bodySprite.anchor.set(0.5);
+            this.bodySprite.width = cfg.width;
+            this.bodySprite.height = cfg.height;
+            
+            // 关键：旋转以适应纵向杆子
+            // 红色旋转 90 度面朝右，蓝色旋转 -90 度面朝左
+            this.bodySprite.rotation = teamId === 0 ? Math.PI / 2 : -Math.PI / 2;
+            this.view.addChild(this.bodySprite);
+
+            // B. 创建头部渲染器 (同上，但加遮罩)
+            this.headSprite = new PIXI.Sprite(tex);
+            this.headSprite.anchor.set(0.5);
+            this.headSprite.width = cfg.width;
+            this.headSprite.height = cfg.height;
+            this.headSprite.rotation = this.bodySprite.rotation;
+
+            // 遮罩：根据旋转后的坐标，只保留头部区域 (杆子上方)
+            const mask = new PIXI.Graphics();
+            mask.beginFill(0xffffff);
+            // 遮罩区域定义：以中心为基准，覆盖中间圆头部分
+            mask.drawCircle(0, 0, 28); 
+            mask.endFill();
+            this.headSprite.mask = mask;
+            this.headGroup.addChild(this.headSprite, mask);
+
+            // C. 阴影
+            this.shadow = new PIXI.Graphics();
+            this.shadow.beginFill(0x000000, 0.3);
+            this.shadow.drawEllipse(0, 0, 30, 40);
+            this.shadow.endFill();
+            this.shadow.position.set(5, 5);
+            this.view.addChildAt(this.shadow, 0);
         }
     }
 
     /**
-     * 更新位置
+     * 更新位置与击球
      * @param {number} rodX 杆子的X坐标
-     * @param {number} rodY 杆子的Y坐标 (也是球员的基准Y)
-     * @param {number} kickOffset 踢球产生的X轴偏移量
+     * @param {number} rodY 杆子的当前中心Y
+     * @param {number} kickOffset 击球强度位移
      */
     updatePosition(rodX, rodY, kickOffset) {
-        // 实际物理位置 = 杆位置 + 踢球偏移
-        // 红方(左) 踢球向右 (+x)，蓝方(右) 踢球向左 (-x)
-        const dir = this.teamId === 0 ? 1 : -1;
-        const targetX = rodX + kickOffset * dir;
-        const targetY = rodY;
+        const dir = this.teamId === 0 ? 1 : -1; // 0往右(+X)，1往左(-X)
 
-        // 手动设置速度以保证物理碰撞计算正确
-        const vx = targetX - this.body.position.x;
-        const vy = targetY - this.body.position.y;
+        // 1. 计算视觉拉伸 (模拟脚踢出去的动作)
+        const stretch = 1 + (kickOffset / 50) * 0.3;
+        this.view.scale.x = stretch;
         
-        Matter.Body.setVelocity(this.body, { x: vx, y: vy });
-        Matter.Body.setPosition(this.body, { x: targetX, y: targetY });
+        // 2. 物理同步
+        // 击球时，物理重心随脚尖移动
+        const targetX = rodX + (kickOffset * 0.8) * dir;
+        Matter.Body.setPosition(this.body, { x: targetX, y: rodY });
         
-        // 强制重置角度
-        Matter.Body.setAngle(this.body, 0); 
-        Matter.Body.setAngularVelocity(this.body, 0);
-
-        // 同步视图
-        this.view.x = targetX;
-        this.view.y = targetY;
-        
-        // 踢球动画效果 (简单的缩放模拟立体感)
-        // 踢出去的时候稍微放大一点点，模拟身体前倾
-        const scaleBase = 1.0;
-        const scaleKick = 0.15 * (kickOffset / 30); 
-        this.view.scale.set(scaleBase + scaleKick);
+        // 3. 视觉同步
+        this.view.position.set(rodX, rodY);
+        this.headGroup.position.set(rodX, rodY);
     }
 }
