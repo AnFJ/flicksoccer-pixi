@@ -38,7 +38,6 @@ export default class FoosballPlayer {
         const tex = ResourceManager.get(spriteKey);
 
         // [调整] 视觉修正偏移量 (用于对齐杆子和肩膀)
-        // 红色(0)需要左移，蓝色(1)需要右移
         const visualOffset = 0; 
 
         if (tex) {
@@ -72,7 +71,7 @@ export default class FoosballPlayer {
             mask.beginFill(0xffffff);
             // 遮罩区域定义：以中心(杆子)为基准，覆盖中间圆头部分
             // 注意：Mask 不移动，始终在杆子中心，这样正好露出偏移后的头部
-            mask.drawCircle(0, 0, 28); 
+            mask.drawCircle(0, 0, 70); 
             mask.endFill();
             this.headSprite.mask = mask;
             this.headGroup.addChild(this.headSprite, mask);
