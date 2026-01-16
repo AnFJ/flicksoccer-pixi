@@ -11,7 +11,7 @@ export default class FoosballPhysics {
         this.engine = Matter.Engine.create({
             gravity: { x: 0, y: 0 },
             positionIterations: 6,
-            velocityIterations: 4
+            velocityIterations: 8 // [优化] 提高速度迭代，处理高速球的反射
         });
         
         console.log('[Foosball] Physics initialized');

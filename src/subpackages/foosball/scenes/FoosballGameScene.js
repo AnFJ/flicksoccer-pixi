@@ -25,6 +25,9 @@ export default class FoosballGameScene extends BaseScene {
         
         // 触摸跟踪: Map<pointerId, { rod: FoosballRod, lastY: number }>
         this.activeTouches = new Map(); 
+        
+        // [新增] 调试绘图对象
+        this.debugGraphics = null;
     }
 
     onEnter() {
@@ -43,12 +46,68 @@ export default class FoosballGameScene extends BaseScene {
         this.createBall();
         this.createRods();
         this.createUI(designWidth, designHeight);
+        
+        // [新增] 初始化调试视图
+        if (FoosballConfig.debug) {
+            this.createDebugView();
+        }
 
         this.container.interactive = true;
         this.container.on('pointerdown', this.onTouchStart, this);
         this.container.on('pointermove', this.onTouchMove, this);
         this.container.on('pointerup', this.onTouchEnd, this);
         this.container.on('pointerupoutside', this.onTouchEnd, this);
+    }
+
+    // [新增] 创建调试图层
+    createDebugView() {
+        this.debugGraphics = new PIXI.Graphics();
+        // 放在最上层，确保不被遮挡
+        this.container.addChild(this.debugGraphics);
+        console.log('[Foosball] Debug view enabled');
+    }
+
+    // [新增] 实时渲染调试线框
+    renderDebugView() {
+        if (!this.debugGraphics || !this.physics.engine) return;
+
+        const g = this.debugGraphics;
+        g.clear();
+
+        // 获取物理世界所有刚体
+        const bodies = Matter.Composite.allBodies(this.physics.engine.world);
+
+        bodies.forEach(body => {
+            let color = 0xFFFFFF;
+            let alpha = 0.3;
+            let stroke = 2;
+
+            if (body.label === 'FoosballPlayer') {
+                color = 0x00FF00; // 棋子：绿色
+                alpha = 0.5;
+            } else if (body.label && body.label.includes('Wall')) {
+                color = 0xFFFF00; // 墙壁：黄色
+                alpha = 0.3;
+            } else if (body.label === 'Ball') {
+                color = 0xFF0000; // 足球：红色
+                alpha = 0.6;
+            } else {
+                return; // 其他物体不画，或者用默认白色
+            }
+
+            g.lineStyle(stroke, color);
+            g.beginFill(color, alpha);
+
+            // 根据顶点绘制，这样旋转的物体也能正确显示
+            if (body.vertices && body.vertices.length > 0) {
+                g.moveTo(body.vertices[0].x, body.vertices[0].y);
+                for (let i = 1; i < body.vertices.length; i++) {
+                    g.lineTo(body.vertices[i].x, body.vertices[i].y);
+                }
+                g.closePath(); // 闭合路径
+            }
+            g.endFill();
+        });
     }
 
     setupPitchArea(w, h) {
@@ -106,8 +165,13 @@ export default class FoosballGameScene extends BaseScene {
     createBall() {
         const { x, y, w, h } = this.layout.fieldRect;
         this.ball = new Ball(x + w/2, y + h/2, 1);
-        this.ball.body.restitution = 1.0; 
-        this.ball.body.frictionAir = 0.006;
+        
+        // [核心优化] 从配置文件读取物理参数
+        const ballCfg = FoosballConfig.ball;
+        this.ball.body.restitution = ballCfg.restitution; 
+        this.ball.body.frictionAir = ballCfg.frictionAir;
+        this.ball.body.friction = ballCfg.friction;
+        
         this.physics.add(this.ball.body);
         this.layout.layers.game.addChild(this.ball.view);
     }
@@ -242,22 +306,43 @@ export default class FoosballGameScene extends BaseScene {
         this.rods.forEach(r => r.update());
         this.updateAI();
         this.checkGoal();
+        
+        // [新增] 更新调试视图
+        if (FoosballConfig.debug) {
+            this.renderDebugView();
+        }
     }
 
     updateAI() {
         if (!this.ball) return;
         const bPos = this.ball.body.position;
+        
         // AI 控制蓝方杆子 (Team 1)
+        // 蓝方在右侧，向左进攻
         this.rods.filter(r => r.teamId === 1).forEach(r => {
             const diff = bPos.y - r.y;
-            // 简单的跟随球移动
-            if (Math.abs(diff) > 5) r.moveTo(r.y + Math.sign(diff) * 4);
+            // [优化] 全场跟随：无论球在哪里，AI 都尝试将杆子移动到球的 Y 轴
+            // 原先可能有限制，现在放开，让 AI 即使球在身后也能对齐进行拦截/回踢
+            if (Math.abs(diff) > 5) {
+                // 简单的反应延迟/平滑移动
+                r.moveTo(r.y + Math.sign(diff) * 4);
+            }
             
-            // 射门逻辑：球在杆子前方且距离近时射门
-            // 蓝方在右侧，向左踢，所以球应该在杆子的右侧 (bPos.x > r.x)
-            // 范围放宽一点
-            if (bPos.x < r.x && bPos.x > r.x - 120 && Math.abs(diff) < 50) {
-                if (Math.random() < 0.08) r.kick();
+            // 射门逻辑
+            const distanceX = r.x - bPos.x; // 杆子X - 球X
+            
+            // 情况 A: 球在杆子前方 (左侧) 且距离合适 -> 正常射门 (Forward Kick)
+            // 蓝方在右，球在左边就是前方。 bPos.x < r.x, so distanceX > 0
+            if (distanceX > 0 && distanceX < 120 && Math.abs(diff) < 50) {
+                if (Math.random() < 0.08) r.kick(1); // 向前踢
+            }
+            
+            // 情况 B: 球在杆子后方 (右侧) 且非常贴近 -> 背后击球 (Back Kick)
+            // 模拟 360 度旋转击球，或者用后脚跟磕球
+            // distanceX < 0 means ball is to the right
+            else if (distanceX < 0 && distanceX > -50 && Math.abs(diff) < 50) {
+                // 触发几率稍微低一点，避免鬼畜
+                if (Math.random() < 0.05) r.kick(-1); // 向后踢
             }
         });
     }

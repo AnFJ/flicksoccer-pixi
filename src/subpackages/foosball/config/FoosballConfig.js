@@ -3,11 +3,21 @@
  * 德式桌球 (8杆标准) 1:1 物理与视觉参数配置
  */
 export const FoosballConfig = {
+    // [新增] 调试模式开关
+    debug: true, // 设置为 true 开启刚体线框显示，false 关闭
+
     // 球场物理尺寸 (逻辑坐标)
     pitch: {
         width: 1710,    // 长度 (X方向)
         height: 920,    // 宽度 (Y方向)
         aspectRatio: 1.86
+    },
+
+    // [新增] 足球物理参数
+    ball: {
+        restitution: 0.6,   // 弹性 (0.0~1.0) - [降低] 稍微降低整体弹性，使球感更沉稳
+        frictionAir: 0.003, // 空气阻力 (惯性) - [微调] 保持适中
+        friction: 0.005     // 表面摩擦 - [增加] 增加一点摩擦，便于被杆子带动
     },
     
     // 棋子尺寸 (匹配提供的素材比例)
@@ -16,12 +26,30 @@ export const FoosballConfig = {
         height: 64,     // 视觉宽度 (肩宽) - 旋转后变为纵向宽度
         hitWidth: 40,   // 物理碰撞宽 (侧面厚度)
         hitHeight: 50,  // 物理碰撞高 (脚部受力面积)
-        rodYOffset: 0   // 杆子中心对齐
+        rodYOffset: 0,  // 杆子中心对齐
+
+        // [物理核心优化]
+        restitution: 0.1, // 弹性 (0.0~1.0) - [极低] 只有0.1，模拟硬物，静止时球撞上来不反弹
+        friction: 0.6,    // 摩擦力 - [高] 侧面摩擦大，上下滑杆时能"带"动球
+        density: 0.2,     // 密度 - [极高] 质量很大，撞击时动量十足，不会被球反推
+
+        // [新增] 击球表现系数
+        kickPhysicsRatio: 0.8, // 物理位移系数 (targetX = rodX + kickOffset * ratio)
+        kickVisualRatio: 0.4,  // 视觉位移系数 (用于防止图片过度拉伸)
+        kickStretchRatio: 0.6  // 最大拉伸比例 (1 + progress * ratio)
     },
     
     // 杆件配置
     rod: {
         thickness: 18,  // 杆子直径，稍微加粗显得有质感
+        
+        // [新增] 击球动力学配置
+        kick: {
+            maxOffset: 150,   // 最大击球延伸距离 (px)
+            speed: 45,        // 踢出速度 (每帧增加的offset)
+            returnSpeed: 24   // 收回速度 (每帧减少的offset)
+        },
+
         count: 8,       
         layout: [
             { teamId: 0, puppets: 1 }, // 杆1: 红方守门员

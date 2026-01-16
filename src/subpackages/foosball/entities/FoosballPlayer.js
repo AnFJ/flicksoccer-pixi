@@ -11,12 +11,13 @@ export default class FoosballPlayer {
         const cfg = FoosballConfig.puppet;
 
         // 1. 物理刚体
+        // [优化] 使用 Config 中的参数
         this.body = Matter.Bodies.rectangle(x, y, cfg.hitWidth, cfg.hitHeight, {
             isStatic: false, 
-            inertia: Infinity,
-            friction: 0.1,
-            restitution: 0.8,
-            mass: 100, 
+            inertia: Infinity, // 禁止旋转
+            friction: cfg.friction, // 高摩擦，方便搓球
+            restitution: cfg.restitution, // 低弹性，静止不反弹
+            density: cfg.density, // 高密度，动量大
             label: 'FoosballPlayer',
             collisionFilter: {
                 category: CollisionCategory.STRIKER,
@@ -38,8 +39,8 @@ export default class FoosballPlayer {
 
         // [调整] 视觉修正偏移量 (用于对齐杆子和肩膀)
         // 红色(0)需要左移，蓝色(1)需要右移
-        // 由于旋转系统的差异 (90 vs -90)，设置 Sprite 局部 Y 轴正向偏移均可实现向"后"位移
-        const visualOffset = 14; 
+        // 之前是 14px 仍然不够，根据截图调整为 24px 以完美对齐中心
+        const visualOffset = 24; 
 
         if (tex) {
             // A. 创建身体渲染器 (旋转 90 度，使肩膀垂直)
@@ -84,6 +85,8 @@ export default class FoosballPlayer {
             this.shadow.endFill();
             
             // [修正] 阴影跟随身体偏移 (view 容器未旋转，需手动计算 X 轴偏移)
+            // 红色(0) offset 为正 -> 身体左移 -> 阴影X应为负
+            // 蓝色(1) offset 为正 -> 身体右移 -> 阴影X应为正
             const shadowX = (teamId === 0 ? -visualOffset : visualOffset) + 5;
             this.shadow.position.set(shadowX, 5);
             
@@ -99,22 +102,37 @@ export default class FoosballPlayer {
      */
     updatePosition(rodX, rodY, kickOffset) {
         const dir = this.teamId === 0 ? 1 : -1; // 0往右(+X)，1往左(-X)
+        const cfg = FoosballConfig.puppet;
+        const maxOffset = FoosballConfig.rod.kick.maxOffset;
 
         // 1. 物理同步
         // 击球时，物理重心随脚尖移动
-        // maxOffset = 150 -> maxMove = 120
-        const targetX = rodX + (kickOffset * 0.8) * dir;
+        const targetX = rodX + (kickOffset * cfg.kickPhysicsRatio) * dir;
+        
+        // [核心优化] 显式设置速度 (Velocity)
+        // Matter.js 处理碰撞冲量时依赖刚体的 velocity 属性。
+        // 如果只设置 position，虽然物体移动了，但 collision solver 可能认为它是静止或速度不一致。
+        // 手动计算当前帧的位移作为速度：vx = newX - oldX
+        const vx = targetX - this.body.position.x;
+        
+        // [优化] 垂直速度增强
+        // 适当放大垂直速度 (1.2倍)，让滑杆击球更有力，补偿物理引擎对摩擦传导的损耗
+        let vy = (rodY - this.body.position.y) * 1.2;
+        
+        // 限制最大速度防止穿透
+        if (Math.abs(vy) > 60) vy = Math.sign(vy) * 60;
+
+        Matter.Body.setVelocity(this.body, { x: vx, y: vy });
         Matter.Body.setPosition(this.body, { x: targetX, y: rodY });
 
         // 2. 视觉同步 (位移 + 拉伸)
         // [核心优化] 仅靠拉伸会导致图片严重失真。
-        // 我们让身体中心也跟随前移一部分 (40%)，即 maxMove = 60px
-        const visualShift = (kickOffset * 0.4) * dir;
+        // 我们让身体中心也跟随前移一部分
+        const visualShift = (kickOffset * cfg.kickVisualRatio) * dir;
         this.view.position.set(rodX + visualShift, rodY);
 
-        // 配合适度拉伸：最大 offset 150 时，拉伸至 1.6 倍
-        // 这样视觉边缘大约能覆盖到 rodX + 60 + (HalfWidth * 1.6) ≈ rodX + 127，正好覆盖物理位置(120)
-        const stretch = 1 + (kickOffset / 150) * 0.6;
+        // 配合适度拉伸：最大 offset 时，拉伸至 1.0 + kickStretchRatio
+        const stretch = 1 + (Math.abs(kickOffset) / maxOffset) * cfg.kickStretchRatio;
         this.view.scale.x = stretch;
         
         // 3. 头部始终保持在杆子上 (固定点)

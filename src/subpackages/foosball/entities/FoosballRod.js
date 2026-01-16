@@ -24,13 +24,13 @@ export default class FoosballRod {
         this.players = [];
         this.kickState = 0; 
         this.kickOffset = 0;
+        this.kickDirection = 1; // [新增] 1:向前踢, -1:向后踢
         
-        // [修改] 扩大击球范围
-        // 原始距离 50 -> 扩大3倍 -> 150
-        this.maxKickOffset = 150; 
-        // [修改] 提高速度以匹配距离，保持爆发力 (原15/8 -> 45/24)
-        this.kickSpeed = 45;      
-        this.returnSpeed = 24;    
+        // [修改] 从配置读取击球参数
+        const kickCfg = FoosballConfig.rod.kick;
+        this.maxKickOffset = kickCfg.maxOffset; 
+        this.kickSpeed = kickCfg.speed;      
+        this.returnSpeed = kickCfg.returnSpeed;    
 
         // 1. 层级容器
         this.rodContainer = new PIXI.Container();
@@ -169,20 +169,37 @@ export default class FoosballRod {
         this.y = Math.max(this.constraints.minY, Math.min(this.constraints.maxY, targetY));
     }
 
-    kick() {
-        if (this.kickState === 0) this.kickState = 1;
+    /**
+     * 执行踢球
+     * @param {number} dir 1:向前踢, -1:向后踢 (模拟360度旋转打身后的球)
+     */
+    kick(dir = 1) {
+        if (this.kickState === 0) {
+            this.kickState = 1;
+            this.kickDirection = dir;
+        }
     }
 
     update() {
-        // 击球动画状态机
+        // 击球动画状态机 (支持双向)
         if (this.kickState === 1) {
-            this.kickOffset += this.kickSpeed;
-            if (this.kickOffset >= this.maxKickOffset) this.kickState = 2;
+            // 伸出阶段：根据 kickDirection 增加或减少
+            if (this.kickDirection === 1) {
+                this.kickOffset += this.kickSpeed;
+                if (this.kickOffset >= this.maxKickOffset) this.kickState = 2;
+            } else {
+                this.kickOffset -= this.kickSpeed;
+                // 后踢距离稍微短一点 (0.6倍)，避免穿模太严重
+                if (this.kickOffset <= -this.maxKickOffset * 0.6) this.kickState = 2;
+            }
         } else if (this.kickState === 2) {
-            this.kickOffset -= this.returnSpeed;
-            if (this.kickOffset <= 0) {
-                this.kickOffset = 0;
-                this.kickState = 0;
+            // 收回阶段：归零
+            if (this.kickOffset > 0) {
+                this.kickOffset -= this.returnSpeed;
+                if (this.kickOffset <= 0) { this.kickOffset = 0; this.kickState = 0; }
+            } else if (this.kickOffset < 0) {
+                this.kickOffset += this.returnSpeed;
+                if (this.kickOffset >= 0) { this.kickOffset = 0; this.kickState = 0; }
             }
         }
 
