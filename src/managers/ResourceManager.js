@@ -19,13 +19,15 @@ class ResourceManager {
       ball: 'assets/images/ball.png', 
       
       // [新增] 通用柔光阴影贴图 (优化 DrawCall 关键)
-      // 请确保 assets/images/shadow.png 存在，是一张边缘柔和的黑色圆形径向渐变图
       shadow: 'assets/images/shadow.png',
 
       // UI
       main_bg: 'assets/images/main_bg.png',
       btn_menu: 'assets/images/btn/btn_menu.png',
       hud_bg: 'assets/images/hud_bg.png',
+      
+      // 德式桌球新入口按钮
+      foosball_icon_btn: 'assets/images/icon/foosball_btn.png',
       
       // [新增] 对话框背景 (外部素材)
       dialog_bg: 'remote:dialog_bg.png',
@@ -47,14 +49,14 @@ class ResourceManager {
       icon_social: 'assets/images/icon/icon_social.png',
       icon_bag: 'assets/images/icon/icon_bag.png',
       icon_checkin: 'assets/images/icon/icon_checkin.png',
-      icon_theme: 'assets/images/icon/icon_theme.png', // [新增] 主题图标 (如果没有图会回退到文字)
+      icon_theme: 'assets/images/icon/icon_theme.png', 
 
       // 技能按键背景素材
       skill_aim_bg: 'assets/images/icon/skill_aim_bg.png',
       skill_force_bg: 'assets/images/icon/skill_force_bg.png',
       skill_unstoppable_bg: 'assets/images/icon/skill_unstoppable_bg.png',
 
-      // [新增] AI 头像 (占位路径，请确保资源存在)
+      // [新增] AI 头像
       ai_hot: 'assets/images/avatars/ai_hot.png',
       ai_troll: 'assets/images/avatars/ai_troll.png',
       ai_robot: 'assets/images/avatars/ai_robot.png',
@@ -63,8 +65,8 @@ class ResourceManager {
     };
 
     // [新增] 桌上足球分包资源清单
-    // 只有在分包加载成功后才能加载这些资源
     this.foosballManifest = {
+      fb_menu_bg: 'subpackages/foosball/assets/images/menu_bg.png', // [新增] 分包菜单背景
       fb_bg: 'subpackages/foosball/assets/images/fb_bg.png',
       fb_rod_metal: 'subpackages/foosball/assets/images/fb_rod_metal.png',
       fb_puppet_red: 'subpackages/foosball/assets/images/fb_puppet_red.png',
@@ -73,22 +75,15 @@ class ResourceManager {
       fb_table_frame: 'subpackages/foosball/assets/images/fb_table_frame.png'
     };
 
-    // [新增] 动态注册主题资源
-    // 1. 球场
-    // field_1 保持本地
+    // 动态注册主题资源
     this.gameManifest['field_1'] = `assets/images/fieldtheme/field_combined1.png`;
-    // field_2 改为远程资源 (标记 remote:)
     this.gameManifest['field_2'] = `remote:field_combined2.png`;
 
-    // 2. 足球纹理 (改为4套: 1默认 + 2奖励)
-    // 注意：代码里默认使用了 ball_texture 作为 key，这里我们把 ball_texture1 设为默认的 ball_texture 以兼容旧逻辑
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
     for (let i = 1; i <= 4; i++) {
         this.gameManifest[`ball_texture_${i}`] = `assets/images/footballtheme/ball_texture${i}.png`;
     }
 
-    // 3. 棋子 (改为7套: 1默认 + 2奖励)
-    // 兼容旧逻辑：striker_red, striker_blue 映射到第1套
     this.gameManifest['striker_red'] = `assets/images/strikerstheme/red_1.png`;
     this.gameManifest['striker_blue'] = `assets/images/strikerstheme/blue_1.png`;
     
@@ -98,26 +93,15 @@ class ResourceManager {
     }
   }
 
-  /**
-   * 仅加载登录页背景
-   */
   loadLoginResources() {
       return this._loadManifest(this.loginManifest);
   }
 
-  /**
-   * 加载剩余游戏资源 (主包)
-   * @param {Function} onProgress (progress: number) => void (0~100)
-   */
   loadGameResources(onProgress) {
       return this._loadManifest(this.gameManifest, onProgress);
   }
 
-  /**
-   * [新增] 加载桌球分包资源
-   */
   loadFoosballResources(onProgress) {
-      // 检查是否已经加载过
       if (this.get('fb_bg')) {
           if (onProgress) onProgress(100);
           return Promise.resolve();
@@ -125,32 +109,21 @@ class ResourceManager {
       return this._loadManifest(this.foosballManifest, onProgress);
   }
 
-  /**
-   * 通用加载内部实现
-   */
   _loadManifest(manifest, onProgress) {
     return new Promise(async (resolve, reject) => {
       const loader = PIXI.Loader.shared;
-      
       let count = 0;
-      
-      // 预处理Manifest：分离本地和远程资源
       const loadQueue = [];
 
       for (const [key, rawUrl] of Object.entries(manifest)) {
         if (loader.resources[key]) {
-            // 已加载，更新引用 (如果是Texture)
             if (loader.resources[key].texture) {
                 this.resources[key] = loader.resources[key].texture;
             }
             continue;
         }
-
         count++;
-        
-        // 简单判断是否是完整URL
         if (rawUrl.startsWith('http') || rawUrl.startsWith('https')) {
-             // 完整URL直接添加 (Pixi Loader 支持)
              loadQueue.push({ key, type: 'local', url: rawUrl });
         } else if (rawUrl.startsWith('remote:')) {
             const fileName = rawUrl.split(':')[1];
@@ -166,23 +139,18 @@ class ResourceManager {
           return;
       }
 
-      // 如果有远程资源，先并行下载/获取本地路径
       const remoteItems = loadQueue.filter(item => item.type === 'remote');
       if (remoteItems.length > 0) {
-          // 这里简单处理：并行请求所有远程路径
           await Promise.all(remoteItems.map(async (item) => {
               try {
                   const localPathOrUrl = await Platform.loadRemoteAsset(item.fileName);
-                  // 将解析后的路径添加到 loader
                   loader.add(item.key, localPathOrUrl);
               } catch (e) {
                   console.warn(`[Resource] Failed to resolve remote asset: ${item.fileName}`, e);
-                  // 失败则不添加，让 loader 后续处理或忽略
               }
           }));
       }
 
-      // 添加本地资源到 loader
       loadQueue.filter(item => item.type === 'local').forEach(item => {
           loader.add(item.key, item.url);
       });
@@ -212,11 +180,6 @@ class ResourceManager {
     });
   }
 
-  /**
-   * 获取纹理
-   * @param {string} key 
-   * @returns {PIXI.Texture|null}
-   */
   get(key) {
     return this.resources[key] || null;
   }

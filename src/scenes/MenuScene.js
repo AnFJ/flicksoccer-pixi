@@ -6,7 +6,7 @@ import AccountMgr from '../managers/AccountMgr.js';
 import GameScene from './GameScene.js';
 import LobbyScene from './LobbyScene.js';
 import LevelSelectScene from './LevelSelectScene.js'; 
-import FoosballMenuScene from '../subpackages/foosball/scenes/FoosballMenuScene.js'; // [新增] 静态导入分包场景
+import FoosballMenuScene from '../subpackages/foosball/scenes/FoosballMenuScene.js'; 
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
 import ResourceManager from '../managers/ResourceManager.js';
@@ -18,7 +18,6 @@ import LotteryDialog from '../ui/LotteryDialog.js';
 import { drawLottery } from '../config/LotteryConfig.js'; 
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; 
-import ResultScene from './ResultScene.js'; 
 
 export default class MenuScene extends BaseScene {
   onEnter() {
@@ -47,28 +46,28 @@ export default class MenuScene extends BaseScene {
         this.container.addChild(bg);
     }
 
-    // 用户信息
+    // 用户信息 (内部会包含新的德式桌球图片按钮)
     this.createUserInfo(user);
 
     // 按钮组
     const btnTexture = ResourceManager.get('btn_menu');
     const btnX = designWidth * 0.75;
     
-    // [修改] 调整布局以容纳4个按钮
-    const startY = designHeight * 0.28; // 上移起始位置 (原0.35)
-    const gap = 135; // 减小间距 (原160)
+    // 调整布局以容纳 3 个主要按钮 (移除了德式桌球按钮)
+    const startY = designHeight * 0.35; 
+    const gap = 160; 
 
     const btnConfig = {
-        width: 500,  // 稍微减小宽度 (原560)
-        height: 120, // 稍微减小高度 (原144)
+        width: 560, 
+        height: 144,
         texture: btnTexture, 
         color: 0x3498db,     
-        fontSize: 44, // 稍微减小字号 (原50)
+        fontSize: 50,
         textColor: 0xFFFFFF  
     };
     const entryFee = GameConfig.gameplay.economy.entryFee;
     
-    // 1. PVE (无需解锁)
+    // 1. PVE
     const pveBtn = new Button({ 
         ...btnConfig,
         text: `单人闯关`, 
@@ -79,7 +78,7 @@ export default class MenuScene extends BaseScene {
     pveBtn.position.set(btnX - 210, startY);
     this.container.addChild(pveBtn);
     
-    // 2. 本地双人 (需每日解锁)
+    // 2. 本地双人
     const pvpLocalBtn = new Button({ 
         ...btnConfig,
         text: '本地双人', 
@@ -93,7 +92,7 @@ export default class MenuScene extends BaseScene {
     this.container.addChild(pvpLocalBtn);
     this.updateLockStatus(pvpLocalBtn, 'local_pvp');
 
-    // 3. 网络对战 (需每日解锁)
+    // 3. 网络对战
     const pvpOnlineBtn = new Button({
         ...btnConfig, 
         text: `网络对战`,
@@ -111,74 +110,16 @@ export default class MenuScene extends BaseScene {
     this.container.addChild(pvpOnlineBtn);
     this.updateLockStatus(pvpOnlineBtn, 'online_pvp');
 
-    // 4. [新增] 德式桌球 (独立入口，需加载分包)
-    const foosballBtn = new Button({
-        ...btnConfig,
-        text: '德式桌球',
-        color: 0x27ae60, // 使用绿色区分
-        onClick: async () => {
-            // [修复] 先加载分包
-            Platform.showToast('正在加载玩法...');
-            try {
-                // 1. 挂载分包
-                await Platform.loadSubpackage('foosball');
-                // 2. 加载分包内的图片资源 (依赖分包已挂载)
-                await ResourceManager.loadFoosballResources();
-                // 3. 跳转场景
-                SceneManager.changeScene(FoosballMenuScene);
-            } catch (e) {
-                console.error(e);
-                Platform.showToast('加载失败，请重试');
-            }
-        }
-    });
-    foosballBtn.position.set(btnX - 190, startY + gap * 3);
-    this.container.addChild(foosballBtn);
-
-    // 加上“新模式”角标
-    this.addNewBadge(foosballBtn);
-
     this.alignUserInfo();
 
-    // [新增] 监听数据刷新事件
+    // 监听数据刷新事件
     EventBus.on(Events.USER_DATA_REFRESHED, this.refreshUI, this);
   }
 
-  // [新增] 添加 NEW 角标
-  addNewBadge(parent) {
-      const badge = new PIXI.Graphics();
-      badge.beginFill(0xe74c3c);
-      badge.drawRoundedRect(0, 0, 80, 30, 10);
-      badge.endFill();
-      
-      const text = new PIXI.Text('NEW', { fontSize: 18, fill: 0xffffff, fontWeight: 'bold' });
-      text.anchor.set(0.5);
-      text.position.set(40, 15);
-      badge.addChild(text);
-      
-      // 放在按钮左上角
-      badge.position.set(-parent.options.width/2 - 10, -parent.options.height/2 - 10);
-      // 简单的呼吸动画
-      let t = 0;
-      const animate = () => {
-          if (parent._destroyed) return;
-          t += 0.1;
-          const s = 1 + Math.sin(t) * 0.1;
-          badge.scale.set(s);
-          requestAnimationFrame(animate);
-      }
-      animate();
-      
-      parent.inner.addChild(badge);
-  }
-
-  // ... (保留 handleModeEntry, updateLockStatus, refreshLockIcons, refreshUI, onResize, onExit, update, alignUserInfo, createUserInfo, createIconBtn, handleDailyCheckIn, createDefaultAvatar 等方法不变) ...
   handleModeEntry(modeKey, onSuccess) {
       if (AccountMgr.isModeUnlocked(modeKey)) {
-          // 已解锁，直接进入
           onSuccess();
       } else {
-          // 未解锁，弹窗提示看广告
           const dialog = new MessageDialog(
               "解锁玩法", 
               "观看一次视频，今日无限畅玩该模式！", 
@@ -188,14 +129,11 @@ export default class MenuScene extends BaseScene {
                   if (success) {
                       AccountMgr.unlockMode(modeKey);
                       Platform.showToast("解锁成功！今日免费畅玩");
-                      // 刷新按钮状态
                       this.refreshLockIcons();
-                      // 进入
                       onSuccess();
                   }
               }
           );
-          // 修改 MessageDialog 的确认按钮文字会更友好，这里默认是 "确定"
           this.container.addChild(dialog);
       }
   }
@@ -224,7 +162,7 @@ export default class MenuScene extends BaseScene {
           icon.endFill();
 
           lockContainer.addChild(bg, icon);
-          lockContainer.position.set(btn.options.width / 2 - 40, -btn.options.height / 2 + 10);
+          lockContainer.position.set(btn.options.width / 2 - 140, -btn.options.height / 2 + 65);
           
           btn.inner.addChild(lockContainer);
       }
@@ -396,6 +334,43 @@ export default class MenuScene extends BaseScene {
     coinsText.position.set(textX + 120, textStartY + 62);
     this.coinsText = coinsText; 
     container.addChild(coinsText);
+
+    // [新增] 在信息栏右侧添加纯图片的德式桌球入口按钮
+    const foosballIconTex = ResourceManager.get('foosball_icon_btn');
+    if (foosballIconTex) {
+        const foosballIconBtn = new PIXI.Sprite(foosballIconTex);
+        foosballIconBtn.anchor.set(0, 0.5);
+        // 位置设定：位于金币文本右侧约 120px
+        foosballIconBtn.position.set(textX + 380, textStartY + 45);
+        
+        // 设置尺寸，假设图片较大，缩小到合适高度 (约 80px)
+        const targetH = 140;
+        foosballIconBtn.scale.set(targetH / foosballIconTex.height);
+        
+        foosballIconBtn.interactive = true;
+        foosballIconBtn.buttonMode = true;
+        
+        foosballIconBtn.on('pointerdown', () => foosballIconBtn.scale.set((targetH / foosballIconTex.height) * 0.9));
+        foosballIconBtn.on('pointerupoutside', () => foosballIconBtn.scale.set(targetH / foosballIconTex.height));
+        foosballIconBtn.on('pointerup', async () => {
+            foosballIconBtn.scale.set(targetH / foosballIconTex.height);
+            Platform.showToast('正在加载玩法...');
+            try {
+                await Platform.loadSubpackage('foosball');
+                await ResourceManager.loadFoosballResources();
+                SceneManager.changeScene(FoosballMenuScene);
+            } catch (e) {
+                console.error(e);
+                Platform.showToast('加载失败，请重试');
+            }
+        });
+
+        // 加上“新”的小红点提示
+        const dot = new PIXI.Graphics().beginFill(0xFF0000).drawCircle(foosballIconBtn.width - 10, -foosballIconBtn.height/2 + 10, 8).endFill();
+        foosballIconBtn.addChild(dot);
+
+        container.addChild(foosballIconBtn);
+    }
 
     this.container.addChild(container);
   }

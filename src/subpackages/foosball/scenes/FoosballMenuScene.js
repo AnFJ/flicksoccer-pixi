@@ -3,7 +3,7 @@ import * as PIXI from 'pixi.js';
 import BaseScene from '../../../scenes/BaseScene.js';
 import SceneManager from '../../../managers/SceneManager.js';
 import MenuScene from '../../../scenes/MenuScene.js';
-import FoosballGameScene from './FoosballGameScene.js'; // [修改] 导入游戏场景
+import FoosballGameScene from './FoosballGameScene.js'; 
 import Button from '../../../ui/Button.js';
 import BackButton from '../../../ui/BackButton.js';
 import { GameConfig } from '../../../config.js';
@@ -15,29 +15,19 @@ export default class FoosballMenuScene extends BaseScene {
         super.onEnter();
         const { designWidth, designHeight } = GameConfig;
 
-        // 1. 背景 (绿色桌台风格)
-        const bgTex = ResourceManager.get('fb_bg') || ResourceManager.get('bg_grass');
+        // 1. 背景 (仅使用专属背景图 fb_menu_bg，移除兜底逻辑)
+        const bgTex = ResourceManager.get('fb_menu_bg');
         if (bgTex) {
-            const bg = new PIXI.TilingSprite(bgTex, designWidth, designHeight);
-            bg.tileScale.set(0.5);
-            bg.tint = 0x27ae60; // 染成深绿色
-            this.container.addChild(bg);
-        } else {
-            const bg = new PIXI.Graphics();
-            bg.beginFill(0x27ae60);
-            bg.drawRect(0, 0, designWidth, designHeight);
-            bg.endFill();
+            const bg = new PIXI.Sprite(bgTex);
+            bg.anchor.set(0.5);
+            bg.position.set(designWidth / 2, designHeight / 2);
+            
+            // 适配策略：高度撑满屏幕，宽度等比缩放
+            bg.height = designHeight;
+            bg.scale.x = bg.scale.y; 
+            
             this.container.addChild(bg);
         }
-
-        // 装饰性线条 (模拟足球场白线)
-        const lines = new PIXI.Graphics();
-        lines.lineStyle(4, 0xFFFFFF, 0.3);
-        lines.drawRect(50, 50, designWidth - 100, designHeight - 100);
-        lines.moveTo(designWidth / 2, 50);
-        lines.lineTo(designWidth / 2, designHeight - 50);
-        lines.drawCircle(designWidth / 2, designHeight / 2, 100);
-        this.container.addChild(lines);
 
         // 2. 标题
         const title = new PIXI.Text('德式桌球争霸', {
@@ -56,14 +46,13 @@ export default class FoosballMenuScene extends BaseScene {
             text: '开始比赛', width: 360, height: 100, color: 0xe67e22,
             fontSize: 40,
             onClick: () => {
-                // [修改] 跳转到游戏场景
                 SceneManager.changeScene(FoosballGameScene);
             }
         });
         startBtn.position.set(designWidth / 2 - 180, startY);
         this.container.addChild(startBtn);
 
-        // 返回按钮 (使用通用组件)
+        // 返回按钮
         const backBtn = new BackButton({
             text: '返回大厅',
             onClick: () => SceneManager.changeScene(MenuScene)
