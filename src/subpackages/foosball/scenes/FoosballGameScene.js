@@ -22,13 +22,16 @@ export default class FoosballGameScene extends BaseScene {
         this.ball = null;
         this.rods = [];
         this.scores = [0, 0];
-        this.touches = new Map();
+        
+        // 触摸跟踪: Map<pointerId, { rod: FoosballRod, lastY: number }>
+        this.activeTouches = new Map(); 
     }
 
     onEnter() {
         super.onEnter();
         const { designWidth, designHeight } = GameConfig;
 
+        // 挂载层级
         this.container.addChild(this.layout.layers.bg);
         this.container.addChild(this.layout.layers.game);
         this.container.addChild(this.layout.layers.over);
@@ -87,12 +90,15 @@ export default class FoosballGameScene extends BaseScene {
 
     createRods() {
         const { x, y, w, h } = this.layout.fieldRect;
-        const constraints = { minY: y + 80, maxY: y + h - 80 };
+        
+        // [修改] 不再在这里计算统一的 constraints
+        // 而是将 fieldRect 传入 Rod，让每根杆子根据自己的球员数量计算
         const step = w / (FoosballConfig.rod.count + 1);
 
         FoosballConfig.rod.layout.forEach((cfg, index) => {
             const rodX = x + step * (index + 1);
-            const rod = new FoosballRod(this, rodX, cfg.teamId, cfg.puppets, constraints);
+            // 传入 this.layout.fieldRect
+            const rod = new FoosballRod(this, rodX, cfg.teamId, cfg.puppets, this.layout.fieldRect);
             this.rods.push(rod);
         });
     }
@@ -107,45 +113,127 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     createUI(w, h) {
+        // 1. 比分板
         const style = { fontFamily: 'Arial Black', fontSize: 80, fill: 0xFFD700, stroke: 0x000000, strokeThickness: 10 };
         this.scoreText = new PIXI.Text('0 - 0', style);
         this.scoreText.anchor.set(0.5);
         this.scoreText.position.set(w / 2, 80);
         this.layout.layers.ui.addChild(this.scoreText);
 
+        // 2. 退出按钮 (左上)
         const exitBtn = new Button({
             text: '退出', width: 140, height: 60, color: 0xe74c3c,
             onClick: () => SceneManager.changeScene(FoosballMenuScene)
         });
         exitBtn.position.set(40, 40);
         this.layout.layers.ui.addChild(exitBtn);
+
+        // 3. 射门按钮 (右下)
+        const btnRadius = 70;
+        const shootBtn = new PIXI.Container();
+        shootBtn.position.set(w - 120, h - 120);
+
+        const btnBg = new PIXI.Graphics();
+        btnBg.lineStyle(4, 0xffffff);
+        btnBg.beginFill(0xe74c3c); // 红色按钮
+        btnBg.drawCircle(0, 0, btnRadius);
+        btnBg.endFill();
+        
+        // 简单的“靴子/脚”图标或者文字
+        const btnText = new PIXI.Text('射门', {
+            fontFamily: 'Arial Black', fontSize: 36, fill: 0xffffff
+        });
+        btnText.anchor.set(0.5);
+
+        shootBtn.addChild(btnBg, btnText);
+        shootBtn.interactive = true;
+        shootBtn.buttonMode = true;
+
+        // 绑定射门事件
+        shootBtn.on('pointerdown', (e) => {
+            e.stopPropagation(); // 阻止事件穿透到场景导致误触移动
+            shootBtn.scale.set(0.9);
+            this.onKickButtonPress();
+        });
+        shootBtn.on('pointerup', () => shootBtn.scale.set(1));
+        shootBtn.on('pointerupoutside', () => shootBtn.scale.set(1));
+
+        this.layout.layers.ui.addChild(shootBtn);
+    }
+
+    onKickButtonPress() {
+        // 逻辑：
+        // 1. 如果玩家正在按住某些杆子（activeTouches），则只让这些杆子踢球
+        // 2. 如果玩家没有按住任何杆子，则全队一起踢球（方便操作）
+        
+        const myActiveRods = new Set();
+        this.activeTouches.forEach(data => {
+            if (data.rod && data.rod.teamId === 0) {
+                myActiveRods.add(data.rod);
+            }
+        });
+
+        if (myActiveRods.size > 0) {
+            myActiveRods.forEach(rod => rod.kick());
+        } else {
+            // 兜底：所有红方杆子踢球
+            this.rods.filter(r => r.teamId === 0).forEach(r => r.kick());
+        }
     }
 
     onTouchStart(e) {
         const id = e.data.identifier;
-        this.touches.set(id, { lastY: e.data.global.y, isTap: true });
+        
+        // [修复] 将全局屏幕坐标转换为场景内部坐标 (Local Space)
+        // 解决因屏幕适配缩放导致的点击位置错乱问题
+        const localPos = this.container.toLocal(e.data.global);
+
+        // 寻找距离点击位置最近的、属于我方(Team 0)的杆子
+        const myRods = this.rods.filter(r => r.teamId === 0);
+        let targetRod = null;
+        let minDst = Infinity;
+        // 使用场景设计尺寸下的阈值
+        const threshold = 120; 
+
+        myRods.forEach(r => {
+            // 在同一坐标系下对比 X 轴距离
+            const dist = Math.abs(r.x - localPos.x);
+            if (dist < threshold && dist < minDst) {
+                minDst = dist;
+                targetRod = r;
+            }
+        });
+
+        if (targetRod) {
+            this.activeTouches.set(id, {
+                rod: targetRod,
+                lastY: localPos.y // 记录 Local Y
+            });
+        }
     }
 
     onTouchMove(e) {
-        const touch = this.touches.get(e.data.identifier);
-        if (!touch) return;
-        const dy = e.data.global.y - touch.lastY;
-        if (Math.abs(dy) > 5) touch.isTap = false;
+        const id = e.data.identifier;
+        const touchData = this.activeTouches.get(id);
+        
+        if (!touchData) return;
 
-        // 玩家控制所有红方杆子
-        this.rods.filter(r => r.teamId === 0).forEach(r => {
-            r.moveTo(r.y + dy * 1.5);
-        });
-        touch.lastY = e.data.global.y;
+        // 同样转换为 Local Space
+        const localPos = this.container.toLocal(e.data.global);
+        const currentY = localPos.y;
+        
+        const dy = currentY - touchData.lastY;
+
+        // 移动对应的杆子 (系数可以根据手感微调，现在是在同一坐标系下，1.0 是 1:1 跟随)
+        // [修改] 之前是 1.5，导致玩家感觉滑得太快（比手指快30-50%）。现在改为 1.0，实现 1:1 精准跟随。
+        touchData.rod.moveTo(touchData.rod.y + dy * 1.0);
+        
+        touchData.lastY = currentY;
     }
 
     onTouchEnd(e) {
-        const touch = this.touches.get(e.data.identifier);
-        if (touch && touch.isTap) {
-            // 点击射门
-            this.rods.filter(r => r.teamId === 0).forEach(r => r.kick());
-        }
-        this.touches.delete(e.data.identifier);
+        const id = e.data.identifier;
+        this.activeTouches.delete(id);
     }
 
     update(delta) {
@@ -159,13 +247,17 @@ export default class FoosballGameScene extends BaseScene {
     updateAI() {
         if (!this.ball) return;
         const bPos = this.ball.body.position;
-        // AI 控制蓝方杆子
+        // AI 控制蓝方杆子 (Team 1)
         this.rods.filter(r => r.teamId === 1).forEach(r => {
             const diff = bPos.y - r.y;
-            if (Math.abs(diff) > 5) r.moveTo(r.y + Math.sign(diff) * 5);
-            // 射门逻辑：球在球员左侧近距离时踢球
-            if (bPos.x < r.x && bPos.x > r.x - 100 && Math.abs(diff) < 60) {
-                if (Math.random() < 0.1) r.kick();
+            // 简单的跟随球移动
+            if (Math.abs(diff) > 5) r.moveTo(r.y + Math.sign(diff) * 4);
+            
+            // 射门逻辑：球在杆子前方且距离近时射门
+            // 蓝方在右侧，向左踢，所以球应该在杆子的右侧 (bPos.x > r.x)
+            // 范围放宽一点
+            if (bPos.x < r.x && bPos.x > r.x - 120 && Math.abs(diff) < 50) {
+                if (Math.random() < 0.08) r.kick();
             }
         });
     }

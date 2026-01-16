@@ -36,6 +36,11 @@ export default class FoosballPlayer {
         const spriteKey = teamId === 0 ? 'fb_puppet_red' : 'fb_puppet_blue';
         const tex = ResourceManager.get(spriteKey);
 
+        // [调整] 视觉修正偏移量 (用于对齐杆子和肩膀)
+        // 红色(0)需要左移，蓝色(1)需要右移
+        // 由于旋转系统的差异 (90 vs -90)，设置 Sprite 局部 Y 轴正向偏移均可实现向"后"位移
+        const visualOffset = 14; 
+
         if (tex) {
             // A. 创建身体渲染器 (旋转 90 度，使肩膀垂直)
             this.bodySprite = new PIXI.Sprite(tex);
@@ -46,6 +51,10 @@ export default class FoosballPlayer {
             // 关键：旋转以适应纵向杆子
             // 红色旋转 90 度面朝右，蓝色旋转 -90 度面朝左
             this.bodySprite.rotation = teamId === 0 ? Math.PI / 2 : -Math.PI / 2;
+            
+            // [修正] 应用偏移，使视觉中心(肚子)偏离杆子，从而让肩膀(杆子位置)对齐
+            this.bodySprite.y = visualOffset;
+
             this.view.addChild(this.bodySprite);
 
             // B. 创建头部渲染器 (同上，但加遮罩)
@@ -54,11 +63,15 @@ export default class FoosballPlayer {
             this.headSprite.width = cfg.width;
             this.headSprite.height = cfg.height;
             this.headSprite.rotation = this.bodySprite.rotation;
+            
+            // [修正] 头部也应用同样的偏移
+            this.headSprite.y = visualOffset;
 
             // 遮罩：根据旋转后的坐标，只保留头部区域 (杆子上方)
             const mask = new PIXI.Graphics();
             mask.beginFill(0xffffff);
-            // 遮罩区域定义：以中心为基准，覆盖中间圆头部分
+            // 遮罩区域定义：以中心(杆子)为基准，覆盖中间圆头部分
+            // 注意：Mask 不移动，始终在杆子中心，这样正好露出偏移后的头部
             mask.drawCircle(0, 0, 28); 
             mask.endFill();
             this.headSprite.mask = mask;
@@ -69,7 +82,11 @@ export default class FoosballPlayer {
             this.shadow.beginFill(0x000000, 0.3);
             this.shadow.drawEllipse(0, 0, 30, 40);
             this.shadow.endFill();
-            this.shadow.position.set(5, 5);
+            
+            // [修正] 阴影跟随身体偏移 (view 容器未旋转，需手动计算 X 轴偏移)
+            const shadowX = (teamId === 0 ? -visualOffset : visualOffset) + 5;
+            this.shadow.position.set(shadowX, 5);
+            
             this.view.addChildAt(this.shadow, 0);
         }
     }
@@ -78,22 +95,29 @@ export default class FoosballPlayer {
      * 更新位置与击球
      * @param {number} rodX 杆子的X坐标
      * @param {number} rodY 杆子的当前中心Y
-     * @param {number} kickOffset 击球强度位移
+     * @param {number} kickOffset 击球强度位移 (最大 150)
      */
     updatePosition(rodX, rodY, kickOffset) {
         const dir = this.teamId === 0 ? 1 : -1; // 0往右(+X)，1往左(-X)
 
-        // 1. 计算视觉拉伸 (模拟脚踢出去的动作)
-        const stretch = 1 + (kickOffset / 50) * 0.3;
-        this.view.scale.x = stretch;
-        
-        // 2. 物理同步
+        // 1. 物理同步
         // 击球时，物理重心随脚尖移动
+        // maxOffset = 150 -> maxMove = 120
         const targetX = rodX + (kickOffset * 0.8) * dir;
         Matter.Body.setPosition(this.body, { x: targetX, y: rodY });
+
+        // 2. 视觉同步 (位移 + 拉伸)
+        // [核心优化] 仅靠拉伸会导致图片严重失真。
+        // 我们让身体中心也跟随前移一部分 (40%)，即 maxMove = 60px
+        const visualShift = (kickOffset * 0.4) * dir;
+        this.view.position.set(rodX + visualShift, rodY);
+
+        // 配合适度拉伸：最大 offset 150 时，拉伸至 1.6 倍
+        // 这样视觉边缘大约能覆盖到 rodX + 60 + (HalfWidth * 1.6) ≈ rodX + 127，正好覆盖物理位置(120)
+        const stretch = 1 + (kickOffset / 150) * 0.6;
+        this.view.scale.x = stretch;
         
-        // 3. 视觉同步
-        this.view.position.set(rodX, rodY);
+        // 3. 头部始终保持在杆子上 (固定点)
         this.headGroup.position.set(rodX, rodY);
     }
 }
