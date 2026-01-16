@@ -22,15 +22,20 @@ export default class FoosballRod {
         this.teamId = teamId;
         
         this.players = [];
-        this.kickState = 0; 
-        this.kickOffset = 0;
-        this.kickDirection = 1; // [新增] 1:向前踢, -1:向后踢
         
-        // [修改] 从配置读取击球参数
+        // [核心修改] 物理弹簧状态变量
+        this.kickOffset = 0;       // 当前实际偏移量
+        this.kickVelocity = 0;     // 当前伸缩速度
+        this.targetOffset = 0;     // 目标偏移量 (0 或 maxKickOffset)
+        this.kickDirection = 1;    // 1:向前, -1:向后
+        this.isKicking = false;    // 是否处于主动击球状态
+        
+        // 读取配置
         const kickCfg = FoosballConfig.rod.kick;
         this.maxKickOffset = kickCfg.maxOffset; 
-        this.kickSpeed = kickCfg.speed;      
-        this.returnSpeed = kickCfg.returnSpeed;    
+        this.stiffness = kickCfg.stiffness;
+        this.damping = kickCfg.damping;
+        this.mass = kickCfg.mass || 1.0;
 
         // 1. 层级容器
         this.rodContainer = new PIXI.Container();
@@ -52,39 +57,27 @@ export default class FoosballRod {
 
     createRodSprite() {
         const thickness = FoosballConfig.rod.thickness;
-        // [修改] 增加杆子长度，确保穿透整个屏幕 (假设设计高度1080，这里给2500足够长)
         const h = 2500; 
         
         const container = new PIXI.Container();
         
-        // [恢复] 使用金属杆素材
         const rodTex = ResourceManager.get('fb_rod_metal');
         if (rodTex) {
-            // 使用 TilingSprite 以便无限延伸且保持纹理比例
             const sprite = new PIXI.TilingSprite(rodTex, thickness, h);
             sprite.anchor.set(0.5);
             container.addChild(sprite);
         } else {
-            // 兜底绘制
             const g = new PIXI.Graphics();
-            
-            // 金属质感
-            g.beginFill(0x7f8c8d); // 暗色边
+            g.beginFill(0x7f8c8d);
             g.drawRect(-thickness/2, -h/2, thickness, h);
             g.endFill();
-            
-            g.beginFill(0xecf0f1, 0.4); // 高光中心
+            g.beginFill(0xecf0f1, 0.4);
             g.drawRect(-thickness/4, -h/2, thickness/2, h);
             g.endFill();
-
             container.addChild(g);
         }
         
-        // 添加两端的把手/缓冲垫 (位置在极远处，或者根据屏幕裁剪)
-        // 这里简单加几个装饰环，位置设宽一点
-        const ringY = 600; // 距离中心
-        
-        // [优化] 尝试加载缓冲垫素材
+        const ringY = 600; 
         const bumperTex = ResourceManager.get('fb_bumper');
         if (bumperTex) {
             const topBumper = new PIXI.Sprite(bumperTex);
@@ -103,9 +96,7 @@ export default class FoosballRod {
         } else {
             const ring = new PIXI.Graphics();
             ring.beginFill(0x333333);
-            // 上装饰环
             ring.drawRect(-thickness*0.8, -ringY, thickness*1.6, 20);
-            // 下装饰环
             ring.drawRect(-thickness*0.8, ringY, thickness*1.6, 20);
             ring.endFill();
             container.addChild(ring);
@@ -115,22 +106,15 @@ export default class FoosballRod {
     }
 
     createPlayersAndCalcConstraints(numPlayers) {
-        const fieldH = FoosballConfig.pitch.height; // 逻辑高度
-        // 间距计算：保持原逻辑
+        const fieldH = FoosballConfig.pitch.height;
         const spacing = fieldH / (numPlayers + 1);
-        
-        // [新增] 读取配置中的 rodYOffset (默认为0)
         const globalYOffset = FoosballConfig.puppet.rodYOffset || 0;
         
-        // 记录相对偏移量的极值
         let minOffset = 0;
         let maxOffset = 0;
 
         for (let i = 0; i < numPlayers; i++) {
-            // 计算相对杆子中心的 Y 偏移
-            // [修改] 累加 rodYOffset
             const offsetY = (i - (numPlayers - 1) / 2) * (spacing * 1.1) + globalYOffset;
-            
             if (i === 0) minOffset = offsetY;
             if (i === numPlayers - 1) maxOffset = offsetY;
 
@@ -140,75 +124,81 @@ export default class FoosballRod {
             this.players.push(player);
             this.scene.physics.add(player.body);
             
-            // 物理层级安排
             this.scene.layout.layers.game.addChildAt(player.view, this.scene.layout.layers.game.getChildIndex(this.rodContainer));
             this.headContainer.addChild(player.headGroup);
         }
 
-        // [核心修改] 计算移动范围限制
-        // 球员不应碰到上下墙壁。需要预留半个球员高度 + 边距
-        // 假设球员碰撞箱高度约为 50 (hitHeight)，视觉高度更大
-        // 我们留 60px 的安全边距
         const margin = 60; 
-        
-        // 当杆子移到最上方(minY)时，最上面的球员(minOffset)应该刚好抵住上墙(fieldRect.y)
-        // minY + minOffset = fieldRect.y + margin
-        // => minY = fieldRect.y + margin - minOffset
         const minY = this.fieldRect.y + margin - minOffset;
-
-        // 当杆子移到最下方(maxY)时，最下面的球员(maxOffset)应该刚好抵住下墙(fieldRect.y + h)
-        // maxY + maxOffset = fieldRect.y + this.fieldRect.h - margin
-        // => maxY = fieldRect.y + this.fieldRect.h - margin - maxOffset
         const maxY = this.fieldRect.y + this.fieldRect.h - margin - maxOffset;
 
         return { minY, maxY };
     }
 
     moveTo(targetY) {
-        // 应用针对该杆子计算的独立限制
         this.y = Math.max(this.constraints.minY, Math.min(this.constraints.maxY, targetY));
     }
 
     /**
-     * 执行踢球
-     * @param {number} dir 1:向前踢, -1:向后踢 (模拟360度旋转打身后的球)
+     * 执行踢球 (设置弹簧目标)
+     * @param {number} dir 1:向前踢, -1:向后踢
      */
     kick(dir = 1) {
-        if (this.kickState === 0) {
-            this.kickState = 1;
+        // 只有当不在击球状态，或者已经开始回弹时，允许新的击球
+        if (!this.isKicking || Math.abs(this.targetOffset) < 10) {
+            this.isKicking = true;
             this.kickDirection = dir;
+            // 设定目标为最大冲程
+            this.targetOffset = this.maxKickOffset * dir;
         }
     }
 
     update() {
-        // 击球动画状态机 (支持双向)
-        if (this.kickState === 1) {
-            // 伸出阶段：根据 kickDirection 增加或减少
-            if (this.kickDirection === 1) {
-                this.kickOffset += this.kickSpeed;
-                if (this.kickOffset >= this.maxKickOffset) this.kickState = 2;
-            } else {
-                this.kickOffset -= this.kickSpeed;
-                // 后踢距离稍微短一点 (0.6倍)，避免穿模太严重
-                if (this.kickOffset <= -this.maxKickOffset * 0.6) this.kickState = 2;
-            }
-        } else if (this.kickState === 2) {
-            // 收回阶段：归零
-            if (this.kickOffset > 0) {
-                this.kickOffset -= this.returnSpeed;
-                if (this.kickOffset <= 0) { this.kickOffset = 0; this.kickState = 0; }
-            } else if (this.kickOffset < 0) {
-                this.kickOffset += this.returnSpeed;
-                if (this.kickOffset >= 0) { this.kickOffset = 0; this.kickState = 0; }
+        // --- 1. 弹簧物理模拟核心 ---
+        
+        // 计算弹簧力 F = k * x (x = target - current)
+        const diff = this.targetOffset - this.kickOffset;
+        const force = diff * this.stiffness;
+        
+        // 加速度 a = F / m
+        const acceleration = force / this.mass;
+        
+        // 速度积分 v += a
+        this.kickVelocity += acceleration;
+        
+        // 阻尼衰减 (模拟摩擦和能量损耗)
+        this.kickVelocity *= this.damping;
+        
+        // 位移积分 p += v
+        this.kickOffset += this.kickVelocity;
+
+        // --- 2. 自动回弹逻辑 ---
+        
+        // 如果处于“击球”状态，且已经非常接近目标（甚至冲过了），则触发回弹
+        // 这里的判断阈值不用太精确，只要接近了最大值就开始收杆
+        if (this.isKicking) {
+            const distToTarget = Math.abs(this.targetOffset - this.kickOffset);
+            
+            // 如果接近目标点 (例如还有 20% 的距离)，或者速度开始反向(意味着到了极点)，就开始自动回弹
+            if (distToTarget < this.maxKickOffset * 0.2) {
+                this.isKicking = false;
+                this.targetOffset = 0; // 目标设为 0，弹簧会把杆子拉回来
             }
         }
 
-        // 同步杆子位置
+        // 强行归零修正 (防止微小震荡停不下来)
+        if (!this.isKicking && Math.abs(this.kickOffset) < 1 && Math.abs(this.kickVelocity) < 0.5) {
+            this.kickOffset = 0;
+            this.kickVelocity = 0;
+        }
+
+        // --- 3. 视觉同步 ---
+
         this.rodSprite.position.set(this.x, this.y);
 
-        // 同步所有球员
         this.players.forEach(p => {
-            p.updatePosition(this.x, this.y + p.offsetY, this.kickOffset);
+            // [修改] 传入 kickVelocity 用于计算视觉拉伸/倾斜效果
+            p.updatePosition(this.x, this.y + p.offsetY, this.kickOffset, this.kickVelocity);
         });
     }
 }

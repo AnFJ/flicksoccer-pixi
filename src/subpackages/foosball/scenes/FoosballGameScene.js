@@ -13,6 +13,7 @@ import Button from '../../../ui/Button.js';
 import ResourceManager from '../../../managers/ResourceManager.js';
 import Platform from '../../../managers/Platform.js';
 import Ball from '../../../entities/Ball.js';
+import GoalBanner from '../../../ui/GoalBanner.js'; // 复用主包的 GoalBanner
 
 export default class FoosballGameScene extends BaseScene {
     constructor() {
@@ -23,11 +24,19 @@ export default class FoosballGameScene extends BaseScene {
         this.rods = [];
         this.scores = [0, 0];
         
+        // 游戏状态
+        this.isGameOver = false;
+        this.isGoalProcessing = false; // [新增] 进球处理锁，防止重复计分
+        
         // 触摸跟踪: Map<pointerId, { rod: FoosballRod, lastY: number }>
         this.activeTouches = new Map(); 
         
         // [新增] 调试绘图对象
         this.debugGraphics = null;
+        
+        // UI
+        this.scoreText = null;
+        this.goalBanner = null;
     }
 
     onEnter() {
@@ -57,6 +66,9 @@ export default class FoosballGameScene extends BaseScene {
         this.container.on('pointermove', this.onTouchMove, this);
         this.container.on('pointerup', this.onTouchEnd, this);
         this.container.on('pointerupoutside', this.onTouchEnd, this);
+        
+        // 播放开场音效
+        Platform.showToast('比赛开始！率先进5球获胜');
     }
 
     // [新增] 创建调试图层
@@ -131,14 +143,14 @@ export default class FoosballGameScene extends BaseScene {
         if (bgTex) {
             const bg = new PIXI.Sprite(bgTex);
             bg.anchor.set(0.5); bg.position.set(cx, cy);
-            bg.width = fieldW * 1.08; bg.height = fieldH * 1.08;
+            bg.width = fieldW * 1.1; bg.height = fieldH * 1.1;
             this.layout.layers.bg.addChild(bg);
         }
         
         if (frameTex) {
             const frame = new PIXI.Sprite(frameTex);
-            frame.anchor.set(0.5); frame.position.set(cx, cy);
-            frame.width = fieldW * 1.35; frame.height = fieldH * 1.25;
+            frame.anchor.set(0.5); frame.position.set(cx, cy - 10);
+            frame.width = fieldW * 1.32; frame.height = fieldH * 1.2;
             this.layout.layers.over.addChild(frame);
         }
 
@@ -189,6 +201,10 @@ export default class FoosballGameScene extends BaseScene {
         this.scoreText.position.set(w / 2, 80);
         this.layout.layers.ui.addChild(this.scoreText);
 
+        // [新增] 进球横幅 (复用主包组件)
+        this.goalBanner = new GoalBanner();
+        this.layout.layers.ui.addChild(this.goalBanner);
+
         // 2. 退出按钮 (左上)
         const exitBtn = new Button({
             text: '退出', width: 140, height: 60, color: 0xe74c3c,
@@ -231,6 +247,8 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     onKickButtonPress() {
+        if (this.isGameOver) return;
+
         // 逻辑：
         // 1. 如果玩家正在按住某些杆子（activeTouches），则只让这些杆子踢球
         // 2. 如果玩家没有按住任何杆子，则全队一起踢球（方便操作）
@@ -251,6 +269,8 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     onTouchStart(e) {
+        if (this.isGameOver) return;
+
         const id = e.data.identifier;
         
         // [修复] 将全局屏幕坐标转换为场景内部坐标 (Local Space)
@@ -282,6 +302,8 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     onTouchMove(e) {
+        if (this.isGameOver) return;
+
         const id = e.data.identifier;
         const touchData = this.activeTouches.get(id);
         
@@ -294,7 +316,6 @@ export default class FoosballGameScene extends BaseScene {
         const dy = currentY - touchData.lastY;
 
         // 移动对应的杆子 (系数可以根据手感微调，现在是在同一坐标系下，1.0 是 1:1 跟随)
-        // [修改] 之前是 1.5，导致玩家感觉滑得太快（比手指快30-50%）。现在改为 1.0，实现 1:1 精准跟随。
         touchData.rod.moveTo(touchData.rod.y + dy * 1.0);
         
         touchData.lastY = currentY;
@@ -306,70 +327,181 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     update(delta) {
-        this.physics.update(16.66);
-        if (this.ball) this.ball.update(delta);
-        this.rods.forEach(r => r.update());
-        this.updateAI();
-        this.checkGoal();
+        if (!this.isGameOver) {
+            this.physics.update(16.66);
+            if (this.ball) this.ball.update(delta);
+            this.rods.forEach(r => r.update());
+            this.updateAI();
+            this.checkGoal();
+        }
         
         // [新增] 更新调试视图
         if (FoosballConfig.debug) {
             this.renderDebugView();
         }
+        
+        if (this.goalBanner) this.goalBanner.update(delta);
     }
 
     updateAI() {
         if (!this.ball) return;
         const bPos = this.ball.body.position;
+        const bVel = this.ball.body.velocity; // [新增] 获取速度
         
         // AI 控制蓝方杆子 (Team 1)
-        // 蓝方在右侧，向左进攻
+        // 蓝方在右侧，向左进攻 (Goal at Left)
         this.rods.filter(r => r.teamId === 1).forEach(r => {
             const diff = bPos.y - r.y;
-            // [优化] 全场跟随：无论球在哪里，AI 都尝试将杆子移动到球的 Y 轴
-            // 原先可能有限制，现在放开，让 AI 即使球在身后也能对齐进行拦截/回踢
-            if (Math.abs(diff) > 5) {
-                // 简单的反应延迟/平滑移动
-                r.moveTo(r.y + Math.sign(diff) * 4);
+            
+            // [优化] 1. 移动预判
+            // 加上球的垂直速度分量，预判 0.2s 后的位置
+            let targetY = bPos.y + bVel.y * 12;
+            
+            const moveDiff = targetY - r.y;
+
+            if (Math.abs(moveDiff) > 5) {
+                // 移动速度随距离增加，更加灵敏
+                const speed = Math.min(Math.abs(moveDiff) * 0.25, 10);
+                r.moveTo(r.y + Math.sign(moveDiff) * speed);
             }
             
-            // 射门逻辑
-            const distanceX = r.x - bPos.x; // 杆子X - 球X
+            // 2. 射门/击球逻辑
+            // distanceX = 杆子X - 球X
+            // Team1(蓝) 在右，向左攻。前方是 -X 方向。
+            // 球在左(前): bPos.x < r.x => distanceX > 0
+            // 球在右(后): bPos.x > r.x => distanceX < 0
+            const distanceX = r.x - bPos.x; 
+            const absDiffY = Math.abs(diff);
             
-            // 情况 A: 球在杆子前方 (左侧) 且距离合适 -> 正常射门 (Forward Kick)
-            // 蓝方在右，球在左边就是前方。 bPos.x < r.x, so distanceX > 0
-            if (distanceX > 0 && distanceX < 120 && Math.abs(diff) < 50) {
-                if (Math.random() < 0.08) r.kick(1); // 向前踢
-            }
-            
-            // 情况 B: 球在杆子后方 (右侧) 且非常贴近 -> 背后击球 (Back Kick)
-            // 模拟 360 度旋转击球，或者用后脚跟磕球
-            // distanceX < 0 means ball is to the right
-            else if (distanceX < 0 && distanceX > -50 && Math.abs(diff) < 50) {
-                // 触发几率稍微低一点，避免鬼畜
-                if (Math.random() < 0.05) r.kick(-1); // 向后踢
+            // Y轴只要大概对齐就开始尝试击球
+            if (absDiffY < 60) {
+                
+                // [情况 A] 正常射门 (Forward Kick)
+                // 范围: 球在前方 0 ~ 130px
+                if (distanceX > 0 && distanceX < 130) {
+                    // 基础概率 0.08，球速越快越容易触发激进反应
+                    let chance = 0.08 + Math.abs(bVel.x) * 0.02;
+                    if (Math.random() < chance) r.kick(1); 
+                }
+                
+                // [情况 B] 身后解围 (Back Kick)
+                // 范围: 球在身后 0 ~ 140px (杆子最大后仰约 160px)
+                // 之前的 -50 太小了，导致稍微过线 AI 就傻了
+                else if (distanceX < 0 && distanceX > -140) {
+                    // 离得越近越需要踢
+                    let chance = 0.05;
+                    if (distanceX > -60) chance = 0.2; // 贴身时高概率
+                    
+                    if (Math.random() < chance) r.kick(-1);
+                }
             }
         });
     }
 
     checkGoal() {
+        if (this.isGameOver || this.isGoalProcessing) return; // [修复] 增加锁判断
+
         const bx = this.ball.body.position.x;
         const rect = this.layout.fieldRect;
-        if (bx < rect.x) this.onGoal(1);
-        else if (bx > rect.x + rect.w) this.onGoal(0);
+        
+        // 超出左边界 -> 蓝方(1)进球
+        if (bx < rect.x - 20) this.onGoal(1);
+        // 超出右边界 -> 红方(0)进球
+        else if (bx > rect.x + rect.w + 20) this.onGoal(0);
     }
 
-    onGoal(teamId) {
-        this.scores[teamId]++;
+    onGoal(scoreTeamId) {
+        this.isGoalProcessing = true; // [修复] 锁定状态
+
+        this.scores[scoreTeamId]++;
         this.scoreText.text = `${this.scores[0]} - ${this.scores[1]}`;
-        Platform.showToast(teamId === 0 ? "红方得分！" : "蓝方得分！");
-        this.resetBall();
+        
+        if (this.goalBanner) {
+            const txt = scoreTeamId === 0 ? "红方得分!" : "蓝方得分!";
+            this.goalBanner.play(txt);
+        }
+
+        // 检查胜负
+        if (this.scores[scoreTeamId] >= FoosballConfig.gameplay.maxScore) {
+            this.showGameOver(scoreTeamId);
+        } else {
+            // 继续比赛：延迟重置
+            setTimeout(() => {
+                if (!this.isGameOver) this.resetBall();
+            }, 1500);
+        }
+    }
+
+    showGameOver(winnerId) {
+        this.isGameOver = true;
+        
+        const { designWidth, designHeight } = GameConfig;
+        
+        // 1. 半透明遮罩
+        const overlay = new PIXI.Graphics();
+        overlay.beginFill(0x000000, 0.7);
+        overlay.drawRect(0, 0, designWidth, designHeight);
+        overlay.interactive = true;
+        this.layout.layers.ui.addChild(overlay);
+
+        // 2. 结算面板
+        const panel = new PIXI.Graphics();
+        panel.beginFill(0xFFFFFF);
+        panel.drawRoundedRect(-300, -200, 600, 400, 20);
+        panel.endFill();
+        panel.position.set(designWidth / 2, designHeight / 2);
+        this.layout.layers.ui.addChild(panel);
+
+        // 3. 标题
+        const winColor = winnerId === 0 ? 0xe74c3c : 0x3498db;
+        const titleStr = winnerId === 0 ? "红方获胜!" : "蓝方获胜!";
+        const title = new PIXI.Text(titleStr, {
+            fontFamily: 'Arial Black', fontSize: 60, fill: winColor, fontWeight: 'bold'
+        });
+        title.anchor.set(0.5);
+        title.position.set(0, -100);
+        panel.addChild(title);
+
+        // 4. 最终比分
+        const scoreStr = `${this.scores[0]} - ${this.scores[1]}`;
+        const scoreDisplay = new PIXI.Text(scoreStr, {
+            fontFamily: 'Arial', fontSize: 80, fill: 0x333333
+        });
+        scoreDisplay.anchor.set(0.5);
+        scoreDisplay.position.set(0, 20);
+        panel.addChild(scoreDisplay);
+
+        // 5. 按钮
+        // 再来一局
+        const restartBtn = new Button({
+            text: '再来一局', width: 220, height: 70, color: 0x2ecc71,
+            onClick: () => SceneManager.changeScene(FoosballGameScene)
+        });
+        restartBtn.position.set(-240, 120);
+        panel.addChild(restartBtn);
+
+        // 返回菜单
+        const menuBtn = new Button({
+            text: '返回菜单', width: 220, height: 70, color: 0x95a5a6,
+            onClick: () => SceneManager.changeScene(FoosballMenuScene)
+        });
+        menuBtn.position.set(20, 120);
+        panel.addChild(menuBtn);
     }
 
     resetBall() {
         const { x, y, w, h } = this.layout.fieldRect;
+        // 重置到中心
         Matter.Body.setPosition(this.ball.body, { x: x + w/2, y: y + h/2 });
+        // 重置速度
         Matter.Body.setVelocity(this.ball.body, { x: 0, y: 0 });
+        Matter.Body.setAngularVelocity(this.ball.body, 0);
+        
+        // [优化] 发球随机给一个小推力，防止死球
+        const randDir = Math.random() > 0.5 ? 1 : -1;
+        Matter.Body.setVelocity(this.ball.body, { x: randDir * 2, y: (Math.random()-0.5)*2 });
+
+        this.isGoalProcessing = false; // [修复] 解锁
     }
 
     onExit() {

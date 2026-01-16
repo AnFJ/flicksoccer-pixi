@@ -4,7 +4,12 @@
  */
 export const FoosballConfig = {
     // [新增] 调试模式开关
-    debug: true, // 设置为 true 开启刚体线框显示，false 关闭
+    debug: false, // 默认关闭调试线框
+
+    // [新增] 玩法规则配置
+    gameplay: {
+        maxScore: 5, // 率先进5球者获胜
+    },
 
     // 球场物理尺寸 (逻辑坐标)
     pitch: {
@@ -45,13 +50,14 @@ export const FoosballConfig = {
     
     // 杆件配置
     rod: {
-        thickness: 18,  // 杆子直径，稍微加粗显得有质感
+        thickness: 22,  // 杆子直径，稍微加粗显得有质感
         
-        // [新增] 击球动力学配置
+        // [核心修改] 击球动力学配置 (弹簧模型)
         kick: {
-            maxOffset: 150,   // 最大击球延伸距离 (px)
-            speed: 15,        // [调整] 踢出速度。原25 -> 15，让动作更清晰，不至于快得看不清
-            returnSpeed: 10   // [调整] 收回速度。原15 -> 10
+            maxOffset: 160,   // 最大击球延伸距离 (px)
+            stiffness: 0.25,  // 刚度 (0.1~0.5): 越大越硬，爆发力越强
+            damping: 0.75,    // 阻尼 (0.0~1.0): 越小摩擦越大，0.75会有轻微的回弹震荡感，很真实
+            mass: 1.0         // 质量: 影响惯性
         },
 
         count: 8,       
