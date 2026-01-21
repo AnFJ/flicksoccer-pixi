@@ -17,20 +17,18 @@ export default class FoosballRod {
         this.x = x;
         this.fieldRect = fieldRect;
         
-        // 初始位置先定在球场垂直中心，稍后会根据限制调整
         this.y = fieldRect.y + fieldRect.h / 2;
         this.teamId = teamId;
         
         this.players = [];
         
-        // [核心修改] 物理弹簧状态变量
-        this.kickOffset = 0;       // 当前实际偏移量
-        this.kickVelocity = 0;     // 当前伸缩速度
-        this.targetOffset = 0;     // 目标偏移量 (0 或 maxKickOffset)
-        this.kickDirection = 1;    // 1:向前, -1:向后
-        this.isKicking = false;    // 是否处于主动击球状态
+        // 物理弹簧状态变量
+        this.kickOffset = 0;       
+        this.kickVelocity = 0;     
+        this.targetOffset = 0;     
+        this.kickDirection = 1;    
+        this.isKicking = false;    
         
-        // 读取配置
         const kickCfg = FoosballConfig.rod.kick;
         this.maxKickOffset = kickCfg.maxOffset; 
         this.stiffness = kickCfg.stiffness;
@@ -39,19 +37,18 @@ export default class FoosballRod {
 
         // 1. 层级容器
         this.rodContainer = new PIXI.Container();
-        this.headContainer = new PIXI.Container();
+        // [移除] this.headContainer - 不再需要分层
 
         this.scene.layout.layers.game.addChild(this.rodContainer);
-        this.scene.layout.layers.game.addChild(this.headContainer);
 
-        // 2. 绘制金属滑杆 (视觉优化)
+        // 2. 绘制金属滑杆
         this.rodSprite = this.createRodSprite();
         this.rodContainer.addChild(this.rodSprite);
 
-        // 3. 创建球员并计算移动限制
+        // 3. 创建球员
         this.constraints = this.createPlayersAndCalcConstraints(numPlayers);
         
-        // 4. 强制复位一次，确保初始位置合法
+        // 4. 强制复位
         this.moveTo(this.y);
     }
 
@@ -124,8 +121,9 @@ export default class FoosballRod {
             this.players.push(player);
             this.scene.physics.add(player.body);
             
-            this.scene.layout.layers.game.addChildAt(player.view, this.scene.layout.layers.game.getChildIndex(this.rodContainer));
-            this.headContainer.addChild(player.headGroup);
+            // [核心修改] 将球员的 view 直接添加到 rodContainer
+            // 因为 rodContainer 中已经先添加了 rodSprite，所以这里 addChild 会将 player 放在 rod 上层
+            this.rodContainer.addChild(player.view);
         }
 
         const margin = 60; 
@@ -139,65 +137,41 @@ export default class FoosballRod {
         this.y = Math.max(this.constraints.minY, Math.min(this.constraints.maxY, targetY));
     }
 
-    /**
-     * 执行踢球 (设置弹簧目标)
-     * @param {number} dir 1:向前踢, -1:向后踢
-     */
     kick(dir = 1) {
-        // 只有当不在击球状态，或者已经开始回弹时，允许新的击球
         if (!this.isKicking || Math.abs(this.targetOffset) < 10) {
             this.isKicking = true;
             this.kickDirection = dir;
-            // 设定目标为最大冲程
             this.targetOffset = this.maxKickOffset * dir;
         }
     }
 
     update() {
-        // --- 1. 弹簧物理模拟核心 ---
-        
-        // 计算弹簧力 F = k * x (x = target - current)
+        // --- 1. 弹簧物理模拟 ---
         const diff = this.targetOffset - this.kickOffset;
         const force = diff * this.stiffness;
-        
-        // 加速度 a = F / m
         const acceleration = force / this.mass;
-        
-        // 速度积分 v += a
         this.kickVelocity += acceleration;
-        
-        // 阻尼衰减 (模拟摩擦和能量损耗)
         this.kickVelocity *= this.damping;
-        
-        // 位移积分 p += v
         this.kickOffset += this.kickVelocity;
 
         // --- 2. 自动回弹逻辑 ---
-        
-        // 如果处于“击球”状态，且已经非常接近目标（甚至冲过了），则触发回弹
-        // 这里的判断阈值不用太精确，只要接近了最大值就开始收杆
         if (this.isKicking) {
             const distToTarget = Math.abs(this.targetOffset - this.kickOffset);
-            
-            // 如果接近目标点 (例如还有 20% 的距离)，或者速度开始反向(意味着到了极点)，就开始自动回弹
             if (distToTarget < this.maxKickOffset * 0.2) {
                 this.isKicking = false;
-                this.targetOffset = 0; // 目标设为 0，弹簧会把杆子拉回来
+                this.targetOffset = 0; 
             }
         }
 
-        // 强行归零修正 (防止微小震荡停不下来)
         if (!this.isKicking && Math.abs(this.kickOffset) < 1 && Math.abs(this.kickVelocity) < 0.5) {
             this.kickOffset = 0;
             this.kickVelocity = 0;
         }
 
         // --- 3. 视觉同步 ---
-
         this.rodSprite.position.set(this.x, this.y);
 
         this.players.forEach(p => {
-            // [修改] 传入 kickVelocity 用于计算视觉拉伸/倾斜效果
             p.updatePosition(this.x, this.y + p.offsetY, this.kickOffset, this.kickVelocity);
         });
     }

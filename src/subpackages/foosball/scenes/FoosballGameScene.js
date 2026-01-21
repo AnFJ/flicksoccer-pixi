@@ -170,6 +170,18 @@ export default class FoosballGameScene extends BaseScene {
             const rodX = x + step * (index + 1);
             // 传入 this.layout.fieldRect
             const rod = new FoosballRod(this, rodX, cfg.teamId, cfg.puppets, this.layout.fieldRect);
+            
+            // [新增] 标记杆子的角色类型
+            // 假设杆子顺序: 0(GK), 1(DF), 2(FW-Opp), 3(MF), 4(MF-Opp), 5(FW), 6(DF-Opp), 7(GK-Opp)
+            // AI (Team 1) 的杆子索引是: 2(前锋), 4(中场), 6(后卫), 7(守门员)
+            rod.role = 'normal';
+            if (cfg.teamId === 1) {
+                if (index === 7) rod.role = 'goalie';
+                else if (index === 6) rod.role = 'defender';
+                else if (index === 4) rod.role = 'midfield';
+                else if (index === 2) rod.role = 'forward';
+            }
+            
             this.rods.push(rod);
         });
     }
@@ -236,7 +248,6 @@ export default class FoosballGameScene extends BaseScene {
 
         // 绑定射门事件
         shootBtn.on('pointerdown', (e) => {
-            e.stopPropagation(); // 阻止事件穿透到场景导致误触移动
             shootBtn.scale.set(0.9);
             this.onKickButtonPress();
         });
@@ -268,10 +279,18 @@ export default class FoosballGameScene extends BaseScene {
         }
     }
 
+    // [新增] 兼容性触摸ID获取方法
+    _getTouchId(e) {
+        if (e.data && e.data.identifier !== undefined) return e.data.identifier;
+        if (e.id !== undefined) return e.id;
+        return 0; // 鼠标兜底
+    }
+
     onTouchStart(e) {
         if (this.isGameOver) return;
 
-        const id = e.data.identifier;
+        // [修复] 使用 _getTouchId 获取准确的 id
+        const id = this._getTouchId(e);
         
         // [修复] 将全局屏幕坐标转换为场景内部坐标 (Local Space)
         // 解决因屏幕适配缩放导致的点击位置错乱问题
@@ -304,7 +323,8 @@ export default class FoosballGameScene extends BaseScene {
     onTouchMove(e) {
         if (this.isGameOver) return;
 
-        const id = e.data.identifier;
+        // [修复] 使用 _getTouchId 获取准确的 id
+        const id = this._getTouchId(e);
         const touchData = this.activeTouches.get(id);
         
         if (!touchData) return;
@@ -322,7 +342,8 @@ export default class FoosballGameScene extends BaseScene {
     }
 
     onTouchEnd(e) {
-        const id = e.data.identifier;
+        // [修复] 使用 _getTouchId 获取准确的 id
+        const id = this._getTouchId(e);
         this.activeTouches.delete(id);
     }
 
@@ -343,56 +364,123 @@ export default class FoosballGameScene extends BaseScene {
         if (this.goalBanner) this.goalBanner.update(delta);
     }
 
+    /**
+     * AI 逻辑 (Team 1, 蓝方)
+     * 策略优化版: 
+     * 1. 修复相互传球死循环 (限制后卫/门将才回传)
+     * 2. 增加斜向射门 (Slice Shot)
+     */
     updateAI() {
-        if (!this.ball) return;
+        if (!this.ball || this.isGameOver) return;
         const bPos = this.ball.body.position;
-        const bVel = this.ball.body.velocity; // [新增] 获取速度
+        const bVel = this.ball.body.velocity;
+        const fieldH = this.layout.fieldRect.h;
+        const fieldY = this.layout.fieldRect.y;
         
-        // AI 控制蓝方杆子 (Team 1)
-        // 蓝方在右侧，向左进攻 (Goal at Left)
+        // 关键尺寸
+        const hitHeight = FoosballConfig.puppet.hitHeight; 
+        const kickReach = FoosballConfig.rod.kick.maxOffset; 
+        const ballRadius = 20;
+
+        // AI 控制所有蓝方杆子
         this.rods.filter(r => r.teamId === 1).forEach(r => {
-            const diff = bPos.y - r.y;
+            const diffY = bPos.y - r.y;
+            const distanceX = r.x - bPos.x; // >0: 球在杆子左侧(前方)
             
-            // [优化] 1. 移动预判
-            // 加上球的垂直速度分量，预判 0.2s 后的位置
-            let targetY = bPos.y + bVel.y * 12;
+            // 1. 预判逻辑 (Prediction)
+            let predFactor = 0;
+            let moveSpeed = 10; 
+
+            // 根据角色调整策略
+            if (r.role === 'goalie') {
+                // 守门员：保守预判
+                predFactor = 5; 
+                moveSpeed = 15; 
+            } else if (r.role === 'defender') {
+                predFactor = 8;
+                moveSpeed = 12;
+            } else if (r.role === 'forward') {
+                // 前锋：球在前方时激进，球在后方时随意
+                predFactor = distanceX > 0 ? 12 : 2;
+            } else {
+                // 中场
+                predFactor = 10;
+            }
+
+            if (bVel.x > 0.5) {
+                predFactor *= 1.2; // 迎球时增加预判
+            } else {
+                predFactor *= 0.5; // 球远去时减少预判
+            }
+
+            let targetY = bPos.y + bVel.y * predFactor;
             
+            // 2. 移动逻辑 (Movement)
+            // 引入“精准对齐区”
+            const isInKickRangeX = (distanceX > 0 && distanceX < kickReach + 50);
+            
+            let moveThreshold = 5; 
+            if (isInKickRangeX) moveThreshold = 1; 
+
             const moveDiff = targetY - r.y;
 
-            if (Math.abs(moveDiff) > 5) {
-                // 移动速度随距离增加，更加灵敏
-                const speed = Math.min(Math.abs(moveDiff) * 0.25, 10);
-                r.moveTo(r.y + Math.sign(moveDiff) * speed);
+            if (Math.abs(moveDiff) > moveThreshold) {
+                // 平滑移动
+                const step = Math.min(Math.abs(moveDiff) * 0.3, moveSpeed);
+                r.moveTo(r.y + Math.sign(moveDiff) * step);
             }
-            
-            // 2. 射门/击球逻辑
-            // distanceX = 杆子X - 球X
-            // Team1(蓝) 在右，向左攻。前方是 -X 方向。
-            // 球在左(前): bPos.x < r.x => distanceX > 0
-            // 球在右(后): bPos.x > r.x => distanceX < 0
-            const distanceX = r.x - bPos.x; 
-            const absDiffY = Math.abs(diff);
-            
-            // Y轴只要大概对齐就开始尝试击球
-            if (absDiffY < 60) {
-                
-                // [情况 A] 正常射门 (Forward Kick)
-                // 范围: 球在前方 0 ~ 130px
-                if (distanceX > 0 && distanceX < 130) {
-                    // 基础概率 0.08，球速越快越容易触发激进反应
-                    let chance = 0.08 + Math.abs(bVel.x) * 0.02;
-                    if (Math.random() < chance) r.kick(1); 
+
+            // 3. 击球逻辑 (Kicking)
+            const alignThreshold = hitHeight / 2 + ballRadius * 0.8; 
+            const isAlignedY = Math.abs(diffY) < alignThreshold;
+
+            if (isAlignedY) {
+                // [情况 A] 正常射门/进攻 (Forward Kick)
+                // 球在杆子前方 (0 ~ kickReach)
+                if (distanceX > 0 && distanceX < kickReach) {
+                    
+                    let kickChance = 0.1 + Math.abs(bVel.x) * 0.05;
+                    if (distanceX < 50) kickChance = 0.6; // 贴脸球高概率踢
+                    
+                    if (Math.random() < kickChance) {
+                        // [新增] 技巧射门：斜向搓球 (Angled Shot / Slice)
+                        // 原理：在击球瞬间，快速移动杆子上下，产生摩擦力导致球斜飞
+                        // 30% 概率触发技巧
+                        const isSliceShot = Math.random() < 0.3;
+                        
+                        if (isSliceShot) {
+                            // 决定搓球方向：如果靠上就往下搓，靠下就往上搓，中间随机
+                            let sliceDir = 0;
+                            const centerOffset = r.y - (fieldY + fieldH / 2);
+                            if (centerOffset < -100) sliceDir = 1; // 在上面，向下搓
+                            else if (centerOffset > 100) sliceDir = -1; // 在下面，向上搓
+                            else sliceDir = Math.random() > 0.5 ? 1 : -1;
+
+                            // 执行：瞬间移动 + 击球
+                            // 移动距离要足够大才能产生明显速度
+                            r.moveTo(r.y + sliceDir * 60);
+                            r.kick(1);
+                            console.log(`[AI] ${r.role} performed Slice Shot!`);
+                        } else {
+                            // 普通直射
+                            r.kick(1);
+                        }
+                    } 
                 }
                 
-                // [情况 B] 身后解围 (Back Kick)
-                // 范围: 球在身后 0 ~ 140px (杆子最大后仰约 160px)
-                // 之前的 -50 太小了，导致稍微过线 AI 就傻了
-                else if (distanceX < 0 && distanceX > -140) {
-                    // 离得越近越需要踢
-                    let chance = 0.05;
-                    if (distanceX > -60) chance = 0.2; // 贴身时高概率
+                // [情况 B] 身后解围 (Back Kick) - [修复] 避免无限回传
+                // 只有 守门员(goalie) 和 后卫(defender) 允许往回踢
+                // 前锋和中场如果球到了身后，应该尝试让开或者不做操作，等待球反弹回来，而不是往自家球门踢
+                else if (distanceX < 0 && distanceX > -kickReach * 0.8) {
+                    // 只有防御角色才向后解围
+                    const canBackKick = (r.role === 'goalie' || r.role === 'defender');
                     
-                    if (Math.random() < chance) r.kick(-1);
+                    if (canBackKick) {
+                        // 且球速较慢或者正向后滚时才倒勾
+                        if (Math.abs(bVel.x) < 5 || bVel.x > 0) {
+                            if (Math.random() < 0.25) r.kick(-1);
+                        }
+                    }
                 }
             }
         });
