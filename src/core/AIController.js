@@ -101,12 +101,26 @@ export default class AIController {
   _applyHumanError(force, type, striker, ball) {
       // 1. 基础误差配置
       let errorBase = this.config.aiError;
-      if (type === 'bank_shot' || type === 'breakthrough') {
-          errorBase *= 0.5; 
+      
+      let angleNoise = 0;
+      let safeFactor = 0.98; // 默认允许稍微边缘一点的击球
+
+      // [核心修复] 10关+ (误差几乎为0) 的特殊处理
+      if (errorBase <= 0.00001) {
+          angleNoise = 0; 
+          // [关键回滚] 恢复为 1.0 (允许全角度击球)。
+          // 之前的 0.80 会强制 AI 把切球修正为推射，导致无法踢出需要的角度，进而导致"明明能进却不踢"或踢偏。
+          // 我们在 AIDecisionMaker 中通过增加物理穿透深度来解决"擦边"问题，而不是在这里限制角度。
+          safeFactor = 1.0; 
+      } else {
+          // 普通关卡，计算随机误差
+          angleNoise = (Math.random() - 0.5) * 2 * errorBase;
       }
 
-      // 2. 生成随机角度噪音 (弧度)
-      const angleNoise = (Math.random() - 0.5) * 2 * errorBase;
+      if (type === 'bank_shot' || type === 'breakthrough') {
+          // 特殊球种降低误差影响
+          if (errorBase > 0.00001) angleNoise *= 0.5;
+      }
 
       // 3. 计算“意图向量”的原始角度
       const intendedAngle = Math.atan2(force.y, force.x);
@@ -133,8 +147,8 @@ export default class AIController {
               const angleSB = Math.atan2(vecSB.y, vecSB.x);
               
               // 计算最大偏差角 (反正弦)
-              // 安全系数 0.95: 确保向量穿过球体内部，而不是边缘相切，保证碰撞发生
-              const safeFactor = 0.95;
+              // safeFactor 决定了锥体的大小。
+              // 1.0 表示只要在物理接触范围内都允许 (asin(1) = 90度，即切线)
               const maxDeviation = Math.asin(Math.min(1.0, (radiusSum * safeFactor) / dist));
               
               // 计算 finalAngle 相对于 中心连线角度(angleSB) 的偏差
@@ -160,7 +174,10 @@ export default class AIController {
       // 力度误差
       let powerNoise = 1.0;
       if (type !== 'breakthrough' && type !== 'sabotage') {
-          powerNoise = 1.0 + (Math.random() - 0.5) * errorBase * 0.5;
+          // 只有在有误差配置时才添加力度噪点
+          if (errorBase > 0) {
+              powerNoise = 1.0 + (Math.random() - 0.5) * errorBase * 0.5;
+          }
       }
       
       return {

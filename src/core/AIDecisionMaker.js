@@ -51,13 +51,10 @@ export default class AIDecisionMaker {
         const analysis = this._analyzeSituation(myStrikers, oppStrikers, ball);
         
         // 2. 紧急防御检查 (最高优先级)
-        // 如果落后 (isLosing)，防御阈值提高，更倾向于进攻而不是纯粹破坏
-        // 但如果是 CriticalThreat (门前险情)，必须优先处理
         const defenseThreshold = isLosing ? 0.6 : 0.3; 
         
         if (analysis.isCriticalThreat && config.defenseAwareness > defenseThreshold) {
-            // [新增] 优先尝试直接解围球 (Clearance)
-            // 在极度危险时，把球踢走比撞人更稳妥
+            // 优先尝试直接解围球 (Clearance)
             let bestClearance = null;
             let maxClearScore = -Infinity;
             
@@ -65,7 +62,6 @@ export default class AIDecisionMaker {
                 const isGoalie = (s.id === analysis.goalkeeperId);
                 const clears = this._generateClearanceActions(s, ball, isGoalie, analysis);
                 for (const c of clears) {
-                    // 距离球越近的解围越优先
                     const distToBall = Matter.Vector.magnitude(Matter.Vector.sub(s.body.position, ball.body.position));
                     const score = c.score - distToBall * 0.5; 
                     if (score > maxClearScore) {
@@ -75,16 +71,14 @@ export default class AIDecisionMaker {
                 }
             }
             if (bestClearance) {
-                bestClearance.score = 10000; // 赋予极高分数，确保执行
+                bestClearance.score = 10000; 
                 bestClearance.desc = "紧急解围";
                 return bestClearance;
             }
 
-            // 其次尝试破坏对手 (Sabotage)
             const sabotage = this._findSabotageMove(myStrikers, analysis.threatSource);
             if (sabotage) return sabotage;
             
-            // 最后尝试堵枪眼 (Block)
             const block = this._findDefensiveMove(myStrikers, ball, analysis.threatLine);
             if (block) return block;
         }
@@ -102,8 +96,7 @@ export default class AIDecisionMaker {
                 if (action.score > maxScore) { maxScore = action.score; bestMove = action; }
             }
 
-            // --- B. 反弹射门 (Bank Shot) - 进阶策略 ---
-            // 只有当常规射门分数不高，或者处于落后急需破局时计算
+            // --- B. 反弹射门 (Bank Shot) ---
             if (config.strategyDepth >= 1 || isLosing) {
                 const bankActions = this._generateBankShotActions(striker, ball, isGoalie, config);
                 for (const action of bankActions) {
@@ -112,7 +105,6 @@ export default class AIDecisionMaker {
             }
 
             // --- C. 暴力破局 (Breakthrough) ---
-            // 当处于劣势或前面被堵死时，尝试大力出奇迹
             if (isLosing || maxScore < 200) {
                 const breakActions = this._generateBreakthroughActions(striker, ball, isGoalie);
                 for (const action of breakActions) {
@@ -137,7 +129,6 @@ export default class AIDecisionMaker {
         return bestMove;
     }
 
-    // ... (保留 _analyzeSituation 不变) ...
     _analyzeSituation(myStrikers, oppStrikers, ball) {
         const bPos = ball.body.position;
         const distToOwn = Matter.Vector.magnitude(Matter.Vector.sub(bPos, this.ownGoal));
@@ -158,9 +149,7 @@ export default class AIDecisionMaker {
         let threatLine = null;
         let threatSource = null;
 
-        // [新增] 绝对危险区判定 (Red Zone)
-        // 只要球在门前危险区域(350px)，且有对手在附近(400px)，无论能否直线射门，都视为致命威胁
-        // 这样可以避免因为射线检测被门柱或微小障碍阻挡而忽略近在咫尺的威胁
+        // 绝对危险区判定
         if (distToOwn < 350) {
             for (const opp of oppStrikers) {
                 const distOppBall = Matter.Vector.magnitude(Matter.Vector.sub(opp.body.position, bPos));
@@ -169,12 +158,12 @@ export default class AIDecisionMaker {
                     isThreatened = true;
                     threatSource = opp;
                     threatLine = { start: bPos, end: this.ownGoal };
-                    break; // 发现一个就够了
+                    break; 
                 }
             }
         }
 
-        // 常规威胁判定 (如果没有触发绝对危险)
+        // 常规威胁判定
         if (!isCriticalThreat && distToOwn < this.fieldW * 0.7) {
             isThreatened = true;
             const threatTargets = [
@@ -187,9 +176,13 @@ export default class AIDecisionMaker {
                 if (isCriticalThreat) break;
                 for (const target of threatTargets) {
                     const ghost = this._calculateGhostBall(opp.body.position, bPos, target);
-                    if (!this._raycastTest(opp.body.position, ghost.ghostPos, [ball.body, opp.body]) &&
-                        !this._raycastTest(bPos, target, [ball.body])) {
-                        
+                    
+                    // [升级] 使用体积射线检测
+                    // 注意：这里检测对方能否射门，忽略球和对方自己
+                    const oppBlocked = this._isPathBlocked(opp.body.position, ghost.ghostPos, this.strikerR, [ball.body, opp.body]);
+                    const shotBlocked = this._isPathBlocked(bPos, target, this.ballR, [ball.body]);
+
+                    if (!oppBlocked && !shotBlocked) {
                         const vecOppToBall = Matter.Vector.sub(bPos, opp.body.position);
                         const vecBallToGoal = Matter.Vector.sub(target, bPos);
                         const dot = Matter.Vector.dot(Matter.Vector.normalise(vecOppToBall), Matter.Vector.normalise(vecBallToGoal));
@@ -223,47 +216,36 @@ export default class AIDecisionMaker {
         targets.forEach(target => {
             const ghost = this._calculateGhostBall(striker.body.position, ball.body.position, target);
             
-            // 1. 路径阻挡检测
-            // 球->球门 是否阻挡
-            if (this._raycastTest(ball.body.position, target, [ball.body, striker.body])) return; 
+            // 1. [升级] 路径阻挡检测 (体积检测)
+            // 球->球门 (使用球半径)
+            if (this._isPathBlocked(ball.body.position, target, this.ballR, [ball.body, striker.body])) return; 
             
-            // [核心修复] 检测 人->球 之间是否阻挡 (原先检测 人->GhostPos)
-            // 如果球靠墙，GhostPos 会在墙内，导致 raycast 误判为阻挡
-            // 改为检测 人->球，只要能碰到球，就算可行 (即使后续会撞墙)
-            if (this._raycastTest(striker.body.position, ball.body.position, [striker.body])) return;
+            // 人->球 (使用人半径)
+            // [关键修复] 检测前往球的路径时，必须忽略球本身，否则会被误判为阻挡
+            if (this._isPathBlocked(striker.body.position, ball.body.position, this.strikerR, [striker.body, ball.body])) return;
 
             // 2. 计算得分
             const vecStrikerToBall = Matter.Vector.sub(ball.body.position, striker.body.position);
             const vecBallToGoal = Matter.Vector.sub(target, ball.body.position);
             const dot = Matter.Vector.dot(Matter.Vector.normalise(vecStrikerToBall), Matter.Vector.normalise(vecBallToGoal));
             
-            // 角度修正：落后时，哪怕角度只有一点点切线 (0.05)，只要能把球往那个方向踢都行
             if (dot < (isLosing ? 0.05 : 0.1)) return;
 
             const distBallGoal = Matter.Vector.magnitude(vecBallToGoal);
             
-            // 基础分：角度越大越好，距离越近越好
             let score = (dot * 600) + (1000 - distBallGoal * 0.3);
 
-            // 风险评估
             if (isGoalie) {
-                // 守门员如果在后场且角度好，也允许长传吊门
                 const isSafeShot = dot > 0.9 && !this._isOpponentInPath(ball.body.position, target);
-                if (!isSafeShot) {
-                    score -= 2000; 
-                } else if (isLosing) {
-                    score += 500; // 落后时门将长传也是好选择
-                }
+                if (!isSafeShot) score -= 2000; 
+                else if (isLosing) score += 500; 
             }
 
-            // [新增] 劣势激励：如果落后，这种直接得分机会的分数大幅提高
             if (isLosing) score += 400;
 
             const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
             let powerRatio = Math.min(1.0, (distBallGoal / 1500) + 0.35);
             if (dot < 0.8) powerRatio += 0.2;
-            
-            // 落后时总是全力射门
             if (isLosing) powerRatio = 1.0;
 
             const force = Matter.Vector.mult(Matter.Vector.normalise(ghost.shootVector), maxForce * Math.min(1.0, powerRatio));
@@ -280,23 +262,14 @@ export default class AIDecisionMaker {
         return actions;
     }
 
-    /**
-     * [新增] 反弹射门逻辑 (Bank Shot)
-     * 利用上下墙壁进行一次反弹
-     */
     _generateBankShotActions(striker, ball, isGoalie, config) {
         const actions = [];
-        if (isGoalie) return actions; // 门将尽量不玩花活
+        if (isGoalie) return actions; 
 
-        // 上墙和下墙的Y坐标 (考虑球半径的偏移)
         const wallTopY = this.fieldY + this.ballR; 
         const wallBottomY = this.fieldY + this.fieldH - this.ballR;
 
-        // 镜像目标点：只计算打球门中心的镜像
-        // 1. 上墙镜像：Goal.y 关于 wallTopY 对称 -> 2*wallTopY - Goal.y
         const mirrorTop = { x: this.targetGoal.x, y: 2 * wallTopY - this.targetGoal.y };
-        
-        // 2. 下墙镜像：Goal.y 关于 wallBottomY 对称
         const mirrorBottom = { x: this.targetGoal.x, y: 2 * wallBottomY - this.targetGoal.y };
 
         const scenarios = [
@@ -305,51 +278,36 @@ export default class AIDecisionMaker {
         ];
 
         for (const scene of scenarios) {
-            // A. 计算撞墙点 (Intersection)
-            // 简单的几何：连接球和镜像点的线段，与墙壁的交点
-            // 利用相似三角形： (Ball.x - Hit.x) / (Ball.y - Wall.y) = (Goal.x - Hit.x) / (Goal.y - Wall.y) ... 
-            // 简化向量法：Dir = Mirror - Ball
             const toMirror = Matter.Vector.sub(scene.mirror, ball.body.position);
-            
-            // 如果球已经在墙外或者方向不对，跳过
             if (Math.abs(toMirror.y) < 1) continue;
-            
-            // 比例 t，使得 Ball + t * Dir 的 y = WallY
             const t = (scene.wallY - ball.body.position.y) / toMirror.y;
-            
-            if (t <= 0 || t >= 1) continue; // 撞点不在球和目标之间
+            if (t <= 0 || t >= 1) continue; 
 
             const hitPoint = Matter.Vector.add(ball.body.position, Matter.Vector.mult(toMirror, t));
-            
-            // 检查撞点是否在球场X范围内
             if (hitPoint.x < this.fieldX || hitPoint.x > this.fieldX + this.fieldW) continue;
 
-            // B. 路径检测
-            // 1. 球 -> 撞墙点 (改为检测 球->撞点 是否有 *额外* 阻挡，忽略墙本身)
-            // 其实这里检测 Ball -> HitPoint，如果有墙在中间，说明球已经贴墙了，这时没法反弹
-            if (this._raycastTest(ball.body.position, hitPoint, [ball.body, striker.body])) continue;
-            // 2. 撞墙点 -> 球门
-            if (this._raycastTest(hitPoint, this.targetGoal, [ball.body])) continue;
+            // B. [升级] 路径检测 (体积检测)
+            // 球->撞墙点
+            if (this._isPathBlocked(ball.body.position, hitPoint, this.ballR, [ball.body, striker.body])) continue;
+            // 撞墙点->球门
+            if (this._isPathBlocked(hitPoint, this.targetGoal, this.ballR, [ball.body])) continue;
 
-            // C. 击球计算 (瞄准撞墙点)
+            // C. 击球计算
             const ghost = this._calculateGhostBall(striker.body.position, ball.body.position, hitPoint);
             
-            // [核心修复] 检测 人->球 之间阻挡
-            if (this._raycastTest(striker.body.position, ball.body.position, [striker.body])) continue;
+            // 人->球
+            // [关键修复] 忽略球本身
+            if (this._isPathBlocked(striker.body.position, ball.body.position, this.strikerR, [striker.body, ball.body])) continue;
 
-            // D. 角度检查
             const vecStrikerToBall = Matter.Vector.sub(ball.body.position, striker.body.position);
             const vecBallToHit = Matter.Vector.sub(hitPoint, ball.body.position);
             const dot = Matter.Vector.dot(Matter.Vector.normalise(vecStrikerToBall), Matter.Vector.normalise(vecBallToHit));
             
-            if (dot < 0.3) continue; // 切角不能太大
+            if (dot < 0.3) continue; 
 
-            // E. 评分
-            // 反弹球虽然帅，但距离长、误差大，分数不宜过高，主要作为直线不通时的备选
             let score = 800; 
-            
             const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
-            const force = Matter.Vector.mult(Matter.Vector.normalise(ghost.shootVector), maxForce); // 反弹球通常需要大力
+            const force = Matter.Vector.mult(Matter.Vector.normalise(ghost.shootVector), maxForce); 
 
             actions.push({
                 striker,
@@ -363,32 +321,23 @@ export default class AIDecisionMaker {
         return actions;
     }
 
-    /**
-     * [新增] 暴力破局 (Breakthrough)
-     * 当正常射门路线上有对手阻挡时，如果对手离球不远，尝试大力出奇迹，冲散防守
-     */
     _generateBreakthroughActions(striker, ball, isGoalie) {
         const actions = [];
         if (isGoalie) return actions;
 
-        // 目标依然是球门
         const target = this.targetGoal;
         const ghost = this._calculateGhostBall(striker.body.position, ball.body.position, target);
 
-        // 1. 检查谁挡在球和球门之间
+        // 这里的阻挡检查用于判断是否值得破局，所以用原生的 raycast 获取物体列表比较合适
         const obstacles = this._raycastGetBodies(ball.body.position, target, [ball.body, striker.body]);
-        
-        // 如果没有阻挡，或者全是墙壁，不属于破局范畴（那是常规射门）
         if (obstacles.length === 0) return actions;
 
-        // 2. 分析阻挡物
         let hasOpponentBlocker = false;
         let blockerDistance = Infinity;
 
         for (const body of obstacles) {
-            if (body.label === 'Wall' || body.label.includes('Goal')) return actions; // 被墙挡住无法破局
+            if (body.label === 'Wall' || body.label.includes('Goal')) return actions; 
             if (body.label === 'Striker') {
-                // 检查是否是对手
                 if (body.entity && body.entity.teamId === this.opponentId) {
                     hasOpponentBlocker = true;
                     const d = Matter.Vector.magnitude(Matter.Vector.sub(body.position, ball.body.position));
@@ -397,18 +346,15 @@ export default class AIDecisionMaker {
             }
         }
 
-        // 3. 只有当对手离球比较近（< 200px）时，才值得尝试暴力冲撞
-        // 太远的话，球的动能衰减，撞过去也没力度了
         if (hasOpponentBlocker && blockerDistance < 250) {
-            
-            // [核心修复] 检测 人->球
-            if (this._raycastTest(striker.body.position, ball.body.position, [striker.body])) return actions;
+            // 人->球 (体积检测)
+            // [关键修复] 忽略球本身
+            if (this._isPathBlocked(striker.body.position, ball.body.position, this.strikerR, [striker.body, ball.body])) return actions;
 
             const vecStrikerToBall = Matter.Vector.sub(ball.body.position, striker.body.position);
             const vecBallToGoal = Matter.Vector.sub(target, ball.body.position);
             const dot = Matter.Vector.dot(Matter.Vector.normalise(vecStrikerToBall), Matter.Vector.normalise(vecBallToGoal));
 
-            // 需要比较正的击球角度，才能传导最大动能
             if (dot < 0.7) return actions;
 
             const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
@@ -417,7 +363,7 @@ export default class AIDecisionMaker {
             actions.push({
                 striker,
                 force,
-                score: 750, // 分数略低于完美直线，但高于漫无目的的解围
+                score: 750, 
                 type: 'breakthrough',
                 desc: '暴力破局'
             });
@@ -428,43 +374,32 @@ export default class AIDecisionMaker {
 
     _generateClearanceActions(striker, ball, isGoalie, analysis) {
         const actions = [];
-        
-        // 1. 原有的边路安全点
         const safeZones = [
             { x: this.targetGoal.x, y: 100 }, 
-            { x: this.targetGoal.x, y: this.fieldH - 100 }
+            { x: this.targetGoal.x, y: this.fieldH - 100 },
+            this.targetGoal
         ];
-
-        // [新增] 2. 直接吊向对方球门中心 (Long Shot Clearance)
-        // 即使中间有阻挡，往对方球门踢总比往边线踢更有威胁
-        safeZones.push(this.targetGoal);
 
         safeZones.forEach(target => {
             const ghost = this._calculateGhostBall(striker.body.position, ball.body.position, target);
             
-            // [核心修复] 检测 人->球
-            if (this._raycastTest(striker.body.position, ball.body.position, [striker.body])) return;
+            // 人->球 (体积检测)
+            // [关键修复] 忽略球本身
+            if (this._isPathBlocked(striker.body.position, ball.body.position, this.strikerR, [striker.body, ball.body])) return;
 
             let score = 300; 
-            
-            // 距离己方球门越近，解围分越高
             const distToOwn = Matter.Vector.magnitude(Matter.Vector.sub(ball.body.position, this.ownGoal));
             if (distToOwn < this.fieldW * 0.3) score += 500;
-
             if (isGoalie) score += 200;
-
-            // 如果是吊射对方球门，额外加分
             if (target === this.targetGoal) score += 150;
 
             const vecStrikerToBall = Matter.Vector.sub(ball.body.position, striker.body.position);
             const kickDir = Matter.Vector.sub(target, ball.body.position);
             const dot = Matter.Vector.dot(Matter.Vector.normalise(vecStrikerToBall), Matter.Vector.normalise(kickDir));
             
-            // 解围对角度要求低，甚至可以切球解围
             if (dot < -0.1) return; 
 
             score += dot * 200;
-
             const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
             const force = Matter.Vector.mult(Matter.Vector.normalise(ghost.shootVector), maxForce); 
 
@@ -484,7 +419,6 @@ export default class AIDecisionMaker {
         if (!threatSource) return null;
         
         const distToGoal = Matter.Vector.magnitude(Matter.Vector.sub(threatSource.body.position, this.targetGoal));
-        
         let bestSabotage = null;
         let minDist = Infinity;
 
@@ -504,8 +438,8 @@ export default class AIDecisionMaker {
                 }
             }
 
-            // 此处保持原样，因为是撞人，所以直接检测 人->对手 之间的阻挡
-            if (!isPushingIntoNet && dist < minDist && !this._raycastTest(s.body.position, threatSource.body.position, [s.body, threatSource.body])) {
+            // 人 -> 敌方 (体积检测)
+            if (!isPushingIntoNet && dist < minDist && !this._isPathBlocked(s.body.position, threatSource.body.position, this.strikerR, [s.body, threatSource.body])) {
                 minDist = dist;
                 const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
                 const force = Matter.Vector.mult(Matter.Vector.normalise(dir), maxForce); 
@@ -531,18 +465,11 @@ export default class AIDecisionMaker {
         const vecGoalToBall = Matter.Vector.sub(ball.body.position, goalTarget);
         const defensePoint = Matter.Vector.add(goalTarget, Matter.Vector.mult(vecGoalToBall, 0.35)); 
 
-        // [修改] 强制防守点在球门外 (Clamping)
-        const safeMargin = 70; // 稍微大于棋子半径
+        const safeMargin = 70; 
         if (this.teamId === TeamId.LEFT) {
-            // 左边球门在 x=fieldX, 防守点必须 > fieldX + safeMargin
-            if (defensePoint.x < this.fieldX + safeMargin) {
-                defensePoint.x = this.fieldX + safeMargin;
-            }
+            if (defensePoint.x < this.fieldX + safeMargin) defensePoint.x = this.fieldX + safeMargin;
         } else {
-            // 右边球门在 x=fieldX+fieldW, 防守点必须 < fieldX+fieldW - safeMargin
-            if (defensePoint.x > this.fieldX + this.fieldW - safeMargin) {
-                defensePoint.x = this.fieldX + this.fieldW - safeMargin;
-            }
+            if (defensePoint.x > this.fieldX + this.fieldW - safeMargin) defensePoint.x = this.fieldX + this.fieldW - safeMargin;
         }
 
         strikers.forEach(s => {
@@ -552,8 +479,8 @@ export default class AIDecisionMaker {
             const isBehindBall = distToGoalS < distToGoalB + 50; 
 
             if (isBehindBall && dist < minCost) {
-                // 防守点是空地，检测 人->空地 之间的阻挡 (这个不需要改)
-                if (!this._raycastTest(s.body.position, defensePoint, [s.body])) {
+                // 人 -> 空地 (体积检测)
+                if (!this._isPathBlocked(s.body.position, defensePoint, this.strikerR, [s.body])) {
                     minCost = dist;
                     bestDefender = s;
                     targetPos = defensePoint;
@@ -577,15 +504,8 @@ export default class AIDecisionMaker {
         return null;
     }
 
-    /**
-     * [优化] 兜底安全移动
-     * 当没有好的射门或解围路线时调用。
-     * 旧逻辑：轻推 (0.2力)。
-     * 新逻辑：大力往场地中央踢 (0.8力)。
-     */
     _fallbackSafeMove(strikers, ball, analysis) {
         let subject = strikers[0];
-        // 优先使用最近的棋子，而不是守门员，除非守门员最近
         let minDist = Infinity;
         strikers.forEach(s => {
             const d = Matter.Vector.magnitude(Matter.Vector.sub(s.body.position, ball.body.position));
@@ -598,8 +518,9 @@ export default class AIDecisionMaker {
         const fieldCenter = { x: this.fieldX + this.fieldW / 2, y: this.fieldY + this.fieldH / 2 };
         const ghost = this._calculateGhostBall(subject.body.position, ball.body.position, fieldCenter);
         
-        // [核心修复] 检测 人->球
-        if (!this._raycastTest(subject.body.position, ball.body.position, [subject.body])) {
+        // 人 -> 球 (体积检测)
+        // [关键修复] 忽略球本身
+        if (!this._isPathBlocked(subject.body.position, ball.body.position, this.strikerR, [subject.body, ball.body])) {
             const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
             return {
                 striker: subject,
@@ -609,11 +530,9 @@ export default class AIDecisionMaker {
             };
         }
 
-        // 如果连中心都打不了（被围死），就往自家球门反方向随便踢一脚
         const awayFromGoal = Matter.Vector.sub(ball.body.position, this.ownGoal);
-        const randomAngle = (Math.random() - 0.5) * Math.PI / 2; // +/- 45度
+        const randomAngle = (Math.random() - 0.5) * Math.PI / 2; 
         const randomDir = Matter.Vector.rotate(awayFromGoal, randomAngle);
-        
         const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
         
         return {
@@ -631,35 +550,73 @@ export default class AIDecisionMaker {
     _calculateGhostBall(strikerPos, ballPos, targetPos) {
         const ballToTarget = Matter.Vector.sub(targetPos, ballPos);
         const dir = Matter.Vector.normalise(ballToTarget);
-        const radiusSum = this.strikerR + this.ballR;
-        const ghostPos = Matter.Vector.sub(ballPos, Matter.Vector.mult(dir, radiusSum));
         
-        // [新增] 限制 ghostPos 的范围在球场内 (加一点边缘 buffer)
-        // 这样可以避免 ghostPos 计算在墙内导致向量异常，虽然主要依赖 Raycast 修复，但这一步也很重要
-        // buffer = 半径 (50) + 10px 容错
-        const buffer = 60;
-        ghostPos.x = Math.max(this.fieldX + buffer, Math.min(this.fieldX + this.fieldW - buffer, ghostPos.x));
-        ghostPos.y = Math.max(this.fieldY + buffer, Math.min(this.fieldY + this.fieldH - buffer, ghostPos.y));
-
+        // 保持穿透深度，确保扎实击球
+        const radiusSum = this.strikerR + this.ballR - 5; 
+        
+        const ghostPos = Matter.Vector.sub(ballPos, Matter.Vector.mult(dir, radiusSum));
         const shootVector = Matter.Vector.sub(ghostPos, strikerPos);
         return { shootVector, ghostPos };
     }
 
-    // 简单的布尔检测
-    _raycastTest(start, end, ignoreBodies = []) {
+    /**
+     * [核心] 判断路径是否被阻挡 (体积射线检测)
+     * @param {Vector} start 起点
+     * @param {Vector} end 终点
+     * @param {Number} radius 物体半径 (用于宽射线)
+     * @param {Array} ignoreBodies 忽略的刚体列表
+     */
+    _isPathBlocked(start, end, radius, ignoreBodies = []) {
+        // 1. 中心射线检测
+        if (this._raycastSingle(start, end, ignoreBodies)) return true;
+
+        // 2. 如果提供了半径，进行两侧边缘检测
+        if (radius > 0) {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            
+            if (len < 1) return false;
+
+            // 计算垂直方向的单位向量 (-dy, dx)
+            const nx = -dy / len;
+            const ny = dx / len;
+            
+            // 使用略小于半径的宽度 (0.9倍) 进行检测，避免紧贴墙壁时的误判
+            const r = radius * 0.9;
+
+            // 左边缘射线
+            const lStart = { x: start.x + nx * r, y: start.y + ny * r };
+            const lEnd = { x: end.x + nx * r, y: end.y + ny * r };
+            if (this._raycastSingle(lStart, lEnd, ignoreBodies)) return true;
+
+            // 右边缘射线
+            const rStart = { x: start.x - nx * r, y: start.y - ny * r };
+            const rEnd = { x: end.x - nx * r, y: end.y - ny * r };
+            if (this._raycastSingle(rStart, rEnd, ignoreBodies)) return true;
+        }
+
+        return false;
+    }
+
+    _raycastSingle(start, end, ignoreBodies) {
         const bodies = this.scene.physics.engine.world.bodies;
         const collisions = Matter.Query.ray(bodies, start, end);
+        
         for (const col of collisions) {
             const body = col.body;
             if (body.isSensor) continue;
-            if (body.label && body.label.includes('GoalNet')) continue;
+            // 忽略球网和球门感应区 (因为射门的目标就是穿过它们)
+            if (body.label && (body.label.includes('GoalNet') || body.label.includes('GoalSensor'))) continue;
+            
             if (ignoreBodies.includes(body)) continue;
-            return true;
+            
+            return true; // 撞到了障碍物
         }
         return false;
     }
 
-    // [新增] 返回阻挡物体的列表
+    // 保留旧方法用于获取物体列表
     _raycastGetBodies(start, end, ignoreBodies = []) {
         const bodies = this.scene.physics.engine.world.bodies;
         const collisions = Matter.Query.ray(bodies, start, end);
@@ -674,14 +631,9 @@ export default class AIDecisionMaker {
         return hits;
     }
 
-    // [新增] 检查球和目标之间是否有对手阻挡 (用于判断射门安全性)
     _isOpponentInPath(start, end) {
-        const bodies = this._raycastGetBodies(start, end, [this.scene.ball.body]);
-        for (const b of bodies) {
-            if (b.label === 'Striker' && b.entity && b.entity.teamId === this.opponentId) {
-                return true;
-            }
-        }
-        return false;
+        // 这里使用更严格的体积检测来判断对手是否在路线上
+        // 半径取 BallRadius，因为是球要通过
+        return this._isPathBlocked(start, end, this.ballR, [this.scene.ball.body]);
     }
 }
