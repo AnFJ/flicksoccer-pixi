@@ -593,7 +593,8 @@ export default class GameScene extends BaseScene {
     this.strikers.forEach(s => s.update(delta, alpha));
     this.ball?.update(delta, alpha);
 
-    this.aiChatCtrl.update();
+    // [修改] 传递 delta 时间给 AI Chat 控制器
+    this.aiChatCtrl.update(delta);
     this.atmosphereCtrl.update();
   }
 

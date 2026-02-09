@@ -11,6 +11,10 @@ export default class AIChatController {
         this.aiChatBubble = null;
         this.lastChatTime = 0;
         this.isEnabled = false;
+        
+        // [新增] 超时计时器
+        this.idleTimer = 0;
+        this.hasTriggeredIdle = false;
     }
 
     init(gameMode) {
@@ -32,30 +36,19 @@ export default class AIChatController {
         this.aiChatBubble = new AIChatBubble();
         const centerX = GameConfig.designWidth / 2;
         // 定位在右侧 AI 头像附近
-        // [修改] 跟随 HUD 头像位置调整 (480 -> 430)，确保箭头对准头像
         this.aiChatBubble.position.set(centerX + 430, 125); 
         parentContainer.addChild(this.aiChatBubble);
     }
 
-    /**
-     * 外部获取当前 AI 信息用于显示头像等
-     */
     getPersona() {
         return this.aiPersona;
     }
 
-    /**
-     * 进球时的触发检测
-     * @param {number} scoreTeam 得分队伍
-     * @param {Object} turnStartScores 回合开始时的比分快照
-     * @param {Object} currentScores 当前最新比分
-     * @param {number} currentTurnTimer 当前回合剩余时间(判断秒进)
-     */
     onGoal(scoreTeam, turnStartScores, currentScores, currentTurnTimer) {
         if (!this.isEnabled) return;
+        this._resetIdleTimer(); // 进球重置发呆计时
 
         const scoreId = scoreTeam;
-        // 判断是否乌龙：得分的人不是当前回合操作的人 (简化判断：假设回合还没切换)
         const turnId = this.scene.turnMgr.currentTurn; 
         const isOwnGoal = turnId !== scoreId;
 
@@ -75,7 +68,6 @@ export default class AIChatController {
         }
 
         if (scoreId === TeamId.LEFT) {
-            // 玩家进球
             if (prevScoreP < prevScoreAI && newScoreP === newScoreAI) {
                 this.trigger(ChatTrigger.PLAYER_EQUALIZER);
             } 
@@ -85,7 +77,7 @@ export default class AIChatController {
             else if (prevScoreP > prevScoreAI && newScoreP > newScoreAI) {
                 this.trigger(ChatTrigger.PLAYER_LEAD_EXTEND);
             }
-            else if (currentTurnTimer < 2) { // 假设 timer 从 0 开始计数，或者传入已用时间
+            else if (currentTurnTimer < 2) { 
                 this.trigger(ChatTrigger.PLAYER_INSTANT_GOAL);
             }
             else {
@@ -93,7 +85,6 @@ export default class AIChatController {
             }
 
         } else {
-            // AI 进球
             if (prevScoreAI < prevScoreP && newScoreAI === newScoreP) {
                 this.trigger(ChatTrigger.AI_EQUALIZER);
             }
@@ -118,7 +109,6 @@ export default class AIChatController {
 
     onPlayerMiss() {
         if (!this.isEnabled) return;
-        // 只有玩家回合才触发嘲讽
         if (this.scene.turnMgr.currentTurn === TeamId.LEFT) {
             this.trigger(ChatTrigger.PLAYER_MISS);
         }
@@ -129,10 +119,17 @@ export default class AIChatController {
         this.trigger(ChatTrigger.PLAYER_BAD);
     }
 
+    // [新增] 重置发呆计时器
+    _resetIdleTimer() {
+        this.idleTimer = 0;
+        this.hasTriggeredIdle = false;
+    }
+
     /**
-     * 帧更新，用于检测发呆
+     * 帧更新，检测发呆时间
+     * @param {number} delta 毫秒
      */
-    update() {
+    update(delta) {
         if (!this.isEnabled) return;
         
         // 仅在玩家回合、且静止时检测
@@ -140,10 +137,16 @@ export default class AIChatController {
             !this.scene.isMoving && 
             !this.scene.isGameOver) {
             
-            // 简单随机触发 IDLE
-            if (Math.random() < 0.005) { 
+            this.idleTimer += delta;
+
+            // [修改] 延长至 30 秒 (30000ms) 触发，避免太频繁
+            if (this.idleTimer >= 30000 && !this.hasTriggeredIdle) {
+                this.hasTriggeredIdle = true;
                 this.trigger(ChatTrigger.IDLE);
             }
+        } else {
+            // 如果不在玩家回合或正在移动，重置
+            this._resetIdleTimer();
         }
     }
 

@@ -18,12 +18,12 @@ export default class AIController {
     
     // 默认配置兜底
     this.config = levelConfig || {
-        aiError: 0.2,
+        aiError: 0.15, // [优化] 默认误差降低，避免太蠢
         powerMultiplier: 0.6,
         strategyDepth: 0,
         defenseAwareness: 0,
         skills: [],
-        skillRate: 0 // 这里的 skillRate 现在表示 AI 拥有技能资源的"充裕度"
+        skillRate: 0 
     };
 
     // 初始化决策大脑
@@ -47,7 +47,8 @@ export default class AIController {
         this._applyStrategicSkills(decision);
 
         // 4. 应用执行误差 (模拟人类操作的不完美)
-        const finalForce = this._applyHumanError(decision.force, decision.type);
+        // [修改] 传入 ball 和 striker 对象，用于计算必中角度
+        const finalForce = this._applyHumanError(decision.force, decision.type, decision.striker, ball);
         
         return {
             striker: decision.striker,
@@ -60,13 +61,10 @@ export default class AIController {
 
   /**
    * [优化] 策略性技能释放
-   * 不再纯随机，而是根据战术意图决定
    */
   _applyStrategicSkills(decision) {
       if (!this.scene.ball || this.config.skills.length === 0) return;
 
-      // 基础概率检查 (模拟 AI 是否有"蓝量"或冷却，等级越高概率越高)
-      // 如果 skillRate 是 0，则永远不用技能
       if (Math.random() > this.config.skillRate) return;
 
       const type = decision.type;
@@ -76,7 +74,7 @@ export default class AIController {
       if (type === 'breakthrough' || type === 'sabotage') {
           if (availableSkills.includes('super_force') && Math.random() < 0.8) {
               this.scene.ball.setLightningMode(true);
-              return; // 一次只用一个
+              return; 
           }
           if (availableSkills.includes('unstoppable') && Math.random() < 0.8) {
               this.scene.ball.activateUnstoppable(3000);
@@ -84,42 +82,90 @@ export default class AIController {
           }
       }
 
-      // 策略 B: 远距离反弹/精准射门 -> 降低误差 (不仅是视觉，实际误差会在 _applyHumanError 中减少)
-      // 这里可以加一点特效表示 AI 正在"瞄准"
+      // 策略 B: 远距离反弹/精准射门 -> 标记瞄准
       if (type === 'bank_shot' && availableSkills.includes('super_aim')) {
-          // 逻辑上：标记一下，稍后在 error 计算时减少误差
           decision.isAiming = true;
       }
 
-      // 策略 C: 紧急解围 -> 战车 (防止被拦截)
-      if (type === 'clearance' && decision.score > 2000) { // 分数极高说明是非常紧急的解围
+      // 策略 C: 紧急解围
+      if (type === 'clearance' && decision.score > 2000) { 
           if (availableSkills.includes('unstoppable') && Math.random() < 0.6) {
               this.scene.ball.activateUnstoppable(3000);
           }
       }
   }
 
-  _applyHumanError(force, type) {
-      // 基础误差
+  /**
+   * [核心修复] 应用人为误差，并使用绝对几何约束防止踢空
+   */
+  _applyHumanError(force, type, striker, ball) {
+      // 1. 基础误差配置
       let errorBase = this.config.aiError;
-
-      // [优化] 如果使用了瞄准技能，或者是比较简单的操作，误差减小
       if (type === 'bank_shot' || type === 'breakthrough') {
-          // 复杂操作本来误差就大，AI 需要更精准才能执行
           errorBase *= 0.5; 
       }
 
-      // 角度误差
-      const angleError = (Math.random() - 0.5) * 2 * errorBase;
+      // 2. 生成随机角度噪音 (弧度)
+      const angleNoise = (Math.random() - 0.5) * 2 * errorBase;
+
+      // 3. 计算“意图向量”的原始角度
+      const intendedAngle = Math.atan2(force.y, force.x);
       
-      // 力度误差 (Level越高误差越小)
-      // 破局模式下力度总是拉满，不需要误差
+      // 4. 应用噪音后的候选角度 (这是 AI 打算踢出的方向)
+      let finalAngle = intendedAngle + angleNoise;
+
+      // 5. [新增] 绝对几何约束：确保最终角度仍在“必中扇区”内
+      // 无论误差怎么偏，底线是不能完全 miss 球
+      if (striker && striker.body && ball && ball.body) {
+          const sPos = striker.body.position;
+          const bPos = ball.body.position;
+          
+          const vecSB = Matter.Vector.sub(bPos, sPos);
+          const dist = Matter.Vector.magnitude(vecSB);
+          
+          // 物理半径之和 (碰撞临界距离)
+          const rStriker = GameConfig.dimensions.strikerDiameter / 2;
+          const rBall = GameConfig.dimensions.ballDiameter / 2;
+          const radiusSum = rStriker + rBall;
+          
+          if (dist > radiusSum) {
+              // 计算 Striker 指向 Ball 中心的绝对角度
+              const angleSB = Math.atan2(vecSB.y, vecSB.x);
+              
+              // 计算最大偏差角 (反正弦)
+              // 安全系数 0.95: 确保向量穿过球体内部，而不是边缘相切，保证碰撞发生
+              const safeFactor = 0.95;
+              const maxDeviation = Math.asin(Math.min(1.0, (radiusSum * safeFactor) / dist));
+              
+              // 计算 finalAngle 相对于 中心连线角度(angleSB) 的偏差
+              let diff = finalAngle - angleSB;
+              
+              // 角度标准化到 -PI ~ PI
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              
+              // 如果偏差超出了必然碰撞的扇区，强制钳制
+              if (Math.abs(diff) > maxDeviation) {
+                  // 保留偏离方向 (左偏还是右偏)，但限制幅度
+                  const clampedDiff = Math.sign(diff) * maxDeviation;
+                  finalAngle = angleSB + clampedDiff;
+                  // console.log(`[AI] Miss prevented. Dist: ${dist.toFixed(0)}, Angle clamped to hit edge.`);
+              }
+          }
+      }
+
+      // 6. 重建力向量
+      const forceMag = Matter.Vector.magnitude(force);
+      
+      // 力度误差
       let powerNoise = 1.0;
       if (type !== 'breakthrough' && type !== 'sabotage') {
           powerNoise = 1.0 + (Math.random() - 0.5) * errorBase * 0.5;
       }
-
-      const rotated = Matter.Vector.rotate(force, angleError);
-      return Matter.Vector.mult(rotated, powerNoise);
+      
+      return {
+          x: Math.cos(finalAngle) * forceMag * powerNoise,
+          y: Math.sin(finalAngle) * forceMag * powerNoise
+      };
   }
 }

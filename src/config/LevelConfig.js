@@ -9,10 +9,10 @@ export function getLevelConfig(level) {
     // 默认配置：Level 1-3 (菜鸟/入门)
     const config = {
         level: level,
-        aiError: 0.3,         // 射门误差 (弧度)，0.3 很大，容易踢歪
-        powerMultiplier: 0.65, // 力度系数
-        strategyDepth: 0,     // 0:仅直线, 1:懂解围, 2:懂反弹, 3:全能
-        defenseAwareness: 0,  // 防守意识 (0~1)，触发解围的概率
+        aiError: 0.15,        // [修改] 原 0.3 -> 0.15，大幅降低基础误差，保证基本准度
+        powerMultiplier: 0.65, 
+        strategyDepth: 0,     
+        defenseAwareness: 0,  
         skills: [],           
         skillRate: 0.0,       
         description: "菜鸟入门"
@@ -20,32 +20,34 @@ export function getLevelConfig(level) {
 
     // --- 难度梯度 ---
 
-    // Level 4+: 大师级挑战 (难度骤升，对应原先 Level 40+)
+    // Level 4+: 大师级挑战 (难度骤升)
     if (level >= 4) {
-        // 精度极高: 0.02 (接近零误差) -> 99关趋近于 0
+        // 精度极高: 0.02 (接近零误差)
         config.aiError = Math.max(0.005, 0.02 - (level - 4) * 0.0002);
-        config.powerMultiplier = 1.0; // 全力
-        config.strategyDepth = 3;     // 全能策略 (反弹、解围、破局)
-        config.defenseAwareness = 0.95 + (level - 4) * 0.001; // 极高防守意识
+        config.powerMultiplier = 1.0; 
+        config.strategyDepth = 3;     
+        config.defenseAwareness = 0.95 + (level - 4) * 0.001; 
         
-        // 技能库全开
         config.skills = [SkillType.SUPER_AIM, SkillType.UNSTOPPABLE, SkillType.SUPER_FORCE];
-        // 技能频率: 起步 0.4，随着关卡提升
         config.skillRate = Math.min(0.8, 0.4 + (level - 4) * 0.005);
         
         config.description = "地狱挑战";
     }
 
-    // --- 特殊教学/奖励关卡强制配置 ---
-    // 配合 RewardConfig: L1送瞄准, L2送战车, L3送大力
+    // [新增] Level 10+: 机械神 (完全无误差)
+    if (level >= 10) {
+        config.aiError = 0;
+        config.description = "神级操作";
+    }
 
-    // 第1关：教学：精准制导 (AI也会用)
+    // --- 特殊教学/奖励关卡强制配置 ---
+
+    // 第1关：教学：精准制导
     if (level === 1) {
         config.skillRate = 0.8; 
         config.skills = [SkillType.SUPER_AIM];
         config.description = "教学：精准制导";
-        // 保持低难度参数，仅展示技能
-        config.aiError = 0.3;
+        config.aiError = 0.15; // [修改] 保持一致
         config.defenseAwareness = 0;
     }
 
@@ -54,8 +56,7 @@ export function getLevelConfig(level) {
         config.skillRate = 0.8;
         config.skills = [SkillType.UNSTOPPABLE];
         config.description = "教学：无敌战车";
-        // 稍微提升一点
-        config.aiError = 0.25;
+        config.aiError = 0.12;
     }
 
     // 第3关：教学：大力神脚
@@ -63,8 +64,7 @@ export function getLevelConfig(level) {
         config.skillRate = 0.8;
         config.skills = [SkillType.SUPER_FORCE];
         config.description = "教学：大力神脚";
-        // 稍微提升
-        config.aiError = 0.2;
+        config.aiError = 0.1;
     }
 
     return config;
