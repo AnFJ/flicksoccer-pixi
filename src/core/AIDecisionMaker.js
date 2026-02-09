@@ -574,45 +574,50 @@ export default class AIDecisionMaker {
         return null;
     }
 
+    /**
+     * [优化] 兜底安全移动
+     * 当没有好的射门或解围路线时调用。
+     * 旧逻辑：轻推 (0.2力)。
+     * 新逻辑：大力往场地中央踢 (0.8力)。
+     */
     _fallbackSafeMove(strikers, ball, analysis) {
         let subject = strikers[0];
-        if (analysis.goalkeeperId) {
-            subject = strikers.find(s => s.id === analysis.goalkeeperId);
-        }
+        // 优先使用最近的棋子，而不是守门员，除非守门员最近
+        let minDist = Infinity;
+        strikers.forEach(s => {
+            const d = Matter.Vector.magnitude(Matter.Vector.sub(s.body.position, ball.body.position));
+            if (d < minDist) {
+                minDist = d;
+                subject = s;
+            }
+        });
 
-        // [修改] 回撤目标不再是球门线中心，而是门前的一点 (防止进网)
-        const safeMargin = 80;
-        const safeGoalPos = {
-            x: this.teamId === TeamId.LEFT ? this.ownGoal.x + safeMargin : this.ownGoal.x - safeMargin,
-            y: this.ownGoal.y
-        };
-
-        const toBall = Matter.Vector.sub(ball.body.position, subject.body.position);
-        const toOwnGoal = Matter.Vector.sub(safeGoalPos, ball.body.position);
+        const fieldCenter = { x: this.fieldX + this.fieldW / 2, y: this.fieldY + this.fieldH / 2 };
+        const ghost = this._calculateGhostBall(subject.body.position, ball.body.position, fieldCenter);
         
-        const dot = Matter.Vector.dot(Matter.Vector.normalise(toBall), Matter.Vector.normalise(toOwnGoal));
-        
-        if (dot > 0.2) { 
+        // 如果能打向中心，就打向中心
+        if (!this._raycastTest(subject.body.position, ghost.ghostPos, [subject.body])) {
+            const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
             return {
                 striker: subject,
-                force: {x: 0, y: 0}, 
-                type: 'skip_danger'
+                force: Matter.Vector.mult(Matter.Vector.normalise(ghost.shootVector), maxForce * 0.8),
+                type: 'fallback_clear',
+                desc: '盲射解围'
             };
         }
 
-        const dir = Matter.Vector.sub(safeGoalPos, subject.body.position);
-        if (Matter.Vector.magnitude(dir) < 50) {
-            return {
-                striker: subject,
-                force: Matter.Vector.mult(Matter.Vector.normalise(toBall), GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * 0.2),
-                type: 'fallback'
-            };
-        }
-
+        // 如果连中心都打不了（被围死），就往自家球门反方向随便踢一脚
+        const awayFromGoal = Matter.Vector.sub(ball.body.position, this.ownGoal);
+        const randomAngle = (Math.random() - 0.5) * Math.PI / 2; // +/- 45度
+        const randomDir = Matter.Vector.rotate(awayFromGoal, randomAngle);
+        
+        const maxForce = GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier;
+        
         return {
             striker: subject,
-            force: Matter.Vector.mult(Matter.Vector.normalise(dir), GameConfig.gameplay.maxDragDistance * GameConfig.gameplay.forceMultiplier * 0.2),
-            type: 'fallback_positioning'
+            force: Matter.Vector.mult(Matter.Vector.normalise(randomDir), maxForce * 0.6),
+            type: 'fallback_panic',
+            desc: '慌乱一脚'
         };
     }
 
