@@ -200,8 +200,8 @@ export default class ThemeSelectionDialog extends PIXI.Container {
               text: `${fmt.name} (${fmt.desc})`,
               width: 350, height: 70,
               color: btnColor,
-              textColor: isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6),
-              fontSize: 28,
+              textColor: isSelected ? 0xFFFFFF : (isUnlocked ? 0xFFFFFF : 0x95a5a6),
+              fontSize: 36,
               onClick: () => {
                   if (isUnlocked) {
                       this.tempTheme.formationId = fmt.id;
@@ -218,7 +218,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           }
 
           if (!isUnlocked) {
-             this.renderVideoIcon(btn, -140, 0, 0.6); 
+             this.renderVideoIcon(btn, 22, 34, 0.6); 
           }
 
           this.contentContainer.addChild(btn);

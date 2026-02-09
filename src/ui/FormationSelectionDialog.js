@@ -74,7 +74,8 @@ export default class FormationSelectionDialog extends PIXI.Container {
     }
 
     const confirmBtn = new Button({
-        text: btnText, 
+        text: btnText,
+        fontSize: 36,
         width: 240, height: 80, color: 0x2ecc71,
         onClick: () => {
             if (this.mode === 'single') AccountMgr.updateFormation(this.p1FormationId);
@@ -86,6 +87,7 @@ export default class FormationSelectionDialog extends PIXI.Container {
     panel.addChild(confirmBtn);
     
     const cancelBtn = new Button({
+        fontSize: 36,
         text: '取消', width: 200, height: 80, color: 0x95a5a6,
         onClick: () => {
             if (this.onCancel) this.onCancel();
@@ -148,14 +150,14 @@ export default class FormationSelectionDialog extends PIXI.Container {
         // 按钮颜色逻辑：选中(金色) > 未选中但解锁(深蓝) > 未解锁(深蓝带锁/图标)
         const btnColor = isSelected ? 0xF1C40F : 0x34495e;
         // 文字颜色逻辑：选中(黑色) > 未选中但解锁(白色) > 未解锁(灰色)
-        const txtColor = isSelected ? 0x000000 : (isUnlocked ? 0xFFFFFF : 0x95a5a6);
+        const txtColor = isSelected ? 0xFFFFFF : (isUnlocked ? 0xFFFFFF : 0x95a5a6);
 
         const btn = new Button({
             text: `${fmt.name} (${fmt.desc})`,
             width: 350, height: 75,
             color: btnColor,
             textColor: txtColor,
-            fontSize: 28,
+            fontSize: 34, // [修改] 字体调大一号 (原28 -> 34)
             onClick: () => {
                 if (isUnlocked) {
                     // 已解锁，直接选中
@@ -176,10 +178,8 @@ export default class FormationSelectionDialog extends PIXI.Container {
             this.renderVideoIcon(btn.inner, -140, 0, 0.6);
         }
 
-        // [新增] 选中时文字不加粗 (Button 默认是 bold，这里手动改回 normal 以示区别，或者保持 bold)
-        if (isSelected) {
-            btn.label.style.fontWeight = 'normal';
-        }
+        // [修改] 统一取消加粗 (Button 默认是 bold)
+        btn.label.style.fontWeight = 'normal';
 
         this.contentContainer.addChild(btn);
     });

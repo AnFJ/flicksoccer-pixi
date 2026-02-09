@@ -24,7 +24,7 @@ export default class Button extends PIXI.Container {
       color: 0x1E88E5,
       texture: null,     // 默认无图片
       fontFamily: 'Arial', 
-      fontSize: 32,      
+      fontSize: 36,      
       textColor: 0xFFFFFF,
       onClick: () => {}
     }, options);
