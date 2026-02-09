@@ -337,7 +337,7 @@ export default class MenuScene extends BaseScene {
 
     // [新增] 在信息栏右侧添加纯图片的德式桌球入口按钮
     const foosballIconTex = ResourceManager.get('foosball_icon_btn');
-    if (foosballIconTex) {
+    if (foosballIconTex && user.level >= 50) {
         const foosballIconBtn = new PIXI.Sprite(foosballIconTex);
         foosballIconBtn.anchor.set(0, 0.5);
         // 位置设定：位于金币文本右侧约 120px

@@ -11,12 +11,14 @@ import { SkillType } from '../constants.js';
  *   name: 用于显示的中文名称
  */
 export const LevelRewards = {
-    // --- 前10关：新手诱惑 ---
-    2: { type: 'striker', id: 2, name: '火焰纹章' }, // 棋子奖励 #1
-    4: { type: 'skill', id: SkillType.SUPER_AIM, count: 5, name: '超距瞄准' },
+    // --- 前3关：技能大放送 ---
+    1: { type: 'skill', id: SkillType.SUPER_AIM, count: 5, name: '超距瞄准' },
+    2: { type: 'skill', id: SkillType.UNSTOPPABLE, count: 5, name: '无敌战车' },
+    3: { type: 'skill', id: SkillType.SUPER_FORCE, count: 5, name: '大力水手' },
 
-    7: { type: 'skill', id: SkillType.UNSTOPPABLE, count: 5, name: '无敌战车' },
-    10: { type: 'skill', id: SkillType.SUPER_FORCE, count: 5, name: '大力水手' },
+    // --- 后续奖励 ---
+    // 原 Level 2 的皮肤推迟到 Level 5
+    6: { type: 'striker', id: 2, name: '火焰纹章' }, 
     20: { type: 'ball', id: 2, name: '经典黑白' }, // 足球奖励 #1
 
     50: { type: 'striker', id: 3, name: '蓝宝石' }, // 棋子奖励 #2

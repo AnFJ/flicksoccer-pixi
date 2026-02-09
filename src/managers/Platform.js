@@ -31,11 +31,33 @@ class Platform {
       if (!provider) return;
       
       const defaultTitle = "弹指足球，一球定胜负！";
+      const defaultImage = ""; // 可选：配置分享图链接
       
-      if (this.env === 'wechat' && provider.onShareAppMessage) {
-          provider.onShareAppMessage(() => ({
-              title: defaultTitle
-          }));
+      if (this.env === 'wechat') {
+          // 1. 显示分享菜单 (好友 + 朋友圈)
+          if (provider.showShareMenu) {
+              provider.showShareMenu({
+                  withShareTicket: true,
+                  menus: ['shareAppMessage', 'shareTimeline']
+              });
+          }
+
+          // 2. 配置好友分享
+          if (provider.onShareAppMessage) {
+              provider.onShareAppMessage(() => ({
+                  title: defaultTitle,
+                  imageUrl: defaultImage
+              }));
+          }
+
+          // 3. 配置朋友圈分享
+          if (provider.onShareTimeline) {
+              provider.onShareTimeline(() => ({
+                  title: defaultTitle,
+                  imageUrl: defaultImage
+              }));
+          }
+
       } else if (this.env === 'douyin' && provider.onShareAppMessage) {
           // 抖音也支持全局监听分享菜单
           provider.onShareAppMessage((res) => {
@@ -325,9 +347,9 @@ class Platform {
   }
 
   getProvider() {
-    if( this.env === 'web') return null;
     if (this.env === 'douyin') return tt;
     if (this.env === 'wechat') return wx;
+    return null;
   }
 
   /**
@@ -463,7 +485,6 @@ class Platform {
           };
 
           const onError = (err) => {
-              console.warn('[Platform] Interstitial Ad Error:', err);
               cleanup();
               resolve(false);
           };
@@ -477,12 +498,10 @@ class Platform {
               adInstance.onError(onError);
 
               adInstance.show().catch((err) => {
-                  console.warn('[Platform] Interstitial Ad Show Fail:', err);
                   cleanup();
                   resolve(false);
               });
           } catch (e) {
-              console.error('[Platform] Create Interstitial failed', e);
               resolve(false);
           }
       });
