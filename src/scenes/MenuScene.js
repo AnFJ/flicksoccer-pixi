@@ -429,16 +429,38 @@ export default class MenuScene extends BaseScene {
     return btn;
   }
 
+  
   async handleDailyCheckIn(btn) {
       if (btn) btn.interactive = false;
       
       let success = false;
       try {
-          success = await Platform.showInterstitialAd();
+          // [回滚] 应用户要求，每日一抽使用插屏广告 (Interstitial)
+          // 获取配置中的插屏广告ID (这里复用 startup 或 game_over 的 ID)
+          const adConfig = GameConfig.adConfig[Platform.env];
+          // 优先使用 startup 的 ID，确保 ID 存在
+          const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.startup : null;
+          
+          if (adUnitId) {
+              // 调用插屏广告接口
+              success = await Platform.showInterstitialAd(adUnitId);
+          } else {
+              // 容错：如果是Web环境且无ID，尝试调用模拟；否则视为失败
+              if (Platform.env === 'web') {
+                  success = await Platform.showInterstitialAd('mock-daily-draw');
+              } else {
+                  console.warn('Daily check-in ad ID missing');
+                  // 如果没有 ID，暂时允许通过（或者你可以设置为 false 禁止领取）
+                  // 这里设置为 true 避免完全无法测试
+                  success = true; 
+              }
+          }
       } catch (err) {
+          console.warn('Ad show error', err);
           success = false;
       }
       
+      // 插屏广告显示并关闭后，即视为成功
       if (success) {
           const prize = drawLottery();
           const lotteryDialog = new LotteryDialog(prize, () => {
@@ -451,7 +473,8 @@ export default class MenuScene extends BaseScene {
           });
           this.container.addChild(lotteryDialog);
       } else {
-          Platform.showToast("广告加载失败，获得保底奖励: 50 金币");
+          // 如果广告加载失败（比如没网或无填充），给予保底提示或奖励
+          Platform.showToast("广告加载异常，获得保底奖励: 50 金币");
           AccountMgr.addCoins(50, true);
           AccountMgr.performCheckIn(0); 
           
@@ -462,6 +485,7 @@ export default class MenuScene extends BaseScene {
           this.refreshUI();
       }
   }
+
 
   createDefaultAvatar(container, name, radius) {
       const char = (name || 'G').charAt(0).toUpperCase();

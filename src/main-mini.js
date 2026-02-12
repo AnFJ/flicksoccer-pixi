@@ -31,9 +31,7 @@ PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.LINEAR
 // [关键修复] 强制覆盖 WebGL 支持检测
 // 在 iPhone 7 等旧 iOS 设备的小游戏环境中，Pixi 内部创建临时 Canvas 进行检测经常失败
 // 但实际上主 Canvas 是支持 WebGL 的。直接返回 true 绕过检测。
-if(isLowEndIOS()) {
-  PIXI.utils.isWebGLSupported = () => true;
-}
+PIXI.utils.isWebGLSupported = () => true;
 
 // 安装 unsafe-eval (适配微信小游戏禁止 eval 的限制)
 install(PIXI)

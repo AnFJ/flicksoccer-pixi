@@ -1,5 +1,4 @@
 
-import { Connect } from 'vite';
 import { GameConfig } from '../config.js';
 
 class Platform {
@@ -8,7 +7,8 @@ class Platform {
     console.log(`[Platform] Current Environment: ${this.env}`);
     
     this._gameAds = []; // 存储游戏场景内的多个Banner/Custom广告实例
-    this._rewardedAds = {}; // [新增] 缓存激励视频广告实例 (key: adUnitId)
+    this._rewardedAds = {}; // 缓存激励视频广告实例 (key: adUnitId)
+    this._interstitialAds = {}; // [新增] 缓存插屏广告实例 (key: adUnitId)
     
     // [新增] 存储待处理的邀请信息 (从小游戏启动参数获取)
     this.pendingInvite = null; 
@@ -18,6 +18,9 @@ class Platform {
     
     // [新增] 注册默认分享行为 (主要针对微信右上角)
     this.registerDefaultShare();
+
+    // [新增] 延迟初始化插屏广告预加载 (不阻塞首屏)
+    setTimeout(() => this.initInterstitialAds(), 2000);
   }
 
   detectEnv() {
@@ -26,7 +29,6 @@ class Platform {
     return 'web';
   }
 
-  // ... (保留 registerDefaultShare, checkUpdate, loadRemoteAsset, checkLaunchOptions, shareRoom, setStorage, getStorage, removeStorage, isMobileWeb, enterFullscreen, getLoginCredentials, getUserProfile, vibrateShort, showToast, getProvider 方法不变) ...
   registerDefaultShare() {
       const provider = this.getProvider();
       if (!provider) return;
@@ -68,6 +70,59 @@ class Platform {
                   // templateId: '' 
               };
           });
+      }
+  }
+
+  /**
+   * [新增] 初始化并预加载所有配置的插屏广告
+   */
+  initInterstitialAds() {
+      if (this.env === 'web') return;
+      const config = GameConfig.adConfig[this.env];
+      if (!config || !config.interstitial) return;
+
+      console.log('[Platform] Preloading interstitial ads...');
+      Object.values(config.interstitial).forEach(adUnitId => {
+          this.preloadInterstitialAd(adUnitId);
+      });
+  }
+
+  /**
+   * [新增] 预加载单个插屏广告
+   */
+  preloadInterstitialAd(adUnitId) {
+      if (!adUnitId) return;
+      
+      const provider = this.getProvider();
+      if (!provider || !provider.createInterstitialAd) return;
+
+      // 如果尚未创建实例，则创建并挂载监听
+      if (!this._interstitialAds[adUnitId]) {
+          try {
+              const ad = provider.createInterstitialAd({ adUnitId });
+              
+              ad.onLoad(() => {
+                  console.log(`[Platform] Interstitial loaded: ${adUnitId}`);
+              });
+              
+              ad.onError((err) => {
+                  // 静默失败，不打扰用户
+                  // console.warn(`[Platform] Interstitial load error: ${adUnitId}`, err);
+              });
+
+              ad.onClose(() => {
+                  console.log(`[Platform] Interstitial closed, reloading: ${adUnitId}`);
+                  // 关闭后自动加载下一次，确保下次展示时是 ready 状态
+                  ad.load().catch(() => {});
+              });
+
+              this._interstitialAds[adUnitId] = ad;
+              
+              // 立即触发首次加载
+              ad.load().catch(() => {});
+          } catch (e) {
+              console.warn('[Platform] Failed to create interstitial', e);
+          }
       }
   }
 
@@ -391,6 +446,7 @@ class Platform {
       if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
       if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
 
+      // 先清理旧广告
       this.hideGameAds();
 
       adNodes.forEach((node, index) => {
@@ -432,32 +488,63 @@ class Platform {
               }
 
               if (adInstance) {
-                  adInstance.onError(err => {});
-                  adInstance.show().catch(err => {});
+                  // [优化] 增加更健壮的错误处理
+                  adInstance.onError(err => {
+                      // 屏蔽常规的加载错误日志
+                      // console.log('[Platform] Ad load error:', err);
+                  });
+                  
+                  // show() 返回 Promise，catch 避免未捕获异常
+                  const showPromise = adInstance.show();
+                  if (showPromise && showPromise.catch) {
+                      showPromise.catch(err => {
+                          // console.log('[Platform] Ad show failed:', err);
+                      });
+                  }
+                  
                   this._gameAds.push(adInstance);
               }
 
-          } catch (e) {}
+          } catch (e) {
+              console.warn('[Platform] Create ad failed', e);
+          }
       });
   }
 
+  /**
+   * 隐藏/销毁游戏内广告
+   * [优化] 增加 try-catch 屏蔽微信 "removeTextView:fail" 错误
+   * [优化] 立即清空数组引用，防止重入
+   */
   hideGameAds() {
-      if (this._gameAds.length > 0) {
-          this._gameAds.forEach(ad => {
+      const ads = this._gameAds;
+      // 立即清空引用，避免异步逻辑中重复操作
+      this._gameAds = [];
+
+      if (ads && ads.length > 0) {
+          ads.forEach(ad => {
               try {
+                  // 解绑回调，防止销毁后触发 onError
+                  if (ad.offError) ad.offError();
+                  if (ad.offClose) ad.offClose();
+                  if (ad.offLoad) ad.offLoad();
+
                   if (ad.destroy) {
                       ad.destroy();
                   } else if (ad.hide) {
                       ad.hide();
                   }
-              } catch(e) {}
+              } catch(e) {
+                  // 忽略微信开发者工具中常见的 "removeTextView:fail" 错误
+                  // console.warn('Ad destroy error (ignored):', e);
+              }
           });
-          this._gameAds = [];
       }
   }
 
   /**
-   * 展示插屏广告
+   * 展示插屏广告 (优化版)
+   * 优先使用缓存的实例，展示后自动预加载下一次
    * @param {string} adUnitId - 插屏广告ID
    */
   async showInterstitialAd(adUnitId) {
@@ -466,52 +553,40 @@ class Platform {
           return true;
       }
 
-      const provider = this.getProvider();
-      if (!provider || !provider.createInterstitialAd) return false;
-      
       if (!adUnitId) {
           console.warn('[Platform] showInterstitialAd called without ID');
           return false;
       }
 
+      // 1. 尝试获取预加载的实例，如果没有则创建
+      if (!this._interstitialAds[adUnitId]) {
+          this.preloadInterstitialAd(adUnitId);
+      }
+      
+      const adInstance = this._interstitialAds[adUnitId];
+      if (!adInstance) return false;
+
       return new Promise((resolve) => {
-          let adInstance = null;
+          // 绑定单次关闭回调以解决 Promise
+          const onCloseOnce = () => {
+              if (adInstance.offClose) adInstance.offClose(onCloseOnce);
+              resolve(true);
+          };
           
-          const cleanup = () => {
-              if (adInstance) {
-                  adInstance.offClose(onClose);
-                  adInstance.offError(onError);
-              }
-          };
+          if (adInstance.onClose) adInstance.onClose(onCloseOnce);
 
-          const onClose = () => {
-              cleanup();
-              resolve(true); 
-          };
-
-          const onError = (err) => {
-              console.warn('[Platform] Interstitial error:', err);
-              cleanup();
-              resolve(false);
-          };
-
-          try {
-              adInstance = provider.createInterstitialAd({
-                  adUnitId: adUnitId
-              });
-
-              adInstance.onClose(onClose);
-              adInstance.onError(onError);
-
-              adInstance.show().catch((err) => {
-                  cleanup();
-                  resolve(false);
-                  console.log('[Platform] Interstitial show failed', err);
-              });
-          } catch (e) {
-              resolve(false);
-              console.log('[Platform] Interstitial create failed', e);
-          }
+          adInstance.show().catch((err) => {
+              console.warn('[Platform] Interstitial show failed, retrying load...', err);
+              
+              // 如果显示失败(可能没加载好)，尝试加载后立即显示
+              adInstance.load()
+                  .then(() => adInstance.show())
+                  .catch(e => {
+                      console.warn('[Platform] Interstitial retry failed', e);
+                      if (adInstance.offClose) adInstance.offClose(onCloseOnce);
+                      resolve(false);
+                  });
+          });
       });
   }
 

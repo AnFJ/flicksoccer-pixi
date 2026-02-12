@@ -250,16 +250,16 @@ export default class InventoryView extends PIXI.Container {
           
           // [修复] 延迟刷新 UI，防止广告关闭瞬间适配器上下文未恢复导致的 insertTextView/position 错误
           setTimeout(() => {
-              if (!this.destroyed) {
-                  this.refreshUI();
-              }
+              // Pixi v6 检查方式：_destroyed 为内部属性，或者判断 parent 是否为空
+              if (this._destroyed || !this.parent) return;
+              this.refreshUI();
           }, 500);
       }
   }
 
   refreshUI() {
       // 安全检查，防止异步回调时界面已被销毁
-      if (this.destroyed) return;
+      if (this._destroyed || !this.parent) return;
 
       // 刷新金币
       if (this.coinsText) {
