@@ -1,3 +1,4 @@
+
 // 游戏全局配置
 export const GameConfig = {
   // 屏幕参考尺寸 (横屏设计稿 1080*2400)
@@ -128,53 +129,62 @@ export const GameConfig = {
   },
 
   // [修改] 平台广告ID配置 (数组对应左右两个广告位)
-  // rewardedVideo: 激励视频广告ID (Coins, Aim, Unstoppable, Force, ThemeTypes)
+  // interstitial: 插屏广告 (startup, before_game, game_over)
   adConfig: {
       web: {
           banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
+          interstitial: {
+              startup: 'adunit-web-startup',
+              before_game: 'adunit-web-before-game',
+              game_over: 'adunit-web-game-over'
+          },
           rewardedVideo: {
               coins: 'adunit-26a38148682bce5a',
               super_aim: 'adunit-0d8e4a176de1bc31',
               unstoppable: 'adunit-bc43ef817678099c',
               super_force: 'adunit-8aa62d2e44801ab1',
-              // [新增] 主题解锁广告ID
               theme_striker: 'adunit-88bdd3cb911f5642',
               theme_field: 'adunit-80528d8bc18b8441',
               theme_ball: 'adunit-6b851044132039f5',
               theme_formation: 'adunit-342edcf7c048abe3',
-              // [新增] 模式解锁
-              unlock_mode: 'adunit-mode-unlock-placeholder' // 请替换为真实ID
+              unlock_mode: 'adunit-mode-unlock-placeholder'
           }
       },
       wechat: {
           banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
+          interstitial: {
+              startup: 'adunit-b491ed4911fc67d8',
+              before_game: 'adunit-5b2d9dab33c8f055',
+              game_over: 'adunit-3b82fb8291592c56'
+          },
           rewardedVideo: {
               coins: 'adunit-26a38148682bce5a',
               super_aim: 'adunit-0d8e4a176de1bc31',
               unstoppable: 'adunit-bc43ef817678099c',
               super_force: 'adunit-8aa62d2e44801ab1',
-              // [新增] 主题解锁广告ID
               theme_striker: 'adunit-88bdd3cb911f5642',
               theme_field: 'adunit-80528d8bc18b8441',
               theme_ball: 'adunit-6b851044132039f5',
               theme_formation: 'adunit-342edcf7c048abe3',
-              // [新增] 模式解锁
-              unlock_mode: 'adunit-7fcbc609e83b5de9' // 请替换为真实ID
+              unlock_mode: 'adunit-7fcbc609e83b5de9'
           }
       },
       douyin: {
           banners: ['adunit-left-placeholder', 'adunit-right-placeholder'],
+          interstitial: {
+              startup: 'adunit-dy-startup',
+              before_game: 'adunit-dy-before-game',
+              game_over: 'adunit-dy-game-over'
+          },
           rewardedVideo: {
               coins: 'adunit-dy-coins',
               super_aim: 'adunit-dy-aim',
               unstoppable: 'adunit-dy-car',
               super_force: 'adunit-dy-force',
-              // [新增] 主题解锁广告ID
               theme_striker: 'adunit-dy-striker',
               theme_field: 'adunit-dy-field',
               theme_ball: 'adunit-dy-ball',
               theme_formation: 'adunit-dy-formation',
-              // [新增] 模式解锁
               unlock_mode: 'adunit-mode-unlock-placeholder'
           }
       }

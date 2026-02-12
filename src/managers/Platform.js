@@ -1,4 +1,5 @@
 
+import { Connect } from 'vite';
 import { GameConfig } from '../config.js';
 
 class Platform {
@@ -352,11 +353,6 @@ class Platform {
     return null;
   }
 
-  /**
-   * [新增] 加载分包
-   * @param {string} name 分包名称 (在 game.json 中配置的 name)
-   * @returns {Promise}
-   */
   loadSubpackage(name) {
       if (this.env === 'web') {
           return Promise.resolve(); // Web 模式下所有代码都在一起
@@ -386,7 +382,6 @@ class Platform {
       });
   }
 
-  // ... (保留 showGameAds, hideGameAds, showInterstitialAd, showRewardedVideoAd, navigateToMiniProgram, handleSocialAction 等广告相关方法不变) ...
   showGameAds(adNodes) {
       if (this.env === 'web') return; 
       if (!adNodes || adNodes.length === 0) return;
@@ -461,13 +456,23 @@ class Platform {
       }
   }
 
-  async showInterstitialAd() {
-      if (this.env === 'web') return true;
+  /**
+   * 展示插屏广告
+   * @param {string} adUnitId - 插屏广告ID
+   */
+  async showInterstitialAd(adUnitId) {
+      if (this.env === 'web') {
+          console.log(`[Platform] Mock Interstitial Ad: ${adUnitId}`);
+          return true;
+      }
 
       const provider = this.getProvider();
       if (!provider || !provider.createInterstitialAd) return false;
-
-      const adUnitId = 'adunit-d0030597225347b3';
+      
+      if (!adUnitId) {
+          console.warn('[Platform] showInterstitialAd called without ID');
+          return false;
+      }
 
       return new Promise((resolve) => {
           let adInstance = null;
@@ -485,6 +490,7 @@ class Platform {
           };
 
           const onError = (err) => {
+              console.warn('[Platform] Interstitial error:', err);
               cleanup();
               resolve(false);
           };
@@ -500,11 +506,37 @@ class Platform {
               adInstance.show().catch((err) => {
                   cleanup();
                   resolve(false);
+                  console.log('[Platform] Interstitial show failed', err);
               });
           } catch (e) {
               resolve(false);
+              console.log('[Platform] Interstitial create failed', e);
           }
       });
+  }
+
+  /**
+   * 检查并展示每日插屏广告 (启动/菜单页)
+   * 每天只会展示一次
+   */
+  checkAndShowDailyInterstitial() {
+      const todayStr = new Date().toDateString(); // e.g. "Thu Dec 26 2024"
+      const lastShowDate = this.getStorage('last_daily_interstitial_date');
+
+      if (lastShowDate !== todayStr) {
+          // 获取配置的启动插屏ID
+          const adConfig = GameConfig.adConfig[this.env];
+          const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.startup : null;
+
+          if (adUnitId) {
+              this.showInterstitialAd(adUnitId).then(success => {
+                  if (success) {
+                      this.setStorage('last_daily_interstitial_date', todayStr);
+                      console.log('[Platform] Daily interstitial shown.');
+                  }
+              });
+          }
+      }
   }
 
   async showRewardedVideoAd(adUnitId) {
@@ -560,6 +592,7 @@ class Platform {
 
           const onError = (err) => {
               this.showToast('广告加载失败，请稍后再试');
+              console.log('[Platform] Rewarded video error:', err);
               resolve(false);
               videoAd.offError(onError);
           };
@@ -570,6 +603,7 @@ class Platform {
           videoAd.load()
               .then(() => videoAd.show())
               .catch(err => {
+                  console.log('[Platform] Rewarded video show failed', err);
                   resolve(false);
               });
       });

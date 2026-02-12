@@ -114,6 +114,9 @@ export default class MenuScene extends BaseScene {
 
     // 监听数据刷新事件
     EventBus.on(Events.USER_DATA_REFRESHED, this.refreshUI, this);
+
+    // [新增] 检查并展示每日插屏广告
+    Platform.checkAndShowDailyInterstitial();
   }
 
   handleModeEntry(modeKey, onSuccess) {

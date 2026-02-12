@@ -59,7 +59,7 @@ export default class GameScene extends BaseScene {
     this.ball = null;
     this.isMoving = false; 
     this.isGameOver = false;
-    this.isLoading = true;
+    this.isLoading = true; // 初始化为 loading 状态
     this.isGamePaused = false; 
     this.myTeamId = TeamId.LEFT;
 
@@ -113,11 +113,16 @@ export default class GameScene extends BaseScene {
         this.p2FormationId = p2 ? (p2.formationId || 0) : 0;
 
         this.networkCtrl = new OnlineMatchController(this);
+        // 网络对战已经在房间里准备好了，这里不需要再 isLoading 等待广告
+        // 因为如果两人广告时间不同步会导致掉线
+        // 所以在线对战跳过开场广告，或者只做非阻塞展示(这里选择跳过)
         this.isLoading = false;
-        this.initGame(params);
+        this.initGame(params, false); // false = showAd
 
     } else {
         this.myTeamId = TeamId.LEFT;
+        // 单机模式下先 isLoading=false，让 Formation Dialog 显示
+        // 真正点击确定后进入 initGame 再处理广告
         this.isLoading = false; 
         this.showFormationSelection(params);
     }
@@ -134,7 +139,8 @@ export default class GameScene extends BaseScene {
           } else {
               this.p2FormationId = 0;
           }
-          this.initGame(params);
+          // 用户点击开始比赛，此时进入游戏并尝试播放广告
+          this.initGame(params, true); // true = showAd
       }, () => {
           if (this.gameMode === 'pve') SceneManager.changeScene(LevelSelectScene);
           else SceneManager.changeScene(MenuScene);
@@ -143,7 +149,7 @@ export default class GameScene extends BaseScene {
       this.container.addChild(dialog);
   }
 
-  initGame(params) {
+  initGame(params, showAd = false) {
     if (this.gameMode === 'pvp_online') {
         const hostPlayer = this.players.find(p => p.teamId === TeamId.LEFT);
         if (hostPlayer && hostPlayer.theme) {
@@ -173,23 +179,46 @@ export default class GameScene extends BaseScene {
         this.networkCtrl.restoreState(params.snapshot);
     }
 
-    setTimeout(() => {
-        if (!this.isGameOver && this.container && !this.container.destroyed) {
-            let startText = "游戏开始";
-            if (this.gameMode === 'pve') {
-                startText = `第 ${this.currentLevel} 关 开始`;
-            }
-            this.goalBanner?.play(startText);
-            AudioManager.playBGM('crowd_bg_loop'); 
-        }
-    }, 500);
+    // [新增] 定义游戏正式开始的流程
+    const startGameFlow = () => {
+        if (this.isGameOver || (this.container && this.container.destroyed)) return;
+        
+        // 解除 Loading 状态 (如果有)
+        this.isLoading = false;
 
-    if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
+        let startText = "游戏开始";
+        if (this.gameMode === 'pve') {
+            startText = `第 ${this.currentLevel} 关 开始`;
+        }
+        this.goalBanner?.play(startText);
+        AudioManager.playBGM('crowd_bg_loop'); 
+
+        // 展示场景内广告
+        if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
+            Platform.showGameAds(this.layout.adBoards);
+        }
+    };
+
+    // [新增] 根据是否需要展示广告决定流程
+    if (showAd) {
+        // 先暂停逻辑更新
+        this.isLoading = true; 
+        
+        // 获取赛前插屏广告ID
+        const adConfig = GameConfig.adConfig[Platform.env];
+        const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.before_game : null;
+
+        Platform.showInterstitialAd(adUnitId).then(() => {
+            // 无论成功还是失败，广告关闭后延迟一点开始游戏
+            setTimeout(() => {
+                startGameFlow();
+            }, 200);
+        });
+    } else {
+        // 不需要广告，直接开始
         setTimeout(() => {
-            if (!this.isGameOver) {
-                Platform.showGameAds(this.layout.adBoards);
-            }
-        }, 100);
+            startGameFlow();
+        }, 500);
     }
   }
 

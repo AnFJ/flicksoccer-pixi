@@ -97,6 +97,13 @@ export default class ResultScene extends BaseScene {
         if (isWin) {
             this.initConfetti(designWidth, designHeight);
         }
+
+        // J. [新增] 弹出插屏广告
+        // 获取结算插屏广告ID
+        const adConfig = GameConfig.adConfig[Platform.env];
+        const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.game_over : null;
+        
+        Platform.showInterstitialAd(adUnitId);
     }
 
     // --- 视觉构建方法 ---
@@ -421,7 +428,7 @@ export default class ResultScene extends BaseScene {
             sp.mask = mask;
             box.addChild(sp);
         } else if (info.avatar && typeof info.avatar === 'string' && info.avatar.startsWith('http')) {
-            // 网络 URL
+            // URL (微信头像)
             const sp = new PIXI.Sprite();
             sp.anchor.set(0.5);
             sp.mask = mask;
