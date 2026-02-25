@@ -1,5 +1,6 @@
 
 import { GameConfig } from '../config.js';
+import { AdNameMap } from '../config/AdNameMap.js';
 
 class Platform {
   constructor() {
@@ -62,8 +63,13 @@ class Platform {
    */
   logAdAction(params) {
       // params: { adUnitId, adUnitName, adType, isCompleted, isClicked, watchTime }
+      
+      // [修改] 优先从 AdNameMap 获取中文名称
+      const adUnitName = AdNameMap[params.adUnitId] || params.adUnitName || '未知广告位';
+
       const log = {
           ...params,
+          adUnitName: adUnitName,
           userId: null, // 稍后填充
           nickname: null,
           timestamp: Date.now()
@@ -102,16 +108,19 @@ class Platform {
       let nickname = '';
       
       try {
-          // 尝试从 AccountMgr 获取 (如果已挂载到 window)
-          if (typeof window !== 'undefined' && window.GameAccountMgr) {
-              userId = window.GameAccountMgr.userInfo.id;
-              nickname = window.GameAccountMgr.userInfo.nickname;
-          } else {
-              // 尝试从 storage 获取
-              // 注意：AccountMgr 存储结构可能复杂，这里简化处理
-              // 实际项目中建议 AccountMgr 提供一个全局访问点
+          // 尝试从 storage 获取用户信息，支持跨平台 (Web/WeChat/Douyin)
+          // AccountMgr 会在登录成功后将用户信息存入 'finger_soccer_user_data'
+          const cachedStr = this.getStorage('finger_soccer_user_data');
+          if (cachedStr) {
+              const data = JSON.parse(cachedStr);
+              if (data) {
+                  userId = data.id;
+                  nickname = data.nickname;
+              }
           }
-      } catch (e) {}
+      } catch (e) {
+          console.warn('[Platform] Failed to get user info for ad log', e);
+      }
 
       // 补全日志信息
       const finalLogs = logsToSend.map(log => ({
