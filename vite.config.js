@@ -69,6 +69,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         // 小游戏模式下，不要排除任何依赖，全部打包进一个文件
         external: isH5 ? [] : [], 
+        input: isH5 ? {
+            main: path.resolve(__dirname, 'index.html'),
+            admin: path.resolve(__dirname, 'admin.html')
+        } : undefined,
         output: {
           // 确保全局变量不冲突
           extend: true,
@@ -115,7 +119,6 @@ export default defineConfig(({ mode }) => {
             try {
               console.log(`[Vite] Copying assets from ${srcAssets} to ${destAssets}...`);
               copyRecursiveSync(srcAssets, destAssets);
-              copyRecursiveSync(srcAssetsOrigin, destAssetsOrigin);
               console.log('[Vite] Assets copy complete.');
             } catch (err) {
               console.error('[Vite] Failed to copy assets:', err);

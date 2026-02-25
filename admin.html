@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>弹指足球 - 后台管理</title>
+    <!-- 引入 Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入 Element Plus 样式 -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <!-- 引入 Element Plus -->
+    <script src="https://unpkg.com/element-plus"></script>
+    <!-- 引入 Element Plus 图标 -->
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif; background-color: #f5f7fa; }
+        #app { height: 100vh; display: flex; flex-direction: column; }
+        .login-container { display: flex; justify-content: center; align-items: center; height: 100%; background-color: #2d3a4b; }
+        .login-card { width: 400px; }
+        .main-container { flex: 1; display: flex; overflow: hidden; }
+        .sidebar { width: 200px; background-color: #304156; color: #fff; display: flex; flex-direction: column; }
+        .sidebar-menu { flex: 1; border-right: none; }
+        .content { flex: 1; padding: 20px; overflow-y: auto; background-color: #fff; }
+        .header { height: 50px; background-color: #fff; border-bottom: 1px solid #dcdfe6; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 1px 4px rgba(0,21,41,.08); }
+        .logo { height: 50px; line-height: 50px; text-align: center; font-size: 20px; font-weight: bold; color: #fff; background-color: #2b3649; }
+        .stat-card { margin-bottom: 20px; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #409EFF; }
+        .stat-label { font-size: 14px; color: #909399; }
+        .filter-container { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .pagination-container { margin-top: 20px; display: flex; justify-content: flex-end; }
+        .json-viewer { background: #f4f4f5; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 登录页 -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <el-card class="login-card">
+                <template #header>
+                    <div style="text-align: center; font-weight: bold;">后台管理系统登录</div>
+                </template>
+                <el-form :model="loginForm" label-width="60px">
+                    <el-form-item label="账号">
+                        <el-input v-model="loginForm.username" placeholder="请输入账号"></el-input>
+                    </el-form-item>
+                    <el-form-item label="密码">
+                        <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" @keyup.enter="handleLogin"></el-input>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" @click="handleLogin" style="width: 100%;">登录</el-button>
+                    </el-form-item>
+                </el-form>
+            </el-card>
+        </div>
+
+        <!-- 主界面 -->
+        <div v-else class="main-container">
+            <div class="sidebar">
+                <div class="logo">弹指足球后台</div>
+                <el-menu
+                    active-text-color="#409EFF"
+                    background-color="#304156"
+                    class="sidebar-menu"
+                    default-active="stats"
+                    text-color="#bfcbd9"
+                    @select="handleMenuSelect"
+                >
+                    <el-menu-item index="stats">
+                        <el-icon><Data_Analysis /></el-icon>
+                        <span>访问数据</span>
+                    </el-menu-item>
+                    <el-menu-item index="users">
+                        <el-icon><User /></el-icon>
+                        <span>账号统计</span>
+                    </el-menu-item>
+                </el-menu>
+            </div>
+            
+            <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                <div class="header">
+                    <span>欢迎回来，{{ loginForm.username }}</span>
+                    <el-button type="danger" size="small" @click="handleLogout">退出登录</el-button>
+                </div>
+                
+                <div class="content">
+                    <!-- 访问数据 Tab -->
+                    <div v-if="currentTab === 'stats'">
+                        <h3>数据概览</h3>
+                        <el-row :gutter="20">
+                            <el-col :span="6">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">累计注册用户</div>
+                                    <div class="stat-value">{{ statsData.totalUsers }}</div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">今日注册</div>
+                                    <div class="stat-value">{{ statsData.todayReg }}</div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">今日活跃</div>
+                                    <div class="stat-value">{{ statsData.todayActive }}</div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                        <el-row :gutter="20">
+                            <el-col :span="6">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">昨日注册</div>
+                                    <div class="stat-value">{{ statsData.yesterdayReg }}</div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">昨日活跃</div>
+                                    <div class="stat-value">{{ statsData.yesterdayActive }}</div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+
+                        <h3>平台分布</h3>
+                        <el-row :gutter="20">
+                            <el-col :span="8" v-for="item in statsData.platformStats" :key="item.platform">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">平台: {{ item.platform }}</div>
+                                    <div class="stat-value">{{ item.count }}</div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </div>
+
+                    <!-- 账号统计 Tab -->
+                    <div v-if="currentTab === 'users'">
+                        <div class="filter-container">
+                            <el-input v-model="userFilter.nickname" placeholder="用户名" style="width: 200px;" clearable @clear="fetchUsers"></el-input>
+                            <el-select v-model="userFilter.platform" placeholder="平台" style="width: 150px;" clearable @clear="fetchUsers">
+                                <el-option label="Web (H5)" value="web"></el-option>
+                                <el-option label="微信" value="wechat"></el-option>
+                                <el-option label="抖音" value="douyin"></el-option>
+                            </el-select>
+                            <el-date-picker
+                                v-model="userFilter.dateRange"
+                                type="daterange"
+                                range-separator="至"
+                                start-placeholder="注册开始日期"
+                                end-placeholder="注册结束日期"
+                                value-format="YYYY-MM-DD"
+                                style="width: 300px;"
+                            ></el-date-picker>
+                            <el-button type="primary" @click="fetchUsers">搜索</el-button>
+                        </div>
+
+                        <el-table :data="userList" border style="width: 100%" v-loading="loading">
+                            <el-table-column prop="user_id" label="用户ID" width="180" show-overflow-tooltip></el-table-column>
+                            <el-table-column label="头像" width="80">
+                                <template #default="scope">
+                                    <el-avatar :size="40" :src="scope.row.avatar_url || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'"></el-avatar>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="nickname" label="昵称" width="150"></el-table-column>
+                            <el-table-column prop="platform" label="平台" width="100"></el-table-column>
+                            <el-table-column prop="level" label="等级" width="80"></el-table-column>
+                            <el-table-column prop="coins" label="金币" width="100"></el-table-column>
+                            <el-table-column prop="created_at" label="注册时间" width="180"></el-table-column>
+                            <el-table-column prop="last_login" label="最后登录" width="180"></el-table-column>
+                            <el-table-column label="操作" fixed="right" width="180">
+                                <template #default="scope">
+                                    <el-button size="small" @click="showDetails(scope.row)">详情</el-button>
+                                    <el-button size="small" type="primary" @click="showMatches(scope.row)">对局</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="totalUsers"
+                                :page-size="pageSize"
+                                :current-page="currentPage"
+                                @current-change="handlePageChange"
+                            ></el-pagination>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 详情弹窗 -->
+        <el-dialog v-model="detailVisible" title="用户详情" width="50%">
+            <el-descriptions :column="2" border v-if="currentUser">
+                <el-descriptions-item label="用户ID">{{ currentUser.user_id }}</el-descriptions-item>
+                <el-descriptions-item label="昵称">{{ currentUser.nickname }}</el-descriptions-item>
+                <el-descriptions-item label="平台">{{ currentUser.platform }}</el-descriptions-item>
+                <el-descriptions-item label="等级">{{ currentUser.level }}</el-descriptions-item>
+                <el-descriptions-item label="金币">{{ currentUser.coins }}</el-descriptions-item>
+                <el-descriptions-item label="注册时间">{{ currentUser.created_at }}</el-descriptions-item>
+                <el-descriptions-item label="最后登录">{{ currentUser.last_login }}</el-descriptions-item>
+                <el-descriptions-item label="解锁主题ID">{{ getUnlockedThemeIds(currentUser.unlocked_themes) }}</el-descriptions-item>
+                <el-descriptions-item label="技能数量">{{ getSkillCount(currentUser.items) }}</el-descriptions-item>
+                <el-descriptions-item label="当前主题" :span="2">
+                    <div class="json-viewer">{{ formatJson(currentUser.theme) }}</div>
+                </el-descriptions-item>
+                <el-descriptions-item label="生涯数据" :span="2">
+                    <div class="json-viewer">{{ formatJson(currentUser.match_stats) }}</div>
+                </el-descriptions-item>
+            </el-descriptions>
+        </el-dialog>
+
+        <!-- 对局历史弹窗 -->
+        <el-dialog v-model="matchVisible" title="对局历史" width="60%">
+            <el-table :data="matchHistory" border style="width: 100%" v-loading="matchLoading">
+                <el-table-column prop="created_at" label="时间" width="180"></el-table-column>
+                <el-table-column prop="match_type" label="类型" width="120">
+                    <template #default="scope">
+                        <el-tag v-if="scope.row.match_type === 'pve'">PVE</el-tag>
+                        <el-tag v-else-if="scope.row.match_type === 'pvp_local'" type="success">本地双人</el-tag>
+                        <el-tag v-else-if="scope.row.match_type === 'pvp_online'" type="warning">在线对战</el-tag>
+                        <el-tag v-else>{{ scope.row.match_type }}</el-tag>
+                    </template>
+                </el-table-column>
+                <el-table-column label="详情">
+                    <template #default="scope">
+                        <div class="json-viewer" style="max-height: 100px;">{{ formatJson(scope.row.match_data) }}</div>
+                    </template>
+                </el-table-column>
+            </el-table>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+        const { ElMessage } = ElementPlus;
+        const { DataAnalysis, User } = ElementPlusIconsVue;
+
+        const app = createApp({
+            components: {
+                Data_Analysis: DataAnalysis,
+                User: User
+            },
+            setup() {
+                const isLoggedIn = ref(false);
+                const loginForm = reactive({
+                    username: '',
+                    password: ''
+                });
+                const currentTab = ref('stats');
+                const loading = ref(false);
+                const matchLoading = ref(false);
+
+                // 数据
+                const statsData = reactive({
+                    totalUsers: 0,
+                    platformStats: [],
+                    todayReg: 0,
+                    yesterdayReg: 0,
+                    todayActive: 0,
+                    yesterdayActive: 0
+                });
+
+                const userList = ref([]);
+                const totalUsers = ref(0);
+                const currentPage = ref(1);
+                const pageSize = ref(10);
+                const userFilter = reactive({
+                    nickname: '',
+                    platform: '',
+                    dateRange: []
+                });
+
+                const detailVisible = ref(false);
+                const currentUser = ref(null);
+
+                const matchVisible = ref(false);
+                const matchHistory = ref([]);
+
+                // API Base URL (根据当前环境自动判断，如果是开发环境可能需要调整)
+                const API_BASE = 'https://flicksoccer.afragin.dpdns.org';
+
+                const handleLogin = () => {
+                    if (loginForm.username === 'admin' && loginForm.password === 'afragin') {
+                        isLoggedIn.value = true;
+                        localStorage.setItem('admin_logged_in', 'true');
+                        fetchStats();
+                    } else {
+                        ElMessage.error('账号或密码错误');
+                    }
+                };
+
+                const handleLogout = () => {
+                    isLoggedIn.value = false;
+                    localStorage.removeItem('admin_logged_in');
+                    loginForm.username = '';
+                    loginForm.password = '';
+                };
+
+                const handleMenuSelect = (index) => {
+                    currentTab.value = index;
+                    if (index === 'stats') {
+                        fetchStats();
+                    } else if (index === 'users') {
+                        fetchUsers();
+                    }
+                };
+
+                // 获取统计数据
+                const fetchStats = async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/stats`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            Object.assign(statsData, data);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取统计数据失败');
+                    }
+                };
+
+                // 获取用户列表
+                const fetchUsers = async () => {
+                    loading.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: currentPage.value,
+                            pageSize: pageSize.value
+                        });
+                        if (userFilter.nickname) params.append('nickname', userFilter.nickname);
+                        if (userFilter.platform) params.append('platform', userFilter.platform);
+                        if (userFilter.dateRange && userFilter.dateRange.length === 2) {
+                            params.append('startDate', userFilter.dateRange[0]);
+                            params.append('endDate', userFilter.dateRange[1]);
+                        }
+
+                        const res = await fetch(`${API_BASE}/api/admin/users?${params.toString()}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            userList.value = data.list;
+                            totalUsers.value = data.total;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取用户列表失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const handlePageChange = (page) => {
+                    currentPage.value = page;
+                    fetchUsers();
+                };
+
+                const showDetails = (row) => {
+                    currentUser.value = row;
+                    detailVisible.value = true;
+                };
+
+                const showMatches = async (row) => {
+                    matchVisible.value = true;
+                    matchLoading.value = true;
+                    matchHistory.value = [];
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/user/matches?userId=${row.user_id}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            matchHistory.value = data.list;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取对局历史失败');
+                    } finally {
+                        matchLoading.value = false;
+                    }
+                };
+
+                // 辅助函数
+                const formatJson = (jsonStr) => {
+                    try {
+                        if (typeof jsonStr === 'string') {
+                            return JSON.stringify(JSON.parse(jsonStr), null, 2);
+                        }
+                        return JSON.stringify(jsonStr, null, 2);
+                    } catch (e) {
+                        return jsonStr;
+                    }
+                };
+
+                const getUnlockedThemeIds = (jsonStr) => {
+                    try {
+                        const data = JSON.parse(jsonStr || '{}');
+                        // 假设结构是 { striker: [1], field: [1] ... }
+                        let ids = [];
+                        for (let key in data) {
+                            if (Array.isArray(data[key])) {
+                                ids.push(`${key}:[${data[key].join(',')}]`);
+                            }
+                        }
+                        return ids.join(', ');
+                    } catch (e) {
+                        return '解析错误';
+                    }
+                };
+
+                const getSkillCount = (jsonStr) => {
+                    try {
+                        const items = JSON.parse(jsonStr || '[]');
+                        return items.length;
+                    } catch (e) {
+                        return 0;
+                    }
+                };
+
+                onMounted(() => {
+                    if (localStorage.getItem('admin_logged_in') === 'true') {
+                        isLoggedIn.value = true;
+                        fetchStats();
+                    }
+                });
+
+                return {
+                    isLoggedIn,
+                    loginForm,
+                    handleLogin,
+                    handleLogout,
+                    currentTab,
+                    handleMenuSelect,
+                    statsData,
+                    userList,
+                    loading,
+                    totalUsers,
+                    currentPage,
+                    pageSize,
+                    userFilter,
+                    fetchUsers,
+                    handlePageChange,
+                    detailVisible,
+                    currentUser,
+                    showDetails,
+                    matchVisible,
+                    matchHistory,
+                    matchLoading,
+                    showMatches,
+                    formatJson,
+                    getUnlockedThemeIds,
+                    getSkillCount
+                };
+            }
+        });
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

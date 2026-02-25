@@ -8,7 +8,7 @@ export { GameRoom };
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, x-admin-auth', // [修复] 允许自定义鉴权头
   'Access-Control-Max-Age': '86400', // 缓存预检结果24小时
 };
 
@@ -56,7 +56,10 @@ export default {
     }
 
     const url = new URL(request.url);
-    const path = url.pathname;
+    // [优化] 去除末尾斜杠，避免 /api/admin/stats/ 匹配失败
+    const path = url.pathname.endsWith('/') && url.pathname.length > 1 
+        ? url.pathname.slice(0, -1) 
+        : url.pathname;
 
     try {
       // --- 1. 多人房间相关 ---
@@ -391,6 +394,105 @@ export default {
           `).bind(userId, userId).run();
 
           return response({ success: true });
+      }
+
+      // --- 6. 后台管理接口 ---
+      
+      // 简单的权限验证 (实际生产环境应使用更安全的验证方式)
+      const checkAdminAuth = (req) => {
+          const auth = req.headers.get('x-admin-auth');
+          return auth === 'admin-secret-token'; // 简单硬编码，配合前端
+      };
+
+      // 6.1 获取用户列表
+      if (path === '/api/admin/users' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          const params = url.searchParams;
+          const page = parseInt(params.get('page') || '1');
+          const pageSize = parseInt(params.get('pageSize') || '10');
+          const nickname = params.get('nickname');
+          const platform = params.get('platform');
+          const startDate = params.get('startDate');
+          const endDate = params.get('endDate');
+
+          let whereClause = '1=1';
+          let args = [];
+
+          if (nickname) {
+              whereClause += ' AND nickname LIKE ?';
+              args.push(`%${nickname}%`);
+          }
+          if (platform) {
+              whereClause += ' AND platform = ?';
+              args.push(platform);
+          }
+          if (startDate) {
+              whereClause += ' AND created_at >= ?';
+              args.push(startDate);
+          }
+          if (endDate) {
+              whereClause += ' AND created_at <= ?';
+              args.push(endDate);
+          }
+
+          const offset = (page - 1) * pageSize;
+          
+          // 查询总数
+          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM users WHERE ${whereClause}`).bind(...args).first();
+          const total = countResult.total;
+
+          // 查询列表
+          const users = await env.DB.prepare(`SELECT * FROM users WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+              .bind(...args, pageSize, offset).all();
+
+          return response({
+              total,
+              list: users.results
+          });
+      }
+
+      // 6.2 获取用户对局历史
+      if (path === '/api/admin/user/matches' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          const userId = url.searchParams.get('userId');
+          if (!userId) return response({ error: 'Missing userId' }, 400);
+
+          const matches = await env.DB.prepare('SELECT * FROM match_history WHERE user_id = ? ORDER BY created_at DESC').bind(userId).all();
+          return response({ list: matches.results });
+      }
+
+      // 6.3 获取统计数据
+      if (path === '/api/admin/stats' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          // 总用户数
+          const totalUsers = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
+          
+          // 各平台用户数
+          const platformStats = await env.DB.prepare('SELECT platform, COUNT(*) as count FROM users GROUP BY platform').all();
+          
+          // 今日注册
+          const todayReg = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(created_at) = date('now', '+8 hours')").first();
+          
+          // 昨日注册
+          const yesterdayReg = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(created_at) = date('now', '+8 hours', '-1 day')").first();
+          
+          // 今日访问 (last_login)
+          const todayActive = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(last_login) = date('now', '+8 hours')").first();
+          
+          // 昨日访问
+          const yesterdayActive = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(last_login) = date('now', '+8 hours', '-1 day')").first();
+
+          return response({
+              totalUsers: totalUsers.count,
+              platformStats: platformStats.results,
+              todayReg: todayReg.count,
+              yesterdayReg: yesterdayReg.count,
+              todayActive: todayActive.count,
+              yesterdayActive: yesterdayActive.count
+          });
       }
 
       return response({ error: 'Not Found' }, 404);

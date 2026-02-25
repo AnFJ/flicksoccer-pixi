@@ -20,7 +20,8 @@ class Platform {
     this.registerDefaultShare();
 
     // [新增] 延迟初始化插屏广告预加载 (不阻塞首屏)
-    setTimeout(() => this.initInterstitialAds(), 2000);
+    // 稍微延后一点，避开首屏渲染高峰
+    setTimeout(() => this.initInterstitialAds(), 3000);
   }
 
   detectEnv() {
@@ -113,7 +114,13 @@ class Platform {
               ad.onClose(() => {
                   console.log(`[Platform] Interstitial closed, reloading: ${adUnitId}`);
                   // 关闭后自动加载下一次，确保下次展示时是 ready 状态
-                  ad.load().catch(() => {});
+                  // 延迟加载，避免关闭动画还没结束就加载
+                  setTimeout(() => {
+                      // 检查广告对象是否还存在
+                      if (this._interstitialAds[adUnitId] === ad) {
+                          ad.load().catch(() => {});
+                      }
+                  }, 1000);
               });
 
               this._interstitialAds[adUnitId] = ad;
@@ -512,31 +519,32 @@ class Platform {
   }
 
   /**
-   * 隐藏/销毁游戏内广告
-   * [优化] 增加 try-catch 屏蔽微信 "removeTextView:fail" 错误
-   * [优化] 立即清空数组引用，防止重入
+   * 隐藏/销毁游戏内广告 (Banner/Custom)
+   * [修改] 移除 setTimeout，改为同步操作但增加 try-catch 保护
+   * 并尝试先 hide 再 destroy
    */
   hideGameAds() {
       const ads = this._gameAds;
-      // 立即清空引用，避免异步逻辑中重复操作
-      this._gameAds = [];
+      this._gameAds = []; // 立即清空引用
 
       if (ads && ads.length > 0) {
           ads.forEach(ad => {
+              if (!ad) return;
               try {
-                  // 解绑回调，防止销毁后触发 onError
+                  // 解绑回调
                   if (ad.offError) ad.offError();
                   if (ad.offClose) ad.offClose();
                   if (ad.offLoad) ad.offLoad();
+                  if (ad.offResize) ad.offResize();
 
+                  // 尝试销毁
                   if (ad.destroy) {
                       ad.destroy();
                   } else if (ad.hide) {
                       ad.hide();
                   }
               } catch(e) {
-                  // 忽略微信开发者工具中常见的 "removeTextView:fail" 错误
-                  // console.warn('Ad destroy error (ignored):', e);
+                  // 忽略销毁过程中的系统错误，如 'removeTextView:fail'
               }
           });
       }
@@ -554,7 +562,7 @@ class Platform {
       }
 
       if (!adUnitId) {
-          console.warn('[Platform] showInterstitialAd called without ID');
+          // console.warn('[Platform] showInterstitialAd called without ID');
           return false;
       }
 
