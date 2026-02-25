@@ -36,6 +36,22 @@ CREATE TABLE IF NOT EXISTS room_records (
 );
 CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
 
+-- 广告观看记录
+CREATE TABLE IF NOT EXISTS ad_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,               -- 用户ID
+    nickname TEXT,              -- 玩家名称
+    ad_unit_id TEXT,            -- 广告位ID
+    ad_unit_name TEXT,          -- 广告位名称
+    ad_type TEXT,               -- 广告类型：interstitial, rewardedVideo, banner
+    is_completed INTEGER DEFAULT 0, -- 激励视频是否完成观看 (0:否, 1:是)
+    is_clicked INTEGER DEFAULT 0,   -- 是否点击广告 (0:否, 1:是)
+    watch_time INTEGER,         -- 观看时长 (秒)
+    created_at DATETIME DEFAULT (datetime('now', '+8 hours')) -- 观看时间
+);
+CREATE INDEX IF NOT EXISTS idx_ad_user_created ON ad_records(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_created ON ad_records(created_at DESC);
+
 -- 创建索引优化查询
 CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);
 ALTER TABLE users ADD COLUMN match_stats TEXT;

@@ -73,6 +73,14 @@
                         <el-icon><User /></el-icon>
                         <span>账号统计</span>
                     </el-menu-item>
+                    <el-menu-item index="ad_stats">
+                        <el-icon><Data_Analysis /></el-icon>
+                        <span>广告数据</span>
+                    </el-menu-item>
+                    <el-menu-item index="ad_list">
+                        <el-icon><List /></el-icon>
+                        <span>广告详情</span>
+                    </el-menu-item>
                 </el-menu>
             </div>
             
@@ -184,6 +192,86 @@
                                 @current-change="handlePageChange"
                             ></el-pagination>
                         </div>
+                    <!-- 广告数据 Tab -->
+                    <div v-if="currentTab === 'ad_stats'">
+                        <h3>广告数据概览</h3>
+                        <el-row :gutter="20">
+                            <el-col :span="24">
+                                <el-table :data="adStatsTable" border style="width: 100%">
+                                    <el-table-column prop="period" label="时间段" width="120"></el-table-column>
+                                    <el-table-column prop="exposure" label="总曝光量"></el-table-column>
+                                    <el-table-column prop="clicks" label="总点击量"></el-table-column>
+                                    <el-table-column label="细分数据">
+                                        <template #default="scope">
+                                            <div v-for="detail in scope.row.details" :key="detail.ad_type">
+                                                {{ detail.ad_type }}: 曝光 {{ detail.type_count }}, 点击 {{ detail.type_clicks || 0 }}
+                                            </div>
+                                        </template>
+                                    </el-table-column>
+                                </el-table>
+                            </el-col>
+                        </el-row>
+                    </div>
+
+                    <!-- 广告详情 Tab -->
+                    <div v-if="currentTab === 'ad_list'">
+                        <div class="filter-container">
+                            <el-input v-model="adFilter.userId" placeholder="用户ID" style="width: 200px;" clearable @clear="fetchAdList"></el-input>
+                            <el-select v-model="adFilter.adType" placeholder="广告类型" style="width: 150px;" clearable @clear="fetchAdList">
+                                <el-option label="插屏广告" value="interstitial"></el-option>
+                                <el-option label="激励视频" value="rewardedVideo"></el-option>
+                                <el-option label="Banner" value="banner"></el-option>
+                            </el-select>
+                            <el-date-picker
+                                v-model="adFilter.dateRange"
+                                type="daterange"
+                                range-separator="至"
+                                start-placeholder="开始日期"
+                                end-placeholder="结束日期"
+                                value-format="YYYY-MM-DD"
+                                style="width: 300px;"
+                            ></el-date-picker>
+                            <el-button type="primary" @click="fetchAdList">搜索</el-button>
+                        </div>
+
+                        <el-table :data="adList" border style="width: 100%" v-loading="adLoading">
+                            <el-table-column prop="id" label="ID" width="80"></el-table-column>
+                            <el-table-column prop="user_id" label="用户ID" width="180" show-overflow-tooltip></el-table-column>
+                            <el-table-column prop="nickname" label="玩家名称" width="150"></el-table-column>
+                            <el-table-column prop="ad_unit_id" label="广告位ID" width="180" show-overflow-tooltip></el-table-column>
+                            <el-table-column prop="ad_unit_name" label="广告位名称" width="150"></el-table-column>
+                            <el-table-column prop="ad_type" label="类型" width="120">
+                                <template #default="scope">
+                                    <el-tag v-if="scope.row.ad_type === 'interstitial'">插屏</el-tag>
+                                    <el-tag v-else-if="scope.row.ad_type === 'rewardedVideo'" type="success">激励视频</el-tag>
+                                    <el-tag v-else-if="scope.row.ad_type === 'banner'" type="warning">Banner</el-tag>
+                                    <el-tag v-else>{{ scope.row.ad_type }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="is_completed" label="是否完成" width="100">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.is_completed ? 'success' : 'info'">{{ scope.row.is_completed ? '是' : '否' }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="is_clicked" label="是否点击" width="100">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.is_clicked ? 'success' : 'info'">{{ scope.row.is_clicked ? '是' : '否' }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="watch_time" label="时长(s)" width="80"></el-table-column>
+                            <el-table-column prop="created_at" label="观看时间" width="180"></el-table-column>
+                        </el-table>
+
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="totalAds"
+                                :page-size="adPageSize"
+                                :current-page="adCurrentPage"
+                                @current-change="handleAdPageChange"
+                            ></el-pagination>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -277,6 +365,19 @@
                 const matchVisible = ref(false);
                 const matchHistory = ref([]);
 
+                // 广告相关数据
+                const adStatsTable = ref([]);
+                const adList = ref([]);
+                const totalAds = ref(0);
+                const adCurrentPage = ref(1);
+                const adPageSize = ref(10);
+                const adFilter = reactive({
+                    userId: '',
+                    adType: '',
+                    dateRange: []
+                });
+                const adLoading = ref(false);
+
                 // API Base URL (根据当前环境自动判断，如果是开发环境可能需要调整)
                 const API_BASE = 'https://flicksoccer.afragin.dpdns.org';
 
@@ -303,11 +404,75 @@
                         fetchStats();
                     } else if (index === 'users') {
                         fetchUsers();
+                    } else if (index === 'ad_stats') {
+                        fetchAdStats();
+                    } else if (index === 'ad_list') {
+                        fetchAdList();
                     }
                 };
 
-                // 获取统计数据
-                const fetchStats = async () => {
+                // ... (fetchStats, fetchUsers, etc.)
+
+                // 获取广告统计
+                const fetchAdStats = async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/ad/stats`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            adStatsTable.value = [
+                                { period: '今日', ...data.today },
+                                { period: '昨日', ...data.yesterday },
+                                { period: '本周', ...data.week },
+                                { period: '本月', ...data.month },
+                                { period: '上月', ...data.lastMonth }
+                            ];
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取广告统计失败');
+                    }
+                };
+
+                // 获取广告列表
+                const fetchAdList = async () => {
+                    adLoading.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: adCurrentPage.value,
+                            pageSize: adPageSize.value
+                        });
+                        if (adFilter.userId) params.append('userId', adFilter.userId);
+                        if (adFilter.adType) params.append('adType', adFilter.adType);
+                        if (adFilter.dateRange && adFilter.dateRange.length === 2) {
+                            params.append('startDate', adFilter.dateRange[0]);
+                            params.append('endDate', adFilter.dateRange[1]);
+                        }
+
+                        const res = await fetch(`${API_BASE}/api/admin/ad/list?${params.toString()}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            adList.value = data.list;
+                            totalAds.value = data.total;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取广告列表失败');
+                    } finally {
+                        adLoading.value = false;
+                    }
+                };
+
+                const handleAdPageChange = (page) => {
+                    adCurrentPage.value = page;
+                    fetchAdList();
+                };
+
+                // 辅助函数
+                const formatJson = (jsonStr) => {
                     try {
                         const res = await fetch(`${API_BASE}/api/admin/stats`, {
                             headers: { 'x-admin-auth': 'admin-secret-token' }
@@ -450,6 +615,16 @@
                     matchHistory,
                     matchLoading,
                     showMatches,
+                    adStatsTable,
+                    adList,
+                    totalAds,
+                    adCurrentPage,
+                    adPageSize,
+                    adFilter,
+                    adLoading,
+                    fetchAdStats,
+                    fetchAdList,
+                    handleAdPageChange,
                     formatJson,
                     getUnlockedThemeIds,
                     getSkillCount

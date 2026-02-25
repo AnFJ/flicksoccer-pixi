@@ -495,6 +495,139 @@ export default {
           });
       }
 
+      // --- 7. 广告上报与统计 ---
+      
+      // 7.1 批量上报广告记录
+      if (path === '/api/ad/report' && request.method === 'POST') {
+          const { logs } = await request.json(); // logs: Array of ad records
+          if (!logs || !Array.isArray(logs)) return response({ error: 'Invalid logs' }, 400);
+
+          const stmt = env.DB.prepare(`
+              INSERT INTO ad_records (user_id, nickname, ad_unit_id, ad_unit_name, ad_type, is_completed, is_clicked, watch_time)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          const batch = logs.map(log => stmt.bind(
+              log.userId,
+              log.nickname,
+              log.adUnitId,
+              log.adUnitName,
+              log.adType,
+              log.isCompleted ? 1 : 0,
+              log.isClicked ? 1 : 0,
+              log.watchTime || 0
+          ));
+
+          await env.DB.batch(batch);
+          return response({ success: true });
+      }
+
+      // 7.2 后台：获取广告统计数据
+      if (path === '/api/admin/ad/stats' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          // 辅助函数：获取时间范围的统计
+          const getStats = async (timeCondition) => {
+              const sql = `
+                  SELECT 
+                      COUNT(*) as total_exposure,
+                      SUM(is_clicked) as total_clicks,
+                      ad_type,
+                      COUNT(*) as type_count,
+                      SUM(is_clicked) as type_clicks
+                  FROM ad_records
+                  WHERE ${timeCondition}
+                  GROUP BY ad_type
+              `;
+              const results = await env.DB.prepare(sql).all();
+              
+              let totalExposure = 0;
+              let totalClicks = 0;
+              let typeStats = {};
+
+              results.results.forEach(row => {
+                  totalExposure += row.total_exposure; // 这里累加其实不对，因为GROUP BY了，应该在外面算，或者直接取sum
+                  // 修正：上面的SQL会按ad_type分组返回多行。我们需要聚合。
+                  // 重新设计返回结构
+              });
+              
+              // 重新查询总数
+              const totalRes = await env.DB.prepare(`
+                  SELECT COUNT(*) as exposure, SUM(is_clicked) as clicks 
+                  FROM ad_records WHERE ${timeCondition}
+              `).first();
+              
+              return {
+                  exposure: totalRes.exposure,
+                  clicks: totalRes.clicks || 0,
+                  details: results.results
+              };
+          };
+
+          const todayCondition = "date(created_at) = date('now', '+8 hours')";
+          const yesterdayCondition = "date(created_at) = date('now', '+8 hours', '-1 day')";
+          // SQLite 'now' modifier for start of week/month is tricky with timezone. 
+          // 简单起见，用 strftime
+          const thisWeekCondition = "strftime('%Y-%W', created_at) = strftime('%Y-%W', 'now', '+8 hours')";
+          const thisMonthCondition = "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', '+8 hours')";
+          const lastMonthCondition = "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', '+8 hours', '-1 month')";
+
+          const [today, yesterday, week, month, lastMonth] = await Promise.all([
+              getStats(todayCondition),
+              getStats(yesterdayCondition),
+              getStats(thisWeekCondition),
+              getStats(thisMonthCondition),
+              getStats(lastMonthCondition)
+          ]);
+
+          return response({
+              today, yesterday, week, month, lastMonth
+          });
+      }
+
+      // 7.3 后台：获取广告记录列表
+      if (path === '/api/admin/ad/list' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          const params = url.searchParams;
+          const page = parseInt(params.get('page') || '1');
+          const pageSize = parseInt(params.get('pageSize') || '10');
+          const userId = params.get('userId');
+          const adType = params.get('adType');
+          const startDate = params.get('startDate');
+          const endDate = params.get('endDate');
+
+          let whereClause = '1=1';
+          let args = [];
+
+          if (userId) {
+              whereClause += ' AND user_id LIKE ?';
+              args.push(`%${userId}%`);
+          }
+          if (adType) {
+              whereClause += ' AND ad_type = ?';
+              args.push(adType);
+          }
+          if (startDate) {
+              whereClause += ' AND created_at >= ?';
+              args.push(startDate);
+          }
+          if (endDate) {
+              whereClause += ' AND created_at <= ?';
+              args.push(endDate);
+          }
+
+          const offset = (page - 1) * pageSize;
+          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM ad_records WHERE ${whereClause}`).bind(...args).first();
+          const listResult = await env.DB.prepare(`SELECT * FROM ad_records WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+              .bind(...args, pageSize, offset).all();
+
+          return response({
+              total: countResult.total,
+              list: listResult.results
+          });
+      }
+
       return response({ error: 'Not Found' }, 404);
 
     } catch (e) {

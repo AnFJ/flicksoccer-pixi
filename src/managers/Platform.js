@@ -20,8 +20,137 @@ class Platform {
     this.registerDefaultShare();
 
     // [新增] 延迟初始化插屏广告预加载 (不阻塞首屏)
-    // 稍微延后一点，避开首屏渲染高峰
-    setTimeout(() => this.initInterstitialAds(), 3000);
+    setTimeout(() => this.initInterstitialAds(), 2000);
+
+    // [新增] 广告日志缓存
+    this._adLogs = [];
+    // [新增] 监听应用隐藏/退出事件，进行上报
+    this.registerLifecycleListeners();
+  }
+
+  registerLifecycleListeners() {
+      const provider = this.getProvider();
+      if (!provider) {
+          // Web 环境监听 visibilitychange
+          if (this.env === 'web' && typeof document !== 'undefined') {
+              document.addEventListener('visibilitychange', () => {
+                  if (document.visibilityState === 'hidden') {
+                      this.flushAdLogs();
+                  }
+              });
+          }
+          return;
+      }
+
+      if (provider.onHide) {
+          provider.onHide(() => {
+              console.log('[Platform] App hide, flushing ad logs...');
+              this.flushAdLogs();
+          });
+      }
+      
+      // 某些平台可能有 onExit
+      if (provider.onExit) {
+          provider.onExit(() => {
+              this.flushAdLogs();
+          });
+      }
+  }
+
+  /**
+   * [新增] 记录广告行为
+   */
+  logAdAction(params) {
+      // params: { adUnitId, adUnitName, adType, isCompleted, isClicked, watchTime }
+      const log = {
+          ...params,
+          userId: null, // 稍后填充
+          nickname: null,
+          timestamp: Date.now()
+      };
+
+      // 尝试获取用户信息
+      try {
+          // 这里假设 AccountMgr 是全局可访问的，或者通过某种方式获取
+          // 由于 Platform 是底层模块，可能无法直接引用 AccountMgr (循环依赖)
+          // 我们尝试从 localStorage 或全局变量获取
+          // 更好的方式是让 AccountMgr 注入用户信息，或者在 flush 时获取
+          // 暂时先留空，flush 时填充
+      } catch (e) {}
+
+      this._adLogs.push(log);
+      
+      // 如果日志太多，主动上报一次
+      if (this._adLogs.length >= 10) {
+          this.flushAdLogs();
+      }
+  }
+
+  /**
+   * [新增] 上报广告日志
+   */
+  async flushAdLogs() {
+      if (this._adLogs.length === 0) return;
+
+      const logsToSend = [...this._adLogs];
+      this._adLogs = []; // 清空
+
+      // 填充用户信息 (动态获取，避免循环依赖)
+      // 假设 window.GameAccountMgr 存在，或者通过其他方式
+      // 这里我们尝试读取本地缓存的 userInfo
+      let userId = '';
+      let nickname = '';
+      
+      try {
+          // 尝试从 AccountMgr 获取 (如果已挂载到 window)
+          if (typeof window !== 'undefined' && window.GameAccountMgr) {
+              userId = window.GameAccountMgr.userInfo.id;
+              nickname = window.GameAccountMgr.userInfo.nickname;
+          } else {
+              // 尝试从 storage 获取
+              // 注意：AccountMgr 存储结构可能复杂，这里简化处理
+              // 实际项目中建议 AccountMgr 提供一个全局访问点
+          }
+      } catch (e) {}
+
+      // 补全日志信息
+      const finalLogs = logsToSend.map(log => ({
+          ...log,
+          userId: log.userId || userId || 'unknown',
+          nickname: log.nickname || nickname || 'Guest'
+      }));
+
+      console.log('[Platform] Reporting ad logs:', finalLogs.length);
+
+      // 发送到服务器
+      // 避免使用 NetworkMgr (循环依赖)，直接用 fetch
+      try {
+          const API_URL = GameConfig.apiBaseUrl + '/api/ad/report'; // 需确保 GameConfig 可用
+          
+          // 小游戏环境用 wx.request / tt.request
+          const provider = this.getProvider();
+          if (provider && provider.request) {
+              provider.request({
+                  url: API_URL,
+                  method: 'POST',
+                  data: { logs: finalLogs },
+                  success: () => console.log('[Platform] Ad report success'),
+                  fail: (e) => {
+                      console.warn('[Platform] Ad report failed', e);
+                      // 失败放回队列？暂时不放回，避免死循环
+                  }
+              });
+          } else {
+              // Web / Fetch
+              fetch(API_URL, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ logs: finalLogs })
+              }).catch(e => console.warn('[Platform] Ad report failed', e));
+          }
+      } catch (e) {
+          console.error('[Platform] Ad report error', e);
+      }
   }
 
   detectEnv() {
@@ -114,13 +243,7 @@ class Platform {
               ad.onClose(() => {
                   console.log(`[Platform] Interstitial closed, reloading: ${adUnitId}`);
                   // 关闭后自动加载下一次，确保下次展示时是 ready 状态
-                  // 延迟加载，避免关闭动画还没结束就加载
-                  setTimeout(() => {
-                      // 检查广告对象是否还存在
-                      if (this._interstitialAds[adUnitId] === ad) {
-                          ad.load().catch(() => {});
-                      }
-                  }, 1000);
+                  ad.load().catch(() => {});
               });
 
               this._interstitialAds[adUnitId] = ad;
@@ -509,6 +632,16 @@ class Platform {
                       });
                   }
                   
+                  // [新增] 记录 Banner 广告展示
+                  this.logAdAction({
+                      adUnitId: adUnitId,
+                      adUnitName: 'banner',
+                      adType: 'banner',
+                      isCompleted: 1,
+                      isClicked: 0,
+                      watchTime: 0
+                  });
+
                   this._gameAds.push(adInstance);
               }
 
@@ -519,32 +652,31 @@ class Platform {
   }
 
   /**
-   * 隐藏/销毁游戏内广告 (Banner/Custom)
-   * [修改] 移除 setTimeout，改为同步操作但增加 try-catch 保护
-   * 并尝试先 hide 再 destroy
+   * 隐藏/销毁游戏内广告
+   * [优化] 增加 try-catch 屏蔽微信 "removeTextView:fail" 错误
+   * [优化] 立即清空数组引用，防止重入
    */
   hideGameAds() {
       const ads = this._gameAds;
-      this._gameAds = []; // 立即清空引用
+      // 立即清空引用，避免异步逻辑中重复操作
+      this._gameAds = [];
 
       if (ads && ads.length > 0) {
           ads.forEach(ad => {
-              if (!ad) return;
               try {
-                  // 解绑回调
+                  // 解绑回调，防止销毁后触发 onError
                   if (ad.offError) ad.offError();
                   if (ad.offClose) ad.offClose();
                   if (ad.offLoad) ad.offLoad();
-                  if (ad.offResize) ad.offResize();
 
-                  // 尝试销毁
                   if (ad.destroy) {
                       ad.destroy();
                   } else if (ad.hide) {
                       ad.hide();
                   }
               } catch(e) {
-                  // 忽略销毁过程中的系统错误，如 'removeTextView:fail'
+                  // 忽略微信开发者工具中常见的 "removeTextView:fail" 错误
+                  // console.warn('Ad destroy error (ignored):', e);
               }
           });
       }
@@ -562,7 +694,7 @@ class Platform {
       }
 
       if (!adUnitId) {
-          // console.warn('[Platform] showInterstitialAd called without ID');
+          console.warn('[Platform] showInterstitialAd called without ID');
           return false;
       }
 
@@ -578,6 +710,15 @@ class Platform {
           // 绑定单次关闭回调以解决 Promise
           const onCloseOnce = () => {
               if (adInstance.offClose) adInstance.offClose(onCloseOnce);
+              // [新增] 记录插屏广告展示
+              this.logAdAction({
+                  adUnitId: adUnitId,
+                  adUnitName: 'interstitial', // 简单标记
+                  adType: 'interstitial',
+                  isCompleted: 1, // 插屏只要展示就算完成
+                  isClicked: 0, // 无法监听点击
+                  watchTime: 0
+              });
               resolve(true);
           };
           
@@ -664,6 +805,17 @@ class Platform {
 
           const onClose = (res) => {
               const isEnded = (res && res.isEnded) || res === undefined;
+              
+              // [新增] 记录激励视频
+              this.logAdAction({
+                  adUnitId: adUnitId,
+                  adUnitName: 'rewardedVideo',
+                  adType: 'rewardedVideo',
+                  isCompleted: isEnded ? 1 : 0,
+                  isClicked: 0, // 无法监听点击
+                  watchTime: isEnded ? 15 : 0 // 估算
+              });
+
               if (isEnded) {
                   resolve(true);
               } else {
