@@ -497,6 +497,23 @@ class Platform {
 
   getUserProfile() {
     return new Promise((resolve) => {
+      if (this.env === 'web') {
+          // 模拟 Web 环境下的用户资料更新
+          const mockNames = ['Player_Web', 'Guest_H5', 'Soccer_Fan', 'Striker_007'];
+          const randomName = mockNames[Math.floor(Math.random() * mockNames.length)];
+          const seeds = ['Felix', 'Aneka', 'Milo', 'Lola', 'Jack'];
+          const seed = seeds[Math.floor(Math.random() * seeds.length)];
+          const mockAvatar = `https://api.dicebear.com/7.x/adventurer/svg?seed=${seed}`;
+          
+          setTimeout(() => {
+              resolve({
+                  nickName: randomName,
+                  avatarUrl: mockAvatar
+              });
+          }, 500);
+          return;
+      }
+
       const provider = this.getProvider();
       
       if (this.env === 'wechat') {

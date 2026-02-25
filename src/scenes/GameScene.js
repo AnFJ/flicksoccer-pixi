@@ -781,7 +781,7 @@ export default class GameScene extends BaseScene {
                    
                    if (pos) {
                        // 调整指引位置：在按钮左侧一点点
-                       const guidePos = { x: pos.x + 350, y: pos.y + 20 };
+                       const guidePos = { x: pos.x + 400, y: pos.y + 80 };
                        this.tutorialOverlay.showClickTutorial(guidePos, "点击技能图标，增强你的棋子！");
                        this.tutorialStep = 1;
                    } else {

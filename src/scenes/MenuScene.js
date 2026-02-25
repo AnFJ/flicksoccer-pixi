@@ -245,20 +245,23 @@ export default class MenuScene extends BaseScene {
     avatarContainer.interactive = true;
     avatarContainer.buttonMode = true;
     avatarContainer.on('pointertap', () => {
-        if (Platform.env === 'web') return; // H5 不更新
+        // [修改] 允许所有环境尝试更新资料 (Web环境会模拟)
+        Platform.showToast("正在获取头像...");
         
-        Platform.showToast("正在获取微信头像...");
-        Platform.getUserProfile((res) => {
-            if (res && res.userInfo) {
+        Platform.getUserProfile().then((userInfo) => {
+            if (userInfo) {
                 AccountMgr.updateUserProfile({
-                    nickName: res.userInfo.nickName,
-                    avatarUrl: res.userInfo.avatarUrl
+                    nickName: userInfo.nickName,
+                    avatarUrl: userInfo.avatarUrl
                 });
                 Platform.showToast("资料更新成功");
                 EventBus.emit(Events.USER_DATA_REFRESHED);
             } else {
                 Platform.showToast("获取失败或取消");
             }
+        }).catch(err => {
+            console.error("Get user profile error:", err);
+            Platform.showToast("获取失败");
         });
     });
 
