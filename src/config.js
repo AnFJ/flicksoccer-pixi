@@ -103,12 +103,12 @@ export const GameConfig = {
     // [新增] 技能配置
     // unlockLevel: 对应技能解锁所需的玩家等级
     skills: {
-        // [修改] 配合奖励节奏: Level 3 解锁瞄准
-        superAim: { bounces: 3, distance: 2000, unlockLevel: 3 },
+        // [修改] 配合奖励节奏: Level 2 解锁瞄准 (教程关)
+        superAim: { bounces: 3, distance: 2000, unlockLevel: 2 },
         // [修改] 配合奖励节奏: Level 10 解锁大力
-        superForce: { multiplier: 2.5, unlockLevel: 10 },
+        superForce: { multiplier: 2.5, unlockLevel: 4 },
         // [修改] 配合奖励节奏: Level 7 解锁战车
-        unstoppable: { duration: 3000, unlockLevel: 7 }
+        unstoppable: { duration: 3000, unlockLevel: 3 }
     },
 
     // [新增] 经济系统配置

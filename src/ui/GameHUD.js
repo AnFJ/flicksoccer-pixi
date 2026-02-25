@@ -562,4 +562,18 @@ export default class GameHUD extends PIXI.Container {
     this.turnText.text = str;
     this.turnText.style.fill = isLeft ? 0xcc3333 : 0x3366cc;
   }
+
+  getSkillButtonPosition(teamId, skillType) {
+      const item = this.skillMap[teamId] && this.skillMap[teamId][skillType];
+      if (!item) return null;
+      
+      let target = item;
+      if (item.isIcon) {
+          target = item.container;
+      }
+      
+      // 使用 getGlobalPosition 获取屏幕坐标
+      const globalPos = target.getGlobalPosition();
+      return { x: globalPos.x, y: globalPos.y };
+  }
 }

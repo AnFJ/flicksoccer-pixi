@@ -29,6 +29,7 @@ import Button from '../ui/Button.js';
 import FormationSelectionDialog from '../ui/FormationSelectionDialog.js';
 import ResultScene from './ResultScene.js'; 
 
+import TutorialOverlay from '../ui/TutorialOverlay.js';
 import GameLayout from '../core/GameLayout.js';
 import InputController from '../core/InputController.js';
 import TurnManager from '../core/TurnManager.js';
@@ -175,6 +176,10 @@ export default class GameScene extends BaseScene {
     this.isGamePaused = false;
     this.accumulator = 0;
 
+    // [新增] 重置教程状态
+    this.tutorialStep = 0;
+    if (this.tutorialOverlay) this.tutorialOverlay.hide();
+
     if (params.snapshot && this.networkCtrl) {
         this.networkCtrl.restoreState(params.snapshot);
     }
@@ -253,6 +258,11 @@ export default class GameScene extends BaseScene {
         this.openIngameFormation();
     });
     this.layout.layers.ui.addChild(formationBtn);
+
+    // [新增] 教程层
+    this.tutorialOverlay = new TutorialOverlay();
+    this.layout.layers.ui.addChild(this.tutorialOverlay);
+    this.tutorialStep = 0;
 
     this.sparkSystem = new SparkSystem();
     this.layout.layers.game.addChild(this.sparkSystem);
@@ -625,6 +635,169 @@ export default class GameScene extends BaseScene {
     // [修改] 传递 delta 时间给 AI Chat 控制器
     this.aiChatCtrl.update(delta);
     this.atmosphereCtrl.update();
+    
+    // [新增] 更新教程逻辑
+    this._updateTutorial(delta);
+  }
+
+  _updateTutorial(delta) {
+      if (!this.tutorialOverlay) return;
+      this.tutorialOverlay.update(delta);
+
+      if (this.gameMode !== 'pve') return;
+      if (this.isGameOver || this.isGamePaused || this.isLoading) return;
+
+      // Level 1: 拖拽教程
+      if (this.currentLevel === 1) {
+          // 只有在玩家回合且静止时才触发
+          if (this.turnMgr.currentTurn === TeamId.LEFT && !this.isMoving) {
+              if (this.tutorialStep === 0) {
+                  // 找到离球最近的棋子
+                  let bestStriker = null;
+                  let minDist = Infinity;
+                  if (this.ball && this.strikers) {
+                      const bx = this.ball.view.x;
+                      const by = this.ball.view.y;
+                      this.strikers.forEach(s => {
+                          if (s.teamId === TeamId.LEFT) {
+                              const dx = s.view.x - bx;
+                              const dy = s.view.y - by;
+                              const dist = Math.sqrt(dx*dx + dy*dy);
+                              if (dist < minDist) {
+                                  minDist = dist;
+                                  bestStriker = s;
+                              }
+                          }
+                      });
+                  }
+
+                  if (bestStriker) {
+                      const startPos = { x: bestStriker.view.x, y: bestStriker.view.y };
+                      
+                      // 计算从球到棋子的向量，作为反向拖拽的方向
+                      // 这样松手后棋子会朝球飞去
+                      const bx = this.ball.view.x;
+                      const by = this.ball.view.y;
+                      const dx = startPos.x - bx;
+                      const dy = startPos.y - by;
+                      const angle = Math.atan2(dy, dx);
+                      
+                      const dragDist = 150;
+                      const endPos = { 
+                          x: startPos.x + Math.cos(angle) * dragDist, 
+                          y: startPos.y + Math.sin(angle) * dragDist 
+                      }; 
+                      
+                      this.tutorialOverlay.showDragTutorial(startPos, endPos, "按住棋子向后拖动，松开射门");
+                      this.tutorialStep = 1;
+                  }
+              } else if (this.tutorialStep === 1) {
+                  if (this.input.isDragging) {
+                      this.tutorialOverlay.hide();
+                  } else {
+                      // 如果没有拖拽，且教程被隐藏了（说明之前拖拽过但取消了），重置
+                      if (!this.tutorialOverlay.visible) {
+                          this.tutorialStep = 0;
+                      }
+                  }
+              }
+          } else {
+              // 如果不是玩家回合或者正在移动，隐藏教程
+              if (this.tutorialStep === 1) {
+                  this.tutorialOverlay.hide();
+                  // 如果是因为移动导致的隐藏，说明发射成功了，完成教程
+                  if (this.isMoving) {
+                      this.tutorialStep = 2;
+                  } else {
+                      // 否则可能是回合切换了（比如超时），重置等待下一次机会
+                      this.tutorialStep = 0;
+                  }
+              }
+          }
+      }
+
+      // Level 2: 技能教程
+      if (this.currentLevel === 2) {
+          if (this.turnMgr.currentTurn === TeamId.LEFT && !this.isMoving) {
+              if (this.tutorialStep === 0) {
+                   // 检查是否有技能
+                   const skillType = SkillType.SUPER_AIM;
+                   const pos = this.hud.getSkillButtonPosition(TeamId.LEFT, skillType);
+                   
+                   if (pos) {
+                       // 调整指引位置：在按钮左侧一点点
+                       const guidePos = { x: pos.x + 350, y: pos.y + 20 };
+                       this.tutorialOverlay.showClickTutorial(guidePos, "点击技能图标，增强你的棋子！");
+                       this.tutorialStep = 1;
+                   } else {
+                       // 如果没有技能按钮（可能等级不够），跳过
+                       this.tutorialStep = 2;
+                   }
+              } else if (this.tutorialStep === 1) {
+                  // 检查技能是否激活
+                  const isAimActive = this.skillMgr.isActive(SkillType.SUPER_AIM);
+                  
+                  if (isAimActive) {
+                      // 技能激活后，进入拖拽指引 (复用第一关的逻辑)
+                      this.tutorialStep = 2;
+                  }
+              } else if (this.tutorialStep === 2) {
+                  // 找到离球最近的棋子
+                  let bestStriker = null;
+                  let minDist = Infinity;
+                  if (this.ball && this.strikers) {
+                      const bx = this.ball.view.x;
+                      const by = this.ball.view.y;
+                      this.strikers.forEach(s => {
+                          if (s.teamId === TeamId.LEFT) {
+                              const dx = s.view.x - bx;
+                              const dy = s.view.y - by;
+                              const dist = Math.sqrt(dx*dx + dy*dy);
+                              if (dist < minDist) {
+                                  minDist = dist;
+                                  bestStriker = s;
+                              }
+                          }
+                      });
+                  }
+
+                  if (bestStriker) {
+                      const startPos = { x: bestStriker.view.x, y: bestStriker.view.y };
+                      const bx = this.ball.view.x;
+                      const by = this.ball.view.y;
+                      const dx = startPos.x - bx;
+                      const dy = startPos.y - by;
+                      const angle = Math.atan2(dy, dx);
+                      
+                      const dragDist = 150;
+                      const endPos = { 
+                          x: startPos.x + Math.cos(angle) * dragDist, 
+                          y: startPos.y + Math.sin(angle) * dragDist 
+                      }; 
+                      
+                      this.tutorialOverlay.showDragTutorial(startPos, endPos, "现在拖动棋子，利用瞄准线精准射门！");
+                      this.tutorialStep = 3;
+                  }
+              } else if (this.tutorialStep === 3) {
+                  if (this.input.isDragging) {
+                      this.tutorialOverlay.hide();
+                  } else {
+                      if (!this.tutorialOverlay.visible) {
+                          this.tutorialStep = 2; // 如果取消拖拽，重新显示指引
+                      }
+                  }
+              }
+          } else {
+               if (this.tutorialStep === 3) {
+                   this.tutorialOverlay.hide();
+                   if (this.isMoving) {
+                       this.tutorialStep = 4; // 完成
+                   } else {
+                       this.tutorialStep = 2; // 重置
+                   }
+               }
+          }
+      }
   }
 
   _saveEntityStates() {

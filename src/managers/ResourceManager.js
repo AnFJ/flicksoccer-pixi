@@ -44,6 +44,7 @@ class ResourceManager {
       btn_result_continue: 'assets/images/btn/result_continue_btn.png',
       icon_star_full: 'assets/images/icon/full_star.png',
       icon_star_half: 'assets/images/icon/half_star.png',
+      tutorial_hand: 'assets/images/btn/tutorial_hand.png',
 
       // 菜单功能图标
       icon_social: 'assets/images/icon/icon_social.png',
