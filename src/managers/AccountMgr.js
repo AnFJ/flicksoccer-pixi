@@ -40,6 +40,21 @@ class AccountMgr {
     this.isLoggedIn = false;
     this.isNewUser = false;
     this.tempLoginCredentials = null;
+    
+    // 随机头像列表 (使用公开的 Picsum 图片作为示例，实际可替换为游戏内资源)
+    this.randomAvatars = [
+        'https://picsum.photos/seed/avatar1/200',
+        'https://picsum.photos/seed/avatar2/200',
+        'https://picsum.photos/seed/avatar3/200',
+        'https://picsum.photos/seed/avatar4/200',
+        'https://picsum.photos/seed/avatar5/200'
+    ];
+  }
+
+  // 获取随机头像
+  getRandomAvatar() {
+      const idx = Math.floor(Math.random() * this.randomAvatars.length);
+      return this.randomAvatars[idx];
   }
 
   loadFromCache() {
@@ -110,6 +125,12 @@ class AccountMgr {
       this.userInfo.id = data.user_id;
       this.userInfo.nickname = data.nickname;
       this.userInfo.avatarUrl = data.avatar_url;
+      
+      // [新增] 如果没有头像，分配一个随机头像
+      if (!this.userInfo.avatarUrl) {
+          this.userInfo.avatarUrl = this.getRandomAvatar();
+      }
+
       this.userInfo.level = parseInt(data.level) || 1; 
       this.userInfo.coins = parseInt(data.coins) || 0;
       

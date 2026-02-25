@@ -166,7 +166,8 @@ export const GameConfig = {
               theme_field: 'adunit-80528d8bc18b8441',
               theme_ball: 'adunit-6b851044132039f5',
               theme_formation: 'adunit-342edcf7c048abe3',
-              unlock_mode: 'adunit-7fcbc609e83b5de9'
+              unlock_mode_local: 'adunit-7fcbc609e83b5de9',
+              unlock_mode_online: 'adunit-fa12beee8457f7a6'
           }
       },
       douyin: {

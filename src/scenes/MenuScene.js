@@ -127,7 +127,15 @@ export default class MenuScene extends BaseScene {
               "解锁玩法", 
               "观看一次视频，今日无限畅玩该模式！", 
               async () => {
-                  const adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode'] || "";
+                  let adUnitId = "";
+                  if (modeKey === 'local_pvp') {
+                      adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode_local'] || GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode'];
+                  } else if (modeKey === 'online_pvp') {
+                      adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode_online'] || GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode'];
+                  } else {
+                      adUnitId = GameConfig.adConfig[Platform.env].rewardedVideo['unlock_mode'];
+                  }
+                  
                   const success = await Platform.showRewardedVideoAd(adUnitId);
                   if (success) {
                       AccountMgr.unlockMode(modeKey);
@@ -233,6 +241,26 @@ export default class MenuScene extends BaseScene {
     
     const avatarRadius = 60; 
     const avatarContainer = new PIXI.Container();
+    // [新增] 允许点击头像更新资料
+    avatarContainer.interactive = true;
+    avatarContainer.buttonMode = true;
+    avatarContainer.on('pointertap', () => {
+        if (Platform.env === 'web') return; // H5 不更新
+        
+        Platform.showToast("正在获取微信头像...");
+        Platform.getUserProfile((res) => {
+            if (res && res.userInfo) {
+                AccountMgr.updateUserProfile({
+                    nickName: res.userInfo.nickName,
+                    avatarUrl: res.userInfo.avatarUrl
+                });
+                Platform.showToast("资料更新成功");
+                EventBus.emit(Events.USER_DATA_REFRESHED);
+            } else {
+                Platform.showToast("获取失败或取消");
+            }
+        });
+    });
 
     const bg = new PIXI.Graphics();
     bg.beginFill(0xFFFFFF);
