@@ -700,17 +700,72 @@ export default class GameScene extends BaseScene {
                           this.tutorialStep = 0;
                       }
                   }
+              } else if (this.tutorialStep === 2) {
+                  // 玩家已经完成了一次射门 (Step 0 -> 1 -> 2)
+                  // 现在等待下一次静止的回合
+                  if (this.turnMgr.currentTurn === TeamId.LEFT && !this.isMoving) {
+                      // 找到离球最近的棋子
+                      let bestStriker = null;
+                      let minDist = Infinity;
+                      if (this.ball && this.strikers) {
+                          const bx = this.ball.view.x;
+                          const by = this.ball.view.y;
+                          this.strikers.forEach(s => {
+                              if (s.teamId === TeamId.LEFT) {
+                                  const dx = s.view.x - bx;
+                                  const dy = s.view.y - by;
+                                  const dist = Math.sqrt(dx*dx + dy*dy);
+                                  if (dist < minDist) {
+                                      minDist = dist;
+                                      bestStriker = s;
+                                  }
+                              }
+                          });
+                      }
+
+                      if (bestStriker) {
+                          const startPos = { x: bestStriker.view.x, y: bestStriker.view.y };
+                          const bx = this.ball.view.x;
+                          const by = this.ball.view.y;
+                          const dx = startPos.x - bx;
+                          const dy = startPos.y - by;
+                          const angle = Math.atan2(dy, dx);
+                          
+                          const dragDist = 150;
+                          const endPos = { 
+                              x: startPos.x + Math.cos(angle) * dragDist, 
+                              y: startPos.y + Math.sin(angle) * dragDist 
+                          }; 
+                          
+                          this.tutorialOverlay.showAimTutorial(startPos, endPos, "上下滑动调整瞄准线，精准打击！");
+                          this.tutorialStep = 3;
+                      }
+                  }
+              } else if (this.tutorialStep === 3) {
+                  if (this.input.isDragging) {
+                      this.tutorialOverlay.hide();
+                  } else {
+                      if (!this.tutorialOverlay.visible) {
+                          this.tutorialStep = 2; // 重置
+                      }
+                  }
               }
           } else {
               // 如果不是玩家回合或者正在移动，隐藏教程
               if (this.tutorialStep === 1) {
                   this.tutorialOverlay.hide();
-                  // 如果是因为移动导致的隐藏，说明发射成功了，完成教程
+                  // 如果是因为移动导致的隐藏，说明发射成功了，进入下一阶段
                   if (this.isMoving) {
                       this.tutorialStep = 2;
                   } else {
-                      // 否则可能是回合切换了（比如超时），重置等待下一次机会
                       this.tutorialStep = 0;
+                  }
+              } else if (this.tutorialStep === 3) {
+                  this.tutorialOverlay.hide();
+                  if (this.isMoving) {
+                      this.tutorialStep = 4; // 完成所有教程
+                  } else {
+                      this.tutorialStep = 2; // 重置
                   }
               }
           }

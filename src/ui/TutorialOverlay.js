@@ -115,6 +115,27 @@ export default class TutorialOverlay extends PIXI.Container {
         };
     }
 
+    /**
+     * 显示瞄准引导 (拖拽后上下滑动)
+     * @param {Object} startPos - 起始位置 {x, y}
+     * @param {Object} endPos - 结束位置 {x, y}
+     * @param {String} message - 提示文字
+     */
+    showAimTutorial(startPos, endPos, message = "上下拖动调整瞄准线") {
+        this.visible = true;
+        this.hand.visible = true;
+        this.text.visible = true;
+        this.text.text = message;
+        
+        this.animState = {
+            type: 'aim',
+            start: { ...startPos },
+            end: { ...endPos },
+            time: 0,
+            duration: 2000
+        };
+    }
+
     hide() {
         this.visible = false;
         this.animState = null;
@@ -169,6 +190,50 @@ export default class TutorialOverlay extends PIXI.Container {
                 this.guideLine.moveTo(start.x, start.y);
                 this.guideLine.lineTo(currX, currY);
             }
+
+        } else if (this.animState.type === 'aim') {
+            const { start, end } = this.animState;
+            
+            // 模拟瞄准动作：
+            // 1. 拖拽拉开 (0.0 - 0.3)
+            // 2. 上下摆动 (0.3 - 0.8)
+            // 3. 保持 (0.8 - 1.0)
+            
+            let currX, currY, alpha = 1;
+            
+            if (t < 0.3) {
+                // 阶段1: 拉开
+                const subT = t / 0.3;
+                const ease = 1 - Math.pow(1 - subT, 2);
+                currX = start.x + (end.x - start.x) * ease;
+                currY = start.y + (end.y - start.y) * ease;
+            } else if (t < 0.8) {
+                // 阶段2: 上下摆动 (模拟调整角度)
+                const subT = (t - 0.3) / 0.5;
+                // 在垂直于拉开方向的轴上移动
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                // 垂直向量
+                const perpX = -dy * 0.3; // 摆动幅度
+                const perpY = dx * 0.3;
+                
+                const wave = Math.sin(subT * Math.PI * 2); 
+                currX = end.x + perpX * wave;
+                currY = end.y + perpY * wave;
+            } else {
+                // 阶段3: 保持
+                currX = end.x;
+                currY = end.y;
+            }
+
+            this.hand.position.set(currX, currY);
+            this.hand.alpha = 1;
+            
+            // 绘制轨迹线
+            this.guideLine.clear();
+            this.guideLine.lineStyle(4, 0xFFFFFF, 0.5);
+            this.guideLine.moveTo(start.x, start.y);
+            this.guideLine.lineTo(currX, currY);
 
         } else if (this.animState.type === 'click') {
             const { pos } = this.animState;
