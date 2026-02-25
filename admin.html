@@ -66,19 +66,19 @@
                     @select="handleMenuSelect"
                 >
                     <el-menu-item index="stats">
-                        <el-icon><Data_Analysis /></el-icon>
+                        <el-icon><data-analysis /></el-icon>
                         <span>访问数据</span>
                     </el-menu-item>
                     <el-menu-item index="users">
-                        <el-icon><User /></el-icon>
+                        <el-icon><user /></el-icon>
                         <span>账号统计</span>
                     </el-menu-item>
                     <el-menu-item index="ad_stats">
-                        <el-icon><Data_Analysis /></el-icon>
+                        <el-icon><data-analysis /></el-icon>
                         <span>广告数据</span>
                     </el-menu-item>
                     <el-menu-item index="ad_list">
-                        <el-icon><List /></el-icon>
+                        <el-icon><list /></el-icon>
                         <span>广告详情</span>
                     </el-menu-item>
                 </el-menu>
@@ -192,6 +192,8 @@
                                 @current-change="handlePageChange"
                             ></el-pagination>
                         </div>
+                    </div>
+
                     <!-- 广告数据 Tab -->
                     <div v-if="currentTab === 'ad_stats'">
                         <h3>广告数据概览</h3>
@@ -322,12 +324,13 @@
     <script>
         const { createApp, ref, reactive, onMounted } = Vue;
         const { ElMessage } = ElementPlus;
-        const { DataAnalysis, User } = ElementPlusIconsVue;
+        const { DataAnalysis, User, List } = ElementPlusIconsVue;
 
         const app = createApp({
             components: {
-                Data_Analysis: DataAnalysis,
-                User: User
+                DataAnalysis,
+                User,
+                List
             },
             setup() {
                 const isLoggedIn = ref(false);
@@ -471,8 +474,8 @@
                     fetchAdList();
                 };
 
-                // 辅助函数
-                const formatJson = (jsonStr) => {
+                // 获取统计数据
+                const fetchStats = async () => {
                     try {
                         const res = await fetch(`${API_BASE}/api/admin/stats`, {
                             headers: { 'x-admin-auth': 'admin-secret-token' }
@@ -484,6 +487,18 @@
                     } catch (e) {
                         console.error(e);
                         ElMessage.error('获取统计数据失败');
+                    }
+                };
+
+                // 辅助函数
+                const formatJson = (jsonStr) => {
+                    try {
+                        if (typeof jsonStr === 'string') {
+                            return JSON.stringify(JSON.parse(jsonStr), null, 2);
+                        }
+                        return JSON.stringify(jsonStr, null, 2);
+                    } catch (e) {
+                        return jsonStr;
                     }
                 };
 
@@ -545,18 +560,6 @@
                         ElMessage.error('获取对局历史失败');
                     } finally {
                         matchLoading.value = false;
-                    }
-                };
-
-                // 辅助函数
-                const formatJson = (jsonStr) => {
-                    try {
-                        if (typeof jsonStr === 'string') {
-                            return JSON.stringify(JSON.parse(jsonStr), null, 2);
-                        }
-                        return JSON.stringify(jsonStr, null, 2);
-                    } catch (e) {
-                        return jsonStr;
                     }
                 };
 

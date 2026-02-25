@@ -27,6 +27,12 @@ const response = (data, status = 200) => {
 
 const generateNickname = () => `Player_${Math.floor(Math.random() * 10000)}`;
 
+const getRandomAvatar = () => {
+    const seeds = ['Felix', 'Aneka', 'Milo', 'Lola', 'Jack', 'Bella', 'Rocky', 'Luna', 'Charlie', 'Daisy'];
+    const seed = seeds[Math.floor(Math.random() * seeds.length)];
+    return `https://api.dicebear.com/7.x/adventurer/svg?seed=${seed}`;
+};
+
 // 默认道具配置
 const INITIAL_ITEMS = [
   { id: 'super_aim', count: 5 },
@@ -130,7 +136,7 @@ export default {
             user_id: deviceId,
             platform: 'web',
             nickname: generateNickname(),
-            avatar_url: '',
+            avatar_url: getRandomAvatar(),
             level: 1,
             coins: 200,
             items: JSON.stringify(INITIAL_ITEMS),
@@ -182,6 +188,13 @@ export default {
             updateFields.push("daily_unlocks = ?");
             updateArgs.push(user.daily_unlocks);
           }
+          
+          // 如果没有头像，分配随机头像
+          if (!user.avatar_url) {
+              user.avatar_url = getRandomAvatar();
+              updateFields.push("avatar_url = ?");
+              updateArgs.push(user.avatar_url);
+          }
 
           if (updateFields.length > 0) {
             updateFields.push("last_login = datetime('now', '+8 hours')");
@@ -214,7 +227,7 @@ export default {
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
         let isNewUser = false;
         const newNick = userInfo?.nickName || user?.nickname || generateNickname();
-        const newAvatar = userInfo?.avatarUrl || user?.avatar_url || '';
+        const newAvatar = userInfo?.avatarUrl || user?.avatar_url || getRandomAvatar();
 
         if (!user) {
           isNewUser = true;
@@ -281,6 +294,14 @@ export default {
             updateSqlParts.push("daily_unlocks = ?");
             updateArgs.push(user.daily_unlocks);
             needsUpdate = true;
+          }
+          
+          // 补充随机头像
+          if (!user.avatar_url) {
+              user.avatar_url = getRandomAvatar();
+              updateSqlParts.push("avatar_url = ?");
+              updateArgs.push(user.avatar_url);
+              needsUpdate = true;
           }
 
           if (userInfo && userInfo.nickName) {
@@ -564,13 +585,13 @@ export default {
               };
           };
 
-          const todayCondition = "date(created_at) = date('now', '+8 hours')";
-          const yesterdayCondition = "date(created_at) = date('now', '+8 hours', '-1 day')";
+          const todayCondition = "date(created_at, '+8 hours') = date('now', '+8 hours')";
+          const yesterdayCondition = "date(created_at, '+8 hours') = date('now', '+8 hours', '-1 day')";
           // SQLite 'now' modifier for start of week/month is tricky with timezone. 
           // 简单起见，用 strftime
-          const thisWeekCondition = "strftime('%Y-%W', created_at) = strftime('%Y-%W', 'now', '+8 hours')";
-          const thisMonthCondition = "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', '+8 hours')";
-          const lastMonthCondition = "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', '+8 hours', '-1 month')";
+          const thisWeekCondition = "strftime('%Y-%W', created_at, '+8 hours') = strftime('%Y-%W', 'now', '+8 hours')";
+          const thisMonthCondition = "strftime('%Y-%m', created_at, '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')";
+          const lastMonthCondition = "strftime('%Y-%m', created_at, '+8 hours') = strftime('%Y-%m', 'now', '+8 hours', '-1 month')";
 
           const [today, yesterday, week, month, lastMonth] = await Promise.all([
               getStats(todayCondition),

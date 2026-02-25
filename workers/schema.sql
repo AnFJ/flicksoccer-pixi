@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS match_history (
     match_type TEXT,
     match_data TEXT,
     created_at DATETIME DEFAULT (datetime('now', '+8 hours'))
-)
+);
 -- 房间记录
 CREATE TABLE IF NOT EXISTS room_records (
     room_id TEXT PRIMARY KEY,
