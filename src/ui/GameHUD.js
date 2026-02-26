@@ -572,8 +572,17 @@ export default class GameHUD extends PIXI.Container {
           target = item.container;
       }
       
-      // 使用 getGlobalPosition 获取屏幕坐标
-      const globalPos = target.getGlobalPosition();
-      return { x: globalPos.x, y: globalPos.y };
+      // [修复] 返回相对于 GameHUD 的局部坐标，而不是全局坐标
+      // target 的父容器是 avatarContainer，avatarContainer 的父容器是 GameHUD
+      const parentPos = target.parent.position;
+      return { x: parentPos.x + target.x, y: parentPos.y + target.y };
+  }
+
+  getAvatarPosition(teamId) {
+      const comp = this.avatarComponents[teamId];
+      if (!comp || !comp.container) return null;
+      
+      // [修复] 返回相对于 GameHUD 的局部坐标
+      return { x: comp.container.x, y: comp.container.y };
   }
 }

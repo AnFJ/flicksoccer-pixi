@@ -791,15 +791,19 @@ export default class GameScene extends BaseScene {
               if (this.tutorialStep === 0) {
                    // 检查是否有技能
                    const skillType = SkillType.SUPER_AIM;
-                   const pos = this.hud.getSkillButtonPosition(TeamId.LEFT, skillType);
+                   // const pos = this.hud.getSkillButtonPosition(TeamId.LEFT, skillType);
                    
-                   if (pos) {
-                       // 调整指引位置：在按钮左侧一点点
-                       const guidePos = { x: pos.x + 350, y: pos.y + 20 };
+                   // [修复] getSkillButtonPosition 获取的坐标有误，改用基于头像位置的相对坐标计算
+                   // 瞄准技能是第一个图标，位于头像左侧 120px (中心对中心)
+                   const avatarPos = this.hud.getAvatarPosition(TeamId.LEFT);
+                   
+                   if (avatarPos) {
+                       // 调整指引位置：技能按钮中心 (x - 120), y轴微调 +40 以避开图标遮挡
+                       const guidePos = { x: avatarPos.x - 160, y: avatarPos.y + 40 };
                        this.tutorialOverlay.showClickTutorial(guidePos, "点击技能图标，增强你的棋子！");
                        this.tutorialStep = 1;
                    } else {
-                       // 如果没有技能按钮（可能等级不够），跳过
+                       // 如果没有头像或技能（异常情况），跳过
                        this.tutorialStep = 2;
                    }
               } else if (this.tutorialStep === 1) {

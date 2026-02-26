@@ -52,6 +52,19 @@ CREATE TABLE IF NOT EXISTS ad_records (
 CREATE INDEX IF NOT EXISTS idx_ad_user_created ON ad_records(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_created ON ad_records(created_at DESC);
 
+-- 用户行为记录
+CREATE TABLE IF NOT EXISTS user_behavior (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,               -- 用户ID
+    nickname TEXT,              -- 用户昵称
+    enter_time INTEGER,         -- 进入游戏时间戳
+    leave_time INTEGER,         -- 离开游戏时间戳
+    actions TEXT,               -- 行为列表 (JSON 字符串)
+    created_at DATETIME DEFAULT (datetime('now', '+8 hours')) -- 记录创建时间
+);
+CREATE INDEX IF NOT EXISTS idx_behavior_user_created ON user_behavior(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_behavior_created ON user_behavior(created_at DESC);
+
 -- 创建索引优化查询
 CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);
 ALTER TABLE users ADD COLUMN match_stats TEXT;

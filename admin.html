@@ -81,6 +81,10 @@
                         <el-icon><list /></el-icon>
                         <span>广告详情</span>
                     </el-menu-item>
+                    <el-menu-item index="behavior">
+                        <el-icon><list /></el-icon>
+                        <span>用户行为</span>
+                    </el-menu-item>
                 </el-menu>
             </div>
             
@@ -275,11 +279,79 @@
                             ></el-pagination>
                         </div>
                     </div>
+                    <!-- 用户行为 Tab -->
+                    <div v-if="currentTab === 'behavior'">
+                        <div class="filter-container">
+                            <el-input v-model="behaviorFilter.userId" placeholder="用户ID" style="width: 200px;" clearable @clear="fetchBehavior"></el-input>
+                            <el-input v-model="behaviorFilter.nickname" placeholder="昵称" style="width: 150px;" clearable @clear="fetchBehavior"></el-input>
+                            <el-date-picker
+                                v-model="behaviorFilter.dateRange"
+                                type="daterange"
+                                range-separator="至"
+                                start-placeholder="开始日期"
+                                end-placeholder="结束日期"
+                                value-format="YYYY-MM-DD"
+                                style="width: 300px;"
+                            ></el-date-picker>
+                            <el-button type="primary" @click="fetchBehavior">搜索</el-button>
+                        </div>
+
+                        <el-table :data="behaviorList" border style="width: 100%" v-loading="behaviorLoading">
+                            <el-table-column prop="user_id" label="用户ID" width="180" show-overflow-tooltip></el-table-column>
+                            <el-table-column prop="nickname" label="昵称" width="150"></el-table-column>
+                            <el-table-column label="进入时间" width="180">
+                                <template #default="scope">{{ formatDate(scope.row.enter_time) }}</template>
+                            </el-table-column>
+                            <el-table-column label="离开时间" width="180">
+                                <template #default="scope">{{ formatDate(scope.row.leave_time) }}</template>
+                            </el-table-column>
+                            <el-table-column label="时长(秒)" width="100">
+                                <template #default="scope">
+                                    {{ Math.floor((scope.row.leave_time - scope.row.enter_time) / 1000) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作行为">
+                                <template #default="scope">
+                                    <el-button size="small" type="primary" @click="showBehaviorDetails(scope.row)">查看详情 ({{ getActionCount(scope.row.actions) }})</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+
+                        <div class="pagination-container">
+                            <el-pagination
+                                background
+                                layout="prev, pager, next"
+                                :total="totalBehavior"
+                                :page-size="behaviorPageSize"
+                                :current-page="behaviorCurrentPage"
+                                @current-change="handleBehaviorPageChange"
+                            ></el-pagination>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- 详情弹窗 -->
+        <!-- 行为详情弹窗 -->
+        <el-dialog v-model="behaviorDetailVisible" title="行为详情" width="70%">
+            <el-table :data="currentBehaviorActions" border style="width: 100%" height="500">
+                <el-table-column prop="seq" label="序号" width="80"></el-table-column>
+                <el-table-column prop="type" label="类型" width="120">
+                    <template #default="scope">
+                        <el-tag>{{ scope.row.type }}</el-tag>
+                    </template>
+                </el-table-column>
+                <el-table-column prop="name" label="操作内容" width="180"></el-table-column>
+                <el-table-column label="详情">
+                    <template #default="scope">
+                        <div class="json-viewer" style="max-height: 100px;">{{ formatJson(scope.row.details) }}</div>
+                    </template>
+                </el-table-column>
+                <el-table-column label="时间" width="180">
+                    <template #default="scope">{{ formatDate(scope.row.timestamp) }}</template>
+                </el-table-column>
+            </el-table>
+        </el-dialog>
         <el-dialog v-model="detailVisible" title="用户详情" width="50%">
             <el-descriptions :column="2" border v-if="currentUser">
                 <el-descriptions-item label="用户ID">{{ currentUser.user_id }}</el-descriptions-item>
@@ -380,6 +452,20 @@
                     dateRange: []
                 });
                 const adLoading = ref(false);
+                
+                // 用户行为数据
+                const behaviorList = ref([]);
+                const totalBehavior = ref(0);
+                const behaviorCurrentPage = ref(1);
+                const behaviorPageSize = ref(10);
+                const behaviorFilter = reactive({
+                    userId: '',
+                    nickname: '',
+                    dateRange: []
+                });
+                const behaviorLoading = ref(false);
+                const behaviorDetailVisible = ref(false);
+                const currentBehaviorActions = ref([]);
 
                 // API Base URL (根据当前环境自动判断，如果是开发环境可能需要调整)
                 const API_BASE = 'https://flicksoccer.afragin.dpdns.org';
@@ -411,10 +497,71 @@
                         fetchAdStats();
                     } else if (index === 'ad_list') {
                         fetchAdList();
+                    } else if (index === 'behavior') {
+                        fetchBehavior();
                     }
                 };
 
                 // ... (fetchStats, fetchUsers, etc.)
+
+                // 获取用户行为列表
+                const fetchBehavior = async () => {
+                    behaviorLoading.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: behaviorCurrentPage.value,
+                            pageSize: behaviorPageSize.value
+                        });
+                        if (behaviorFilter.userId) params.append('userId', behaviorFilter.userId);
+                        if (behaviorFilter.nickname) params.append('nickname', behaviorFilter.nickname);
+                        if (behaviorFilter.dateRange && behaviorFilter.dateRange.length === 2) {
+                            params.append('startDate', behaviorFilter.dateRange[0]);
+                            params.append('endDate', behaviorFilter.dateRange[1]);
+                        }
+
+                        const res = await fetch(`${API_BASE}/api/admin/user/behavior?${params.toString()}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            behaviorList.value = data.list;
+                            totalBehavior.value = data.total;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取用户行为失败');
+                    } finally {
+                        behaviorLoading.value = false;
+                    }
+                };
+
+                const handleBehaviorPageChange = (page) => {
+                    behaviorCurrentPage.value = page;
+                    fetchBehavior();
+                };
+
+                const showBehaviorDetails = (row) => {
+                    try {
+                        currentBehaviorActions.value = JSON.parse(row.actions || '[]');
+                    } catch (e) {
+                        currentBehaviorActions.value = [];
+                    }
+                    behaviorDetailVisible.value = true;
+                };
+
+                const getActionCount = (jsonStr) => {
+                    try {
+                        const actions = JSON.parse(jsonStr || '[]');
+                        return actions.length;
+                    } catch (e) {
+                        return 0;
+                    }
+                };
+
+                const formatDate = (timestamp) => {
+                    if (!timestamp) return '-';
+                    return new Date(timestamp).toLocaleString();
+                };
 
                 // 获取广告统计
                 const fetchAdStats = async () => {
@@ -630,7 +777,21 @@
                     handleAdPageChange,
                     formatJson,
                     getUnlockedThemeIds,
-                    getSkillCount
+                    getSkillCount,
+                    // 用户行为
+                    behaviorList,
+                    behaviorFilter,
+                    behaviorLoading,
+                    totalBehavior,
+                    behaviorCurrentPage,
+                    behaviorPageSize,
+                    behaviorDetailVisible,
+                    currentBehaviorActions,
+                    fetchBehavior,
+                    handleBehaviorPageChange,
+                    showBehaviorDetails,
+                    getActionCount,
+                    formatDate
                 };
             }
         });

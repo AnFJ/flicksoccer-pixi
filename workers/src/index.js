@@ -649,6 +649,72 @@ export default {
           });
       }
 
+      // --- 8. 用户行为统计 ---
+
+      // 8.1 上报用户行为
+      if (path === '/api/user/behavior' && request.method === 'POST') {
+          const { userId, nickname, enterTime, leaveTime, actions } = await request.json();
+          
+          if (!userId || !actions) return response({ error: 'Invalid data' }, 400);
+
+          await env.DB.prepare(`
+              INSERT INTO user_behavior (user_id, nickname, enter_time, leave_time, actions)
+              VALUES (?, ?, ?, ?, ?)
+          `).bind(
+              userId, 
+              nickname || 'Unknown', 
+              enterTime || 0, 
+              leaveTime || 0, 
+              JSON.stringify(actions)
+          ).run();
+
+          return response({ success: true });
+      }
+
+      // 8.2 后台：获取用户行为列表
+      if (path === '/api/admin/user/behavior' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          const params = url.searchParams;
+          const page = parseInt(params.get('page') || '1');
+          const pageSize = parseInt(params.get('pageSize') || '10');
+          const userId = params.get('userId');
+          const nickname = params.get('nickname');
+          const startDate = params.get('startDate'); // YYYY-MM-DD
+          const endDate = params.get('endDate');
+
+          let whereClause = '1=1';
+          let args = [];
+
+          if (userId) {
+              whereClause += ' AND user_id LIKE ?';
+              args.push(`%${userId}%`);
+          }
+          if (nickname) {
+              whereClause += ' AND nickname LIKE ?';
+              args.push(`%${nickname}%`);
+          }
+          if (startDate) {
+              whereClause += ' AND date(created_at) >= ?';
+              args.push(startDate);
+          }
+          if (endDate) {
+              whereClause += ' AND date(created_at) <= ?';
+              args.push(endDate);
+          }
+
+          const offset = (page - 1) * pageSize;
+          
+          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM user_behavior WHERE ${whereClause}`).bind(...args).first();
+          const listResult = await env.DB.prepare(`SELECT * FROM user_behavior WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+              .bind(...args, pageSize, offset).all();
+
+          return response({
+              total: countResult.total,
+              list: listResult.results
+          });
+      }
+
       return response({ error: 'Not Found' }, 404);
 
     } catch (e) {
