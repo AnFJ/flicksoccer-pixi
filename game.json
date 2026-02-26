@@ -11,6 +11,10 @@
     {
       "name": "foosball",
       "root": "subpackages/foosball"
+    },
+    {
+      "name": "live_flick",
+      "root": "subpackages/live_flick"
     }
   ],
   "iOSHighPerformance": false

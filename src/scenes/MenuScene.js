@@ -21,6 +21,8 @@ import { Events } from '../constants.js';
 
 import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 
+import LiveFlickScene from '../subpackages/live_flick/scenes/LiveFlickScene.js';
+
 export default class MenuScene extends BaseScene {
   onEnter() {
     super.onEnter();
@@ -408,6 +410,51 @@ export default class MenuScene extends BaseScene {
         foosballIconBtn.addChild(dot);
 
         container.addChild(foosballIconBtn);
+    }
+
+    // [新增] 实况弹指入口按钮
+    const liveFlickIconTex = ResourceManager.get('live_flick_icon_btn') || ResourceManager.get('foosball_icon_btn'); // Fallback
+    if (liveFlickIconTex) {
+        const liveFlickIconBtn = new PIXI.Sprite(liveFlickIconTex);
+        liveFlickIconBtn.anchor.set(0, 0.5);
+        // 位置设定：位于德式桌球前面
+        liveFlickIconBtn.position.set(textX + 240, textStartY + 45);
+        
+        const targetH = 140;
+        liveFlickIconBtn.scale.set(targetH / liveFlickIconTex.height);
+        
+        liveFlickIconBtn.interactive = true;
+        liveFlickIconBtn.buttonMode = true;
+        
+        liveFlickIconBtn.on('pointerdown', () => liveFlickIconBtn.scale.set((targetH / liveFlickIconTex.height) * 0.9));
+        liveFlickIconBtn.on('pointerupoutside', () => liveFlickIconBtn.scale.set(targetH / liveFlickIconTex.height));
+        liveFlickIconBtn.on('pointerup', async () => {
+            liveFlickIconBtn.scale.set(targetH / liveFlickIconTex.height);
+            UserBehaviorMgr.log('GAME', '进入实况弹指');
+            Platform.showToast('正在加载玩法...');
+            try {
+                await Platform.loadSubpackage('live_flick');
+                SceneManager.changeScene(LiveFlickScene);
+            } catch (e) {
+                console.error(e);
+                Platform.showToast('加载失败，请重试');
+            }
+        });
+
+        // 加上“新”的小红点提示
+        const dot = new PIXI.Graphics().beginFill(0xFF0000).drawCircle(liveFlickIconBtn.width - 10, -liveFlickIconBtn.height/2 + 10, 8).endFill();
+        liveFlickIconBtn.addChild(dot);
+
+        // 临时加个文字标签，因为可能没有专门的图片
+        const labelText = new PIXI.Text("实况弹指", {
+            fontFamily: 'Arial', fontSize: 30, fill: 0xFFFFFF, fontWeight: 'bold',
+            dropShadow: true, dropShadowBlur: 2, dropShadowColor: 0x000000
+        });
+        labelText.anchor.set(0.5);
+        labelText.position.set(liveFlickIconBtn.width / 2, 0);
+        liveFlickIconBtn.addChild(labelText);
+
+        container.addChild(liveFlickIconBtn);
     }
 
     this.container.addChild(container);
