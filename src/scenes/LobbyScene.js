@@ -12,6 +12,8 @@ import Platform from '../managers/Platform.js';
 import RoomListDialog from '../ui/RoomListDialog.js'; 
 import ResourceManager from '../managers/ResourceManager.js'; // [新增]
 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+
 export default class LobbyScene extends BaseScene {
   constructor() {
     super();
@@ -328,6 +330,7 @@ export default class LobbyScene extends BaseScene {
   joinRoom(roomId) {
       const user = AccountMgr.userInfo;
       Platform.showToast(`正在进入房间 ${roomId}...`);
+      UserBehaviorMgr.log('GAME', '加入房间', { roomId });
       
       // 1. 发起 Socket 连接
       NetworkMgr.connectRoom(roomId, user.id, user);

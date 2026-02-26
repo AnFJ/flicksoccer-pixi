@@ -19,9 +19,12 @@ import { drawLottery } from '../config/LotteryConfig.js';
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; 
 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+
 export default class MenuScene extends BaseScene {
   onEnter() {
     super.onEnter();
+    UserBehaviorMgr.log('SYSTEM', '进入菜单页');
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 
@@ -72,6 +75,7 @@ export default class MenuScene extends BaseScene {
         ...btnConfig,
         text: `单人闯关`, 
         onClick: () => {
+            UserBehaviorMgr.log('GAME', '进入单人模式');
             SceneManager.changeScene(LevelSelectScene);
         } 
     });
@@ -84,6 +88,7 @@ export default class MenuScene extends BaseScene {
         text: '本地双人', 
         onClick: () => {
             this.handleModeEntry('local_pvp', () => {
+                UserBehaviorMgr.log('GAME', '进入本地双人');
                 SceneManager.changeScene(GameScene, { mode: 'pvp_local' });
             });
         } 
@@ -99,6 +104,7 @@ export default class MenuScene extends BaseScene {
         onClick: () => {
             if (AccountMgr.userInfo.coins >= entryFee) {
                 this.handleModeEntry('online_pvp', () => {
+                    UserBehaviorMgr.log('GAME', '进入网络对战');
                     SceneManager.changeScene(LobbyScene);
                 });
             } else {
@@ -139,9 +145,12 @@ export default class MenuScene extends BaseScene {
                   const success = await Platform.showRewardedVideoAd(adUnitId);
                   if (success) {
                       AccountMgr.unlockMode(modeKey);
+                      UserBehaviorMgr.log('GAME', '解锁模式成功', { mode: modeKey });
                       Platform.showToast("解锁成功！今日免费畅玩");
                       this.refreshLockIcons();
                       onSuccess();
+                  } else {
+                      UserBehaviorMgr.log('GAME', '解锁模式失败', { mode: modeKey });
                   }
               }
           );
@@ -249,6 +258,7 @@ export default class MenuScene extends BaseScene {
     avatarContainer.interactive = true;
     avatarContainer.buttonMode = true;
     avatarContainer.on('pointerup', () => {
+        UserBehaviorMgr.log('PROFILE', '点击头像');
         // [修改] 允许所有环境尝试更新资料 (Web环境会模拟)
         Platform.showToast("正在获取头像...");
         
@@ -258,12 +268,15 @@ export default class MenuScene extends BaseScene {
                     nickName: userInfo.nickName,
                     avatarUrl: userInfo.avatarUrl
                 });
+                UserBehaviorMgr.log('PROFILE', '更新头像成功');
                 Platform.showToast("资料更新成功");
                 EventBus.emit(Events.USER_DATA_REFRESHED);
             } else {
+                UserBehaviorMgr.log('PROFILE', '更新头像失败', { reason: 'cancel_or_fail' });
                 Platform.showToast("获取失败或取消");
             }
         }).catch(err => {
+            UserBehaviorMgr.log('PROFILE', '更新头像失败', { reason: err.message });
             console.error("Get user profile error:", err);
             Platform.showToast("获取失败");
         });
@@ -291,12 +304,14 @@ export default class MenuScene extends BaseScene {
     const btnX = avatarRadius; 
 
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
+        UserBehaviorMgr.log('SOCIAL', '点击朋友圈');
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
 
     const bagBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_bag', '我的背包', 0x8E44AD, () => {
+        UserBehaviorMgr.log('INVENTORY', '点击背包');
         const bagView = new InventoryView(() => {
             if (this.coinsText) {
                 this.coinsText.text = `💰 ${AccountMgr.userInfo.coins}`;
@@ -308,6 +323,7 @@ export default class MenuScene extends BaseScene {
     currentY += btnDiameter + btnGap;
 
     const themeBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_theme', '主题装扮', 0xF39C12, () => {
+        UserBehaviorMgr.log('THEME', '点击主题');
         const themeDialog = new ThemeSelectionDialog(() => {
         });
         this.container.addChild(themeDialog);
@@ -317,6 +333,7 @@ export default class MenuScene extends BaseScene {
 
     if (!AccountMgr.isCheckedInToday()) {
         this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '每日一抽', 0xFF5722, () => {
+            UserBehaviorMgr.log('CHECKIN', '点击每日一抽');
             this.handleDailyCheckIn(this.checkInBtn);
         });
         container.addChild(this.checkInBtn);
@@ -374,6 +391,7 @@ export default class MenuScene extends BaseScene {
         foosballIconBtn.on('pointerupoutside', () => foosballIconBtn.scale.set(targetH / foosballIconTex.height));
         foosballIconBtn.on('pointerup', async () => {
             foosballIconBtn.scale.set(targetH / foosballIconTex.height);
+            UserBehaviorMgr.log('GAME', '进入德式桌球');
             Platform.showToast('正在加载玩法...');
             try {
                 await Platform.loadSubpackage('foosball');
@@ -480,6 +498,7 @@ export default class MenuScene extends BaseScene {
       // 插屏广告显示并关闭后，即视为成功
       if (success) {
           const prize = drawLottery();
+          UserBehaviorMgr.log('CHECKIN', '抽奖成功', { prizeType: prize.type, prizeValue: prize.value });
           const lotteryDialog = new LotteryDialog(prize, () => {
               AccountMgr.processLotteryReward(prize);
               this.refreshUI();

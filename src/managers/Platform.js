@@ -37,6 +37,10 @@ class Platform {
               document.addEventListener('visibilitychange', () => {
                   if (document.visibilityState === 'hidden') {
                       this.flushAdLogs();
+                      // [新增] 上报用户行为
+                      import('./UserBehaviorMgr.js').then(m => m.default.log('SYSTEM', '离开游戏')).then(() => {
+                          import('./UserBehaviorMgr.js').then(m => m.default.flush());
+                      });
                   }
               });
           }
@@ -45,8 +49,12 @@ class Platform {
 
       if (provider.onHide) {
           provider.onHide(() => {
-              console.log('[Platform] App hide, flushing ad logs...');
+              console.log('[Platform] App hide, flushing logs...');
               this.flushAdLogs();
+              // [新增] 上报用户行为
+              import('./UserBehaviorMgr.js').then(m => m.default.log('SYSTEM', '离开游戏')).then(() => {
+                  import('./UserBehaviorMgr.js').then(m => m.default.flush());
+              });
           });
       }
       
@@ -54,6 +62,7 @@ class Platform {
       if (provider.onExit) {
           provider.onExit(() => {
               this.flushAdLogs();
+              import('./UserBehaviorMgr.js').then(m => m.default.flush());
           });
       }
   }
@@ -160,6 +169,36 @@ class Platform {
       } catch (e) {
           console.error('[Platform] Ad report error', e);
       }
+  }
+
+  async reportUserBehavior(data) {
+    if (this.env === 'web') {
+      console.log('[Platform] Mock report user behavior:', data);
+      return;
+    }
+
+    try {
+      const API_URL = GameConfig.apiBaseUrl + '/api/user/behavior';
+      const provider = this.getProvider();
+
+      if (provider && provider.request) {
+        provider.request({
+          url: API_URL,
+          method: 'POST',
+          data: data,
+          success: () => console.log('[Platform] Behavior report success'),
+          fail: (e) => console.warn('[Platform] Behavior report failed', e)
+        });
+      } else {
+        fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        }).catch(e => console.warn('[Platform] Behavior report failed', e));
+      }
+    } catch (e) {
+      console.error('[Platform] Behavior report error', e);
+    }
   }
 
   detectEnv() {

@@ -13,6 +13,8 @@ import ResourceManager from '../managers/ResourceManager.js';
 import NetworkMgr from '../managers/NetworkMgr.js';
 import Platform from '../managers/Platform.js';
 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+
 export default class ResultScene extends BaseScene {
     constructor() {
         super();
@@ -725,10 +727,16 @@ export default class ResultScene extends BaseScene {
         const startX = w / 2 - btnW - gap / 2;
 
         let leftText = '返回主页';
-        let leftAction = () => SceneManager.changeScene(MenuScene);
+        let leftAction = () => {
+            UserBehaviorMgr.log('GAME', '返回菜单页');
+            SceneManager.changeScene(MenuScene);
+        };
         
         let rightText = "再来一局";
-        let rightAction = () => SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
+        let rightAction = () => {
+            UserBehaviorMgr.log('GAME', '再来一局');
+            SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
+        };
         
         if (this.params.gameMode === 'pvp_online') {
             leftText = '结束游戏';
@@ -747,10 +755,16 @@ export default class ResultScene extends BaseScene {
         else if (this.params.gameMode === 'pve') {
             if (isWin) {
                 rightText = "下一关";
-                rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
+                rightAction = () => {
+                    UserBehaviorMgr.log('GAME', '下一关', { level: this.params.currentLevel + 1 });
+                    SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
+                };
             } else {
                 rightText = "重新挑战";
-                rightAction = () => SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                rightAction = () => {
+                    UserBehaviorMgr.log('GAME', '再来一局');
+                    SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                };
             }
         }
 

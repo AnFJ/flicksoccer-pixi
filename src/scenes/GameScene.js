@@ -39,6 +39,8 @@ import SkillManager from '../core/SkillManager.js';
 import AIChatController from '../core/AIChatController.js';
 import AtmosphereController from '../core/AtmosphereController.js';
 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+
 export default class GameScene extends BaseScene {
   constructor() {
     super();
@@ -195,6 +197,7 @@ export default class GameScene extends BaseScene {
         if (this.gameMode === 'pve') {
             startText = `第 ${this.currentLevel} 关 开始`;
         }
+        UserBehaviorMgr.log('GAME', '游戏开始', { mode: this.gameMode, level: this.currentLevel });
         this.goalBanner?.play(startText);
         AudioManager.playBGM('crowd_bg_loop'); 
 
@@ -501,6 +504,10 @@ export default class GameScene extends BaseScene {
   }
 
   onMenuBtnClick() {
+      if (!this.isGameOver) {
+          UserBehaviorMgr.log('GAME', '中途退出游戏', { mode: this.gameMode });
+      }
+
       if (this.gameMode === 'pvp_online' && !this.isGameOver) {
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
@@ -579,6 +586,13 @@ export default class GameScene extends BaseScene {
   onGameOver(data) {
     this.isGameOver = true;
     this.matchStats.endTime = Date.now(); 
+    
+    UserBehaviorMgr.log('GAME', '游戏结束', { 
+        winner: data.winner, 
+        myTeam: this.myTeamId,
+        score: this.rules.score,
+        duration: (this.matchStats.endTime - this.matchStats.startTime) / 1000
+    });
 
     this.aiChatCtrl.onGameOver(data.winner);
 
@@ -781,7 +795,7 @@ export default class GameScene extends BaseScene {
                    
                    if (pos) {
                        // 调整指引位置：在按钮左侧一点点
-                       const guidePos = { x: pos.x + 400, y: pos.y + 80 };
+                       const guidePos = { x: pos.x + 350, y: pos.y + 20 };
                        this.tutorialOverlay.showClickTutorial(guidePos, "点击技能图标，增强你的棋子！");
                        this.tutorialStep = 1;
                    } else {

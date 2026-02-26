@@ -7,6 +7,8 @@ import AccountMgr from '../managers/AccountMgr.js';
 import ResourceManager from '../managers/ResourceManager.js';
 import Platform from '../managers/Platform.js';
 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+
 export default class ThemeSelectionDialog extends PIXI.Container {
   constructor(onClose) {
     super();
@@ -70,6 +72,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
         text: '保存并应用', width: 260, height: 80, color: 0x2ecc71,
         onClick: () => {
             AccountMgr.updateTheme(this.tempTheme);
+            UserBehaviorMgr.log('THEME', '切换主题', { theme: this.tempTheme });
             if (this.onClose) this.onClose();
             this.parent.removeChild(this);
         }
@@ -102,6 +105,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
               color: isSelected ? 0x3498db : 0x7f8c8d,
               onClick: () => {
                   this.currentTab = idx;
+                  UserBehaviorMgr.log('THEME', '点击主题Tab', { tab: label });
                   this.renderTabs();
                   this.renderContent();
               }
@@ -268,6 +272,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
           if (success) {
               const unlocked = AccountMgr.unlockTheme(type, id);
               if (unlocked) {
+                  UserBehaviorMgr.log('THEME', '解锁主题成功', { type, id });
                   Platform.showToast("解锁成功！");
                   // 自动选中
                   if (type === 'formation') this.tempTheme.formationId = id;
@@ -277,6 +282,8 @@ export default class ThemeSelectionDialog extends PIXI.Container {
                       this.renderContent();
                   }
               }
+          } else {
+              UserBehaviorMgr.log('THEME', '解锁主题失败', { type, id });
           }
       }, 500);
   }
