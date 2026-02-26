@@ -73,18 +73,20 @@ export default class AtmosphereController {
         
         // 3. 区域检测：进入对方禁区深处
         const zoneDepth = w * 0.25; 
-        const currentTurn = this.scene.turnMgr.currentTurn;
         
         let inDangerZone = false;
         let targetGoalX = 0; 
   
-        if (currentTurn === TeamId.LEFT) {
-            if (bX > (x + w - zoneDepth) && ballBody.velocity.x > 0) {
+        // 向右进攻 (攻击右侧球门)
+        if (ballBody.velocity.x > 0) {
+            if (bX > (x + w - zoneDepth)) {
                 inDangerZone = true;
                 targetGoalX = x + w + GameConfig.dimensions.goalWidth / 2; 
             }
-        } else {
-            if (bX < (x + zoneDepth) && ballBody.velocity.x < 0) {
+        } 
+        // 向左进攻 (攻击左侧球门)
+        else if (ballBody.velocity.x < 0) {
+            if (bX < (x + zoneDepth)) {
                 inDangerZone = true;
                 targetGoalX = x - GameConfig.dimensions.goalWidth / 2;
             }

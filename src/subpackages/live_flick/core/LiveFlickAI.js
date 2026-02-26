@@ -78,13 +78,17 @@ export default class LiveFlickAI {
 
         // Calculate force
         const dist = Math.sqrt((bx - sx)**2 + (by - sy)**2);
-        const maxForce = GameConfig.physics.maxForce;
-        let forceMag = (dist / 300) * maxForce; 
-        if (forceMag > maxForce) forceMag = maxForce;
-        if (forceMag < maxForce * 0.4) forceMag = maxForce * 0.4;
+        
+        // AI force logic: scale based on distance but cap at maxDragDistance
+        const maxDist = GameConfig.gameplay.maxDragDistance;
+        let effectiveDist = Math.min(dist, maxDist);
+        
+        // Don't shoot too weak
+        if (effectiveDist < maxDist * 0.4) effectiveDist = maxDist * 0.4;
 
-        const fx = Math.cos(angle) * forceMag;
-        const fy = Math.sin(angle) * forceMag;
+        const multiplier = GameConfig.gameplay.forceMultiplier;
+        const fx = Math.cos(angle) * effectiveDist * multiplier;
+        const fy = Math.sin(angle) * effectiveDist * multiplier;
 
         AudioManager.playSFX('kick');
         this.scene.physics.applyForce(striker.body, { x: fx, y: fy });

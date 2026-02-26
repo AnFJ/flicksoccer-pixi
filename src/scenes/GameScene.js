@@ -798,8 +798,7 @@ export default class GameScene extends BaseScene {
                    const avatarPos = this.hud.getAvatarPosition(TeamId.LEFT);
                    
                    if (avatarPos) {
-                       // 调整指引位置：技能按钮中心 (x - 120), y轴微调 +40 以避开图标遮挡
-                       const guidePos = { x: avatarPos.x - 120, y: avatarPos.y + 40 };
+                       const guidePos = { x: avatarPos.x - 160, y: avatarPos.y + 40 };
                        this.tutorialOverlay.showClickTutorial(guidePos, "点击技能图标，增强你的棋子！");
                        this.tutorialStep = 1;
                    } else {

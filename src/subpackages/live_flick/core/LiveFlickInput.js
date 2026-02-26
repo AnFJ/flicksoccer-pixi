@@ -133,26 +133,22 @@ export default class LiveFlickInput {
     }
 
     executeFlick(body, vector, teamId) {
-        const maxForce = GameConfig.physics.maxForce;
-        const forceMultiplier = GameConfig.physics.forceMultiplier;
+        const dist = Math.sqrt(vector.x**2 + vector.y**2);
+        const maxDist = GameConfig.gameplay.maxDragDistance;
+        const effectiveDist = Math.min(dist, maxDist);
+        const angle = Math.atan2(vector.y, vector.x);
         
-        let fx = vector.x * forceMultiplier;
-        let fy = vector.y * forceMultiplier;
-        
-        const forceMag = Math.sqrt(fx*fx + fy*fy);
-        if (forceMag > maxForce) {
-            fx = (fx / forceMag) * maxForce;
-            fy = (fy / forceMag) * maxForce;
-        }
+        let multiplier = GameConfig.gameplay.forceMultiplier;
 
         // Apply skill modifiers
         if (this.scene.skillMgr) {
             if (this.scene.skillMgr.isActive(SkillType.SUPER_FORCE)) {
-                fx *= 1.5;
-                fy *= 1.5;
+                multiplier *= GameConfig.gameplay.skills.superForce.multiplier;
                 this.scene.skillMgr.consumeSkill(SkillType.SUPER_FORCE);
             }
             if (this.scene.skillMgr.isActive(SkillType.UNSTOPPABLE)) {
+                // Unstoppable logic usually applies to the ball or makes the striker heavy temporarily
+                // Here we just consume it for now or apply mass change if needed
                 body.mass *= 5;
                 setTimeout(() => {
                     if (body) body.mass /= 5;
@@ -163,6 +159,9 @@ export default class LiveFlickInput {
                 this.scene.skillMgr.consumeSkill(SkillType.SUPER_AIM);
             }
         }
+
+        const fx = Math.cos(angle) * effectiveDist * multiplier;
+        const fy = Math.sin(angle) * effectiveDist * multiplier;
 
         AudioManager.playSFX('kick');
         this.scene.physics.applyForce(body, { x: fx, y: fy });

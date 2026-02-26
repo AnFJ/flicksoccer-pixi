@@ -127,11 +127,17 @@ export default class LiveFlickRules {
 
   checkGoal(bodyA, bodyB) {
       const isBall = bodyA.label === 'Ball' || bodyB.label === 'Ball';
-      const isGoal = bodyA.label === 'Goal' || bodyB.label === 'Goal';
+      const isGoalSensor = bodyA.label === 'GoalSensor' || bodyB.label === 'GoalSensor';
 
-      if (isBall && isGoal) {
-          const goalBody = bodyA.label === 'Goal' ? bodyA : bodyB;
+      if (isBall && isGoalSensor) {
+          const sensorBody = bodyA.label === 'GoalSensor' ? bodyA : bodyB;
           const ballBody = bodyA.label === 'Ball' ? bodyA : bodyB;
+          
+          // Get the Goal entity from the sensor body
+          // The sensor body was created in Goal.js and has .entity property attached
+          const goalEntity = sensorBody.entity;
+          
+          if (!goalEntity) return;
 
           const now = Date.now();
           if (now - this.lastGoalTime < 2000) return;
@@ -139,7 +145,8 @@ export default class LiveFlickRules {
 
           this.isGoalProcessing = true;
 
-          const scoringTeam = goalBody.teamId === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
+          // Goal entity has ownerTeamId, so if ball hits LEFT goal sensor, RIGHT team scores
+          const scoringTeam = goalEntity.ownerTeamId === TeamId.LEFT ? TeamId.RIGHT : TeamId.LEFT;
           this.score[scoringTeam]++;
 
           EventBus.emit(Events.GOAL_SCORED, {
@@ -148,9 +155,9 @@ export default class LiveFlickRules {
               ballPos: { x: ballBody.position.x, y: ballBody.position.y }
           });
 
-          if (this.score[TeamId.LEFT] >= GameConfig.gameplay.winningScore) {
+          if (this.score[TeamId.LEFT] >= GameConfig.gameplay.maxScore) {
               EventBus.emit(Events.GAME_OVER, { winner: TeamId.LEFT });
-          } else if (this.score[TeamId.RIGHT] >= GameConfig.gameplay.winningScore) {
+          } else if (this.score[TeamId.RIGHT] >= GameConfig.gameplay.maxScore) {
               EventBus.emit(Events.GAME_OVER, { winner: TeamId.RIGHT });
           }
       }

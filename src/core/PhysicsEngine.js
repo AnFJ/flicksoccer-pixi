@@ -21,6 +21,16 @@ export default class PhysicsEngine {
   }
 
   /**
+   * 对物体施加力
+   * @param {Matter.Body} body 
+   * @param {Object} force {x, y}
+   */
+  applyForce(body, force) {
+      if (!body) return;
+      Matter.Body.applyForce(body, body.position, force);
+  }
+
+  /**
    * 每一帧更新物理世界
    * @param {number} delta - 固定时间步长 (ms)
    */
