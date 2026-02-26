@@ -198,6 +198,8 @@ export default class MenuScene extends BaseScene {
       if (this.levelText) this.levelText.text = `Lv.${user.level}`;
       if (this.nameText) this.nameText.text = user.nickname;
       this.refreshLockIcons();
+      // [修复] 刷新头像
+      this.updateAvatar(user.avatarUrl, user.nickname);
   }
 
   onResize(width, height) {
@@ -240,11 +242,13 @@ export default class MenuScene extends BaseScene {
     const container = this.userInfoContainer;
     
     const avatarRadius = 60; 
-    const avatarContainer = new PIXI.Container();
+    this.avatarContainer = new PIXI.Container();
+    const avatarContainer = this.avatarContainer;
+
     // [新增] 允许点击头像更新资料
     avatarContainer.interactive = true;
     avatarContainer.buttonMode = true;
-    avatarContainer.on('pointertap', () => {
+    avatarContainer.on('pointerup', () => {
         // [修改] 允许所有环境尝试更新资料 (Web环境会模拟)
         Platform.showToast("正在获取头像...");
         
@@ -274,27 +278,9 @@ export default class MenuScene extends BaseScene {
     bg.endFill();
     avatarContainer.addChild(bg);
 
-    if (user.avatarUrl) {
-         PIXI.Texture.fromURL(user.avatarUrl).then(tex => {
-             if (this.container.destroyed) return;
-             const sprite = new PIXI.Sprite(tex);
-             sprite.anchor.set(0.5);
-             sprite.position.set(avatarRadius, avatarRadius);
-             const scale = (avatarRadius * 2) / Math.min(tex.width, tex.height);
-             sprite.scale.set(scale);
-             const mask = new PIXI.Graphics();
-             mask.beginFill(0xffffff);
-             mask.drawCircle(avatarRadius, avatarRadius, avatarRadius);
-             mask.endFill();
-             sprite.mask = mask;
-             avatarContainer.addChild(sprite);
-             avatarContainer.addChild(mask);
-         }).catch(() => {
-             this.createDefaultAvatar(avatarContainer, user.nickname, avatarRadius);
-         });
-    } else {
-        this.createDefaultAvatar(avatarContainer, user.nickname, avatarRadius);
-    }
+    // [修改] 使用统一方法加载头像
+    this.updateAvatar(user.avatarUrl, user.nickname);
+    
     container.addChild(avatarContainer);
 
     const btnRadius = avatarRadius * 0.8; 
@@ -517,6 +503,49 @@ export default class MenuScene extends BaseScene {
       }
   }
 
+
+  updateAvatar(avatarUrl, nickname) {
+      if (!this.avatarContainer) return;
+      
+      const radius = 60;
+      
+      // 清除旧头像内容 (保留背景)
+      const oldContent = this.avatarContainer.getChildByName('avatar_content');
+      if (oldContent) {
+          this.avatarContainer.removeChild(oldContent);
+          oldContent.destroy({ children: true });
+      }
+
+      const contentContainer = new PIXI.Container();
+      contentContainer.name = 'avatar_content';
+      this.avatarContainer.addChild(contentContainer);
+
+      if (avatarUrl) {
+          PIXI.Texture.fromURL(avatarUrl).then(tex => {
+              if (contentContainer.destroyed) return;
+              
+              const sprite = new PIXI.Sprite(tex);
+              sprite.anchor.set(0.5);
+              sprite.position.set(radius, radius);
+              
+              const scale = (radius * 2) / Math.min(tex.width, tex.height);
+              sprite.scale.set(scale);
+              
+              const mask = new PIXI.Graphics();
+              mask.beginFill(0xffffff);
+              mask.drawCircle(radius, radius, radius);
+              mask.endFill();
+              
+              sprite.mask = mask;
+              contentContainer.addChild(sprite);
+              contentContainer.addChild(mask);
+          }).catch(() => {
+              this.createDefaultAvatar(contentContainer, nickname, radius);
+          });
+      } else {
+          this.createDefaultAvatar(contentContainer, nickname, radius);
+      }
+  }
 
   createDefaultAvatar(container, name, radius) {
       const char = (name || 'G').charAt(0).toUpperCase();
