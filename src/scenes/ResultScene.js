@@ -106,6 +106,18 @@ export default class ResultScene extends BaseScene {
         const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.game_over : null;
         
         Platform.showInterstitialAd(adUnitId);
+
+        // [新增] 结果页左侧广告 (最左边中部)
+        if (adConfig && adConfig.custom) {
+            Platform.showCustomAd(adConfig.custom.result_left, { width: 180 }, 'left_center');
+            // [新增] 结果页右侧广告 (最右边中部)
+            Platform.showCustomAd(adConfig.custom.result_right, { width: 180 }, 'right_center');
+        }
+    }
+
+    onExit() {
+        super.onExit();
+        Platform.hideGameAds();
     }
 
     // --- 视觉构建方法 ---

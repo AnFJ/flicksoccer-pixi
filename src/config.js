@@ -152,6 +152,14 @@ export const GameConfig = {
       },
       wechat: {
           banners: ['adunit-66e3cd5a02de9eab', 'adunit-4def66cc33414e78'],
+          // [新增] 原生模板广告 (自定义广告)
+          custom: {
+              menu_banner: 'adunit-076f6c10d2350be9',
+              game_left: 'adunit-c5945c7fed0b39a5',
+              game_right: 'adunit-6b980d36e1b91ae3',
+              result_left: 'adunit-cf0cab3b9b6ae5b7',
+              result_right: 'adunit-9bb5f37ad88a11eb'
+          },
           interstitial: {
               startup: 'adunit-b491ed4911fc67d8',
               before_game: 'adunit-5b2d9dab33c8f055',
@@ -172,6 +180,13 @@ export const GameConfig = {
       },
       douyin: {
           banners: ['adunit-left-placeholder', 'adunit-right-placeholder'],
+          custom: {
+              menu_banner: 'adunit-dy-menu-banner',
+              game_left: 'adunit-dy-game-left',
+              game_right: 'adunit-dy-game-right',
+              result_left: 'adunit-dy-result-left',
+              result_right: 'adunit-dy-result-right'
+          },
           interstitial: {
               startup: 'adunit-dy-startup',
               before_game: 'adunit-dy-before-game',

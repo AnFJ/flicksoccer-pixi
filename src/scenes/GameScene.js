@@ -202,8 +202,13 @@ export default class GameScene extends BaseScene {
         AudioManager.playBGM('crowd_bg_loop'); 
 
         // 展示场景内广告
-        if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-            Platform.showGameAds(this.layout.adBoards);
+        // [修改] 使用新的原生模板广告
+        const adConfig = GameConfig.adConfig[Platform.env];
+        if (adConfig && adConfig.custom) {
+            // 左侧球场横幅 (HUD 左边下方 -> 左侧居中)
+            Platform.showCustomAd(adConfig.custom.game_left, { width: 200 }, 'left_center');
+            // 右侧球场横幅 (HUD 右边下方 -> 右侧居中)
+            Platform.showCustomAd(adConfig.custom.game_right, { width: 200 }, 'right_center');
         }
     };
 
@@ -508,6 +513,8 @@ export default class GameScene extends BaseScene {
           UserBehaviorMgr.log('GAME', '中途退出游戏', { mode: this.gameMode });
       }
 
+      Platform.hideGameAds();
+      
       if (this.gameMode === 'pvp_online' && !this.isGameOver) {
           NetworkMgr.send({ type: NetMsg.LEAVE });
           NetworkMgr.close(); 
@@ -586,6 +593,9 @@ export default class GameScene extends BaseScene {
   onGameOver(data) {
     this.isGameOver = true;
     this.matchStats.endTime = Date.now(); 
+    
+    // 游戏结束时隐藏游戏内广告
+    Platform.hideGameAds();
     
     UserBehaviorMgr.log('GAME', '游戏结束', { 
         winner: data.winner, 

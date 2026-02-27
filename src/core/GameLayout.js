@@ -160,21 +160,7 @@ export default class GameLayout {
 
     /** 创建广告牌 */
     _createAdBoards() {
-        const { x, y, w, h } = this.fieldRect;
-        const adW = 160;
-        const adH = 415; 
-        const dist = 200; 
-        
+        // [修改] 移除旧的广告牌创建逻辑，改用原生模板广告
         this.adBoards = [];
-
-        const leftAd = new AdBoard(adW, adH, 0);
-        leftAd.position.set(x - dist - adW / 2, y + h / 2);
-        this.layers.over.addChild(leftAd);
-        this.adBoards.push(leftAd);
-
-        const rightAd = new AdBoard(adW, adH, 1);
-        rightAd.position.set(x + w + dist + adW / 2, y + h / 2);
-        this.layers.over.addChild(rightAd);
-        this.adBoards.push(rightAd);
     }
 }

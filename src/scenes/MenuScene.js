@@ -137,6 +137,11 @@ export default class MenuScene extends BaseScene {
             ResourceManager.loadFoosballResources().catch(() => {});
         }).catch(() => {});
     }, 1000);
+
+    // [新增] 菜单页 Banner 广告 (底部居中)
+    const adConfig = GameConfig.adConfig[Platform.env];
+    const adUnitId = adConfig && adConfig.custom ? adConfig.custom.menu_banner : null;
+    Platform.showCustomAd(adUnitId, { width: 300 }, 'bottom_center');
   }
 
   handleModeEntry(modeKey, onSuccess) {
@@ -232,6 +237,7 @@ export default class MenuScene extends BaseScene {
   onExit() {
       super.onExit();
       EventBus.off(Events.USER_DATA_REFRESHED, this.refreshUI, this);
+      Platform.hideGameAds();
   }
 
   update(delta) {

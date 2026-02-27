@@ -645,88 +645,98 @@ class Platform {
       return this._loadedSubpackages.has(name);
   }
 
-  showGameAds(adNodes) {
-      if (this.env === 'web') return; 
-      if (!adNodes || adNodes.length === 0) return;
-
+  /**
+   * 展示自定义广告 (原生模板广告)
+   * @param {string} adUnitId - 广告ID
+   * @param {object} style - 样式配置 { left, top, width, height, fixed }
+   * @param {string} position - 预设位置 'bottom_center', 'left_bottom', 'right_bottom', 'left_center', 'right_center'
+   */
+  showCustomAd(adUnitId, style = {}, position = null) {
+      if (this.env !== 'wechat') return;
       const provider = this.getProvider();
-      let bannerIds = [];
-      if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
-      if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
+      if (!provider || !provider.createCustomAd) return;
 
-      // 先清理旧广告
-      this.hideGameAds();
+      try {
+          const sysInfo = provider.getSystemInfoSync();
+          const winW = sysInfo.windowWidth;
+          const winH = sysInfo.windowHeight;
 
-      adNodes.forEach((node, index) => {
-          if (index >= bannerIds.length) return;
-          const adUnitId = bannerIds[index];
-          if (!adUnitId || adUnitId.startsWith('adunit-xx')) return;
+          // 默认样式
+          let finalStyle = { ...style };
 
-          const bounds = node.getBounds();
-          if (!bounds || bounds.width <= 0) return;
-
-          try {
-              let adInstance = null;
-
-              if (this.env === 'wechat' && provider.createCustomAd) {
-                  adInstance = provider.createCustomAd({
-                      adUnitId: adUnitId,
-                      style: {
-                          left: bounds.x,
-                          top: bounds.y,
-                          width: bounds.width, 
-                          fixed: true 
-                      }
-                  });
-              }
-              else if (this.env === 'douyin' && provider.createBannerAd) {
-                  adInstance = provider.createBannerAd({
-                      adUnitId: adUnitId,
-                      style: {
-                          left: bounds.x,
-                          top: bounds.y,
-                          width: bounds.width
-                      }
-                  });
-                  adInstance.onResize(size => {
-                      const offsetY = (bounds.height - size.height) / 2;
-                      adInstance.style.top = bounds.y + offsetY;
-                      adInstance.style.left = bounds.x + (bounds.width - size.width) / 2;
-                  });
+          // 根据预设位置自动计算坐标
+          if (position) {
+              // 假设广告宽度，如果 style 中没给，默认给一个大概值用于计算居中
+              // 实际 CustomAd 创建后会自动调整高度，宽度通常由 style.width 指定
+              // 如果没指定 width，微信默认可能是全宽或特定宽度
+              // 原生模板广告通常建议指定 width
+              
+              // 16:9 比例，假设宽度为 300 (手机屏幕通常 360-400)
+              // 或者根据位置不同设定默认宽度
+              if (!finalStyle.width) {
+                  if (position.includes('center')) finalStyle.width = 300;
+                  else finalStyle.width = 120; // 小广告
               }
 
-              if (adInstance) {
-                  // [优化] 增加更健壮的错误处理
-                  adInstance.onError(err => {
-                      // 屏蔽常规的加载错误日志
-                      // console.log('[Platform] Ad load error:', err);
-                  });
-                  
-                  // show() 返回 Promise，catch 避免未捕获异常
-                  const showPromise = adInstance.show();
-                  if (showPromise && showPromise.catch) {
-                      showPromise.catch(err => {
-                          // console.log('[Platform] Ad show failed:', err);
-                      });
-                  }
-                  
-                  // [新增] 记录 Banner 广告展示
-                  this.logAdAction({
-                      adUnitId: adUnitId,
-                      adUnitName: 'banner',
-                      adType: 'banner',
-                      isCompleted: 1,
-                      isClicked: 0,
-                      watchTime: 0
-                  });
+              const adW = finalStyle.width;
+              // 估算高度，仅用于初始定位，实际高度会变化
+              const adH = adW * (9/16); 
 
-                  this._gameAds.push(adInstance);
+              switch (position) {
+                  case 'bottom_center':
+                      finalStyle.left = (winW - adW) / 2;
+                      finalStyle.top = winH - adH - 10; // 底部留白
+                      break;
+                  case 'left_bottom':
+                      finalStyle.left = 10;
+                      finalStyle.top = winH - adH - 10;
+                      break;
+                  case 'right_bottom':
+                      finalStyle.left = winW - adW - 10;
+                      finalStyle.top = winH - adH - 10;
+                      break;
+                  case 'left_center':
+                      finalStyle.left = 10;
+                      finalStyle.top = (winH - adH) / 2;
+                      break;
+                  case 'right_center':
+                      finalStyle.left = winW - adW - 10;
+                      finalStyle.top = (winH - adH) / 2;
+                      break;
               }
-
-          } catch (e) {
-              console.warn('[Platform] Create ad failed', e);
           }
-      });
+
+          const ad = provider.createCustomAd({
+              adUnitId: adUnitId,
+              style: finalStyle
+          });
+
+          ad.onLoad(() => {
+              console.log(`[Platform] CustomAd loaded: ${adUnitId}`);
+          });
+
+          ad.onError((err) => {
+              console.warn(`[Platform] CustomAd load error: ${adUnitId}`, err);
+          });
+
+          ad.show().then(() => {
+              console.log(`[Platform] CustomAd shown: ${adUnitId}`);
+          }).catch(err => {
+              console.warn(`[Platform] CustomAd show failed: ${adUnitId}`, err);
+          });
+
+          this._gameAds.push(ad);
+          return ad;
+
+      } catch (e) {
+          console.warn('[Platform] Create custom ad failed', e);
+      }
+  }
+
+  showGameAds(adNodes) {
+      // 兼容旧代码，但不再执行逻辑，避免冲突
+      // 如果需要完全移除，可以在 GameScene 中删除调用
+      console.log('[Platform] showGameAds deprecated, use showCustomAd instead');
   }
 
   /**
