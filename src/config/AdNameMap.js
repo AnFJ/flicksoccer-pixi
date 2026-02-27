@@ -21,6 +21,13 @@ export const AdNameMap = {
     'adunit-7fcbc609e83b5de9': '本地双人解锁激励视频',
     'adunit-fa12beee8457f7a6': '网络对战解锁激励视频',
 
+    // --- WeChat Custom Ads ---
+    'adunit-076f6c10d2350be9': '菜单页底部Banner',
+    'adunit-c5945c7fed0b39a5': '游戏页左侧横幅',
+    'adunit-6b980d36e1b91ae3': '游戏页右侧横幅',
+    'adunit-cf0cab3b9b6ae5b7': '结果页左侧广告',
+    'adunit-9bb5f37ad88a11eb': '结果页右侧广告',
+
     // --- Douyin ---
     'adunit-left-placeholder': '左侧Banner',
     'adunit-right-placeholder': '右侧Banner',
@@ -35,6 +42,13 @@ export const AdNameMap = {
     'adunit-dy-field': '球场皮肤激励视频',
     'adunit-dy-ball': '足球皮肤激励视频',
     'adunit-dy-formation': '阵型激励视频',
+    
+    // --- Douyin Custom Ads ---
+    'adunit-dy-menu-banner': '菜单页底部Banner',
+    'adunit-dy-game-left': '游戏页左侧横幅',
+    'adunit-dy-game-right': '游戏页右侧横幅',
+    'adunit-dy-result-left': '结果页左侧广告',
+    'adunit-dy-result-right': '结果页右侧广告',
     
     // --- 通用/占位符 ---
     'adunit-mode-unlock-placeholder': '模式解锁激励视频'

@@ -652,9 +652,9 @@ class Platform {
    * @param {string} position - 预设位置 'bottom_center', 'left_bottom', 'right_bottom', 'left_center', 'right_center'
    */
   showCustomAd(adUnitId, style = {}, position = null) {
-      if (this.env !== 'wechat') return;
+      if (this.env !== 'wechat' && this.env !== 'douyin') return;
       const provider = this.getProvider();
-      if (!provider || !provider.createCustomAd) return;
+      if (!provider) return;
 
       try {
           const sysInfo = provider.getSystemInfoSync();
@@ -663,29 +663,24 @@ class Platform {
 
           // 默认样式
           let finalStyle = { ...style };
+          let ad = null;
 
           // 根据预设位置自动计算坐标
           if (position) {
-              // 假设广告宽度，如果 style 中没给，默认给一个大概值用于计算居中
-              // 实际 CustomAd 创建后会自动调整高度，宽度通常由 style.width 指定
-              // 如果没指定 width，微信默认可能是全宽或特定宽度
-              // 原生模板广告通常建议指定 width
-              
-              // 16:9 比例，假设宽度为 300 (手机屏幕通常 360-400)
-              // 或者根据位置不同设定默认宽度
+              // 16:9 比例，假设宽度为 300
               if (!finalStyle.width) {
                   if (position.includes('center')) finalStyle.width = 300;
                   else finalStyle.width = 120; // 小广告
               }
 
               const adW = finalStyle.width;
-              // 估算高度，仅用于初始定位，实际高度会变化
+              // 估算高度
               const adH = adW * (9/16); 
 
               switch (position) {
                   case 'bottom_center':
                       finalStyle.left = (winW - adW) / 2;
-                      finalStyle.top = winH - adH - 10; // 底部留白
+                      finalStyle.top = winH - adH - 10; 
                       break;
                   case 'left_bottom':
                       finalStyle.left = 10;
@@ -706,27 +701,59 @@ class Platform {
               }
           }
 
-          const ad = provider.createCustomAd({
-              adUnitId: adUnitId,
-              style: finalStyle
-          });
+          if (this.env === 'wechat' && provider.createCustomAd) {
+              ad = provider.createCustomAd({
+                  adUnitId: adUnitId,
+                  style: finalStyle
+              });
+          } else if (this.env === 'douyin' && provider.createBannerAd) {
+              // 抖音 Banner 广告
+              ad = provider.createBannerAd({
+                  adUnitId: adUnitId,
+                  style: finalStyle
+              });
+              
+              // 抖音广告加载后可能需要重新调整位置 (因为高度不确定)
+              ad.onResize(size => {
+                  if (position === 'bottom_center') {
+                      ad.style.left = (winW - size.width) / 2;
+                      ad.style.top = winH - size.height - 10;
+                  } else if (position === 'left_center') {
+                      ad.style.top = (winH - size.height) / 2;
+                  } else if (position === 'right_center') {
+                      ad.style.left = winW - size.width - 10;
+                      ad.style.top = (winH - size.height) / 2;
+                  }
+              });
+          }
 
-          ad.onLoad(() => {
-              console.log(`[Platform] CustomAd loaded: ${adUnitId}`);
-          });
+          if (ad) {
+              ad.onLoad(() => {
+                  console.log(`[Platform] CustomAd/Banner loaded: ${adUnitId}`);
+              });
 
-          ad.onError((err) => {
-              console.warn(`[Platform] CustomAd load error: ${adUnitId}`, err);
-          });
+              ad.onError((err) => {
+                  console.warn(`[Platform] CustomAd/Banner load error: ${adUnitId}`, err);
+              });
 
-          ad.show().then(() => {
-              console.log(`[Platform] CustomAd shown: ${adUnitId}`);
-          }).catch(err => {
-              console.warn(`[Platform] CustomAd show failed: ${adUnitId}`, err);
-          });
+              ad.show().then(() => {
+                  console.log(`[Platform] CustomAd/Banner shown: ${adUnitId}`);
+                  // [新增] 记录自定义广告展示
+                  this.logAdAction({
+                      adUnitId: adUnitId,
+                      adUnitName: 'custom_ad', 
+                      adType: 'custom',
+                      isCompleted: 1,
+                      isClicked: 0,
+                      watchTime: 0
+                  });
+              }).catch(err => {
+                  console.warn(`[Platform] CustomAd/Banner show failed: ${adUnitId}`, err);
+              });
 
-          this._gameAds.push(ad);
-          return ad;
+              this._gameAds.push(ad);
+              return ad;
+          }
 
       } catch (e) {
           console.warn('[Platform] Create custom ad failed', e);
