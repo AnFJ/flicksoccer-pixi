@@ -29,6 +29,9 @@ class ResourceManager {
       // 德式桌球新入口按钮
       foosball_icon_btn: 'assets/images/icon/foosball_btn.png',
       
+      // [新增] 实况弹指入口按钮
+      live_flick_icon_btn: 'assets/images/icon/liveflick_btn.png',
+      
       // [新增] 对话框背景 (外部素材)
       dialog_bg: 'remote:dialog_bg.png',
       

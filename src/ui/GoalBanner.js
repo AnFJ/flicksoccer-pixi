@@ -113,13 +113,17 @@ export default class GoalBanner extends PIXI.Container {
    * @param {string} text 显示的文字，默认为"进球！"
    */
   play(text = "进球！") {
+    if (this.destroyed) return;
+
     this.text.text = text;
     
     // 根据文本长度自动调整字号
-    if (text.length > 4) {
-        this.text.style.fontSize = 100;
-    } else {
-        this.text.style.fontSize = 140;
+    if (this.text.style) {
+        if (text.length > 4) {
+            this.text.style.fontSize = 100;
+        } else {
+            this.text.style.fontSize = 140;
+        }
     }
 
     this.visible = true;

@@ -50,6 +50,8 @@ class Spark extends PIXI.Sprite {
     }
 
     reset(x, y, speed, angle, scale, life) {
+        if (this.destroyed) return;
+
         this.x = x;
         this.y = y;
         this.vx = Math.cos(angle) * speed;
@@ -136,6 +138,8 @@ export default class SparkSystem extends PIXI.ParticleContainer {
      * @param {number} intensity 碰撞强度 (通常 0~20)
      */
     emit(x, y, intensity) {
+        if (this.destroyed) return;
+
         // 根据强度决定粒子数量 (3 ~ 12个)
         const count = Math.min(Math.floor(intensity * 0.8) + 3, 15);
         

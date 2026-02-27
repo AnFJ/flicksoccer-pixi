@@ -125,6 +125,18 @@ export default class MenuScene extends BaseScene {
 
     // [新增] 检查并展示每日插屏广告
     Platform.checkAndShowDailyInterstitial();
+
+    // [新增] 延迟预加载分包，提升后续体验
+    setTimeout(() => {
+        if (this.destroyed) return;
+        // 预加载实况弹指
+        Platform.loadSubpackage('live_flick').catch(() => {});
+        // 预加载德式桌球
+        Platform.loadSubpackage('foosball').then(() => {
+            // 德式桌球还需要加载资源
+            ResourceManager.loadFoosballResources().catch(() => {});
+        }).catch(() => {});
+    }, 1000);
   }
 
   handleModeEntry(modeKey, onSuccess) {
@@ -379,8 +391,8 @@ export default class MenuScene extends BaseScene {
     if (foosballIconTex && user.level >= 50) {
         const foosballIconBtn = new PIXI.Sprite(foosballIconTex);
         foosballIconBtn.anchor.set(0, 0.5);
-        // 位置设定：位于金币文本右侧约 120px
-        foosballIconBtn.position.set(textX + 380, textStartY + 45);
+        // 位置设定：位于金币文本右侧约 120px -> 改为更远，避免与实况弹指重叠
+        foosballIconBtn.position.set(textX + 550, textStartY + 45);
         
         // 设置尺寸，假设图片较大，缩小到合适高度 (约 80px)
         const targetH = 140;
@@ -394,7 +406,12 @@ export default class MenuScene extends BaseScene {
         foosballIconBtn.on('pointerup', async () => {
             foosballIconBtn.scale.set(targetH / foosballIconTex.height);
             UserBehaviorMgr.log('GAME', '进入德式桌球');
-            Platform.showToast('正在加载玩法...');
+            
+            // [优化] 如果分包已加载，直接进入，不显示 loading
+            if (!Platform.isSubpackageLoaded('foosball')) {
+                Platform.showToast('正在加载玩法...');
+            }
+
             try {
                 await Platform.loadSubpackage('foosball');
                 await ResourceManager.loadFoosballResources();
@@ -418,7 +435,7 @@ export default class MenuScene extends BaseScene {
         const liveFlickIconBtn = new PIXI.Sprite(liveFlickIconTex);
         liveFlickIconBtn.anchor.set(0, 0.5);
         // 位置设定：位于德式桌球前面
-        liveFlickIconBtn.position.set(textX + 240, textStartY + 45);
+        liveFlickIconBtn.position.set(textX + 300, textStartY + 45);
         
         const targetH = 140;
         liveFlickIconBtn.scale.set(targetH / liveFlickIconTex.height);
@@ -431,7 +448,12 @@ export default class MenuScene extends BaseScene {
         liveFlickIconBtn.on('pointerup', async () => {
             liveFlickIconBtn.scale.set(targetH / liveFlickIconTex.height);
             UserBehaviorMgr.log('GAME', '进入实况弹指');
-            Platform.showToast('正在加载玩法...');
+            
+            // [优化] 如果分包已加载，直接进入，不显示 loading
+            if (!Platform.isSubpackageLoaded('live_flick')) {
+                Platform.showToast('正在加载玩法...');
+            }
+            
             try {
                 await Platform.loadSubpackage('live_flick');
                 SceneManager.changeScene(LiveFlickScene);
@@ -444,15 +466,6 @@ export default class MenuScene extends BaseScene {
         // 加上“新”的小红点提示
         const dot = new PIXI.Graphics().beginFill(0xFF0000).drawCircle(liveFlickIconBtn.width - 10, -liveFlickIconBtn.height/2 + 10, 8).endFill();
         liveFlickIconBtn.addChild(dot);
-
-        // 临时加个文字标签，因为可能没有专门的图片
-        const labelText = new PIXI.Text("实况弹指", {
-            fontFamily: 'Arial', fontSize: 30, fill: 0xFFFFFF, fontWeight: 'bold',
-            dropShadow: true, dropShadowBlur: 2, dropShadowColor: 0x000000
-        });
-        labelText.anchor.set(0.5);
-        labelText.position.set(liveFlickIconBtn.width / 2, 0);
-        liveFlickIconBtn.addChild(labelText);
 
         container.addChild(liveFlickIconBtn);
     }

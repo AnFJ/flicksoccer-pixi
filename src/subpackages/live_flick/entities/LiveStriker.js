@@ -53,7 +53,8 @@ export default class LiveStriker extends Striker {
     drawProgressRing(delta) {
         this.progressRing.clear();
         
-        const r = this.radius * 1.3;
+        // [修改] 缩小提示圈半径 (1.3 -> 1.15)
+        const r = this.radius * 1.15;
         
         if (this.isReady) {
             // Blink effect
@@ -83,11 +84,40 @@ export default class LiveStriker extends Striker {
             
             // Progress arc
             if (ratio > 0) {
-                this.progressRing.lineStyle(4, 0x00FF00, 0.8);
+                // [修改] 颜色渐变逻辑: 黄 -> 绿 -> 蓝
+                let color;
+                if (ratio < 0.5) {
+                    // 0.0 - 0.5: 黄(FFFF00) -> 绿(00FF00)
+                    const t = ratio * 2; 
+                    color = this.lerpColor(0xFFFF00, 0x00FF00, t);
+                } else {
+                    // 0.5 - 1.0: 绿(00FF00) -> 蓝(0088FF)
+                    const t = (ratio - 0.5) * 2;
+                    color = this.lerpColor(0x00FF00, 0x0088FF, t);
+                }
+
+                this.progressRing.lineStyle(4, color, 0.8);
                 const startAngle = -Math.PI / 2; // Start from top
                 const endAngle = startAngle - (Math.PI * 2 * ratio); // Counter-clockwise
                 this.progressRing.arc(0, 0, r, startAngle, endAngle, true); // true for anticlockwise
             }
         }
+    }
+
+    // [新增] 颜色插值辅助函数
+    lerpColor(c1, c2, t) {
+        const r1 = (c1 >> 16) & 0xFF;
+        const g1 = (c1 >> 8) & 0xFF;
+        const b1 = c1 & 0xFF;
+
+        const r2 = (c2 >> 16) & 0xFF;
+        const g2 = (c2 >> 8) & 0xFF;
+        const b2 = c2 & 0xFF;
+
+        const r = Math.round(r1 + (r2 - r1) * t);
+        const g = Math.round(g1 + (g2 - g1) * t);
+        const b = Math.round(b1 + (b2 - b1) * t);
+
+        return (r << 16) | (g << 8) | b;
     }
 }

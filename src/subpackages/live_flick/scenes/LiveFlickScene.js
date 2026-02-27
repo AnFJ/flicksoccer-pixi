@@ -105,13 +105,38 @@ export default class LiveFlickScene extends BaseScene {
     const startGameFlow = () => {
         if (this.isGameOver || (this.container && this.container.destroyed)) return;
         this.isLoading = false;
-        UserBehaviorMgr.log('GAME', '实况弹指开始', { level: this.currentLevel });
-        this.goalBanner?.play("游戏开始");
-        AudioManager.playBGM('crowd_bg_loop'); 
+        
+        // [修改] 先让游戏运行一小会儿 (100ms)，确保棋子和画面完全渲染出来
+        // 然后再暂停并播放开场条幅
+        setTimeout(() => {
+            if (this.isGameOver) return;
+            
+            this.isGamePaused = true;
+            
+            UserBehaviorMgr.log('GAME', '实况弹指开始', { level: this.currentLevel });
+            this.goalBanner?.play("游戏开始");
+            AudioManager.playBGM('crowd_bg_loop'); 
 
-        if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-            Platform.showGameAds(this.layout.adBoards);
-        }
+            // [新增] 更新 HUD 提示
+            if (this.hud && this.hud.turnText) {
+                this.hud.turnText.text = "准备开始...";
+                this.hud.turnText.style.fill = 0xffffff;
+            }
+
+            if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
+                Platform.showGameAds(this.layout.adBoards);
+            }
+
+            // [新增] 等待条幅动画结束 (约2.6秒) 后开始
+            setTimeout(() => {
+                if (this.isGameOver) return;
+                this.isGamePaused = false;
+                if (this.hud && this.hud.turnText) {
+                    this.hud.turnText.text = "比赛进行中";
+                    this.hud.turnText.style.fill = 0x00FF00; // 绿色
+                }
+            }, 2600);
+        }, 100);
     };
 
     if (showAd) {
@@ -326,11 +351,28 @@ export default class LiveFlickScene extends BaseScene {
     this.atmosphereCtrl.onGoal();
     this._playGoalEffectsOnly(data.newScore, data.scoreTeam);
 
+    // [新增] 进球后暂停游戏，等待条幅动画
+    this.isGamePaused = true;
+    if (this.hud && this.hud.turnText) {
+        this.hud.turnText.text = "进球回放...";
+        this.hud.turnText.style.fill = 0xffffff;
+    }
+
     setTimeout(() => {
         if (!this.isGameOver && this.physics && this.physics.engine) {
             this.setupFormation();
+            
+            // [新增] 重置阵型动画结束后恢复游戏 (动画约500ms)
+            setTimeout(() => {
+                if (this.isGameOver) return;
+                this.isGamePaused = false;
+                if (this.hud && this.hud.turnText) {
+                    this.hud.turnText.text = "比赛进行中";
+                    this.hud.turnText.style.fill = 0x00FF00;
+                }
+            }, 600);
         }
-    }, 2000);
+    }, 2600); // 等待条幅动画结束 (约2.6秒)
   }
 
   _playGoalEffectsOnly(newScore, scoreTeam) {
@@ -348,6 +390,9 @@ export default class LiveFlickScene extends BaseScene {
   onGameOver(data) {
     this.isGameOver = true;
     this.matchStats.endTime = Date.now(); 
+    
+    // [新增] 游戏结束时隐藏广告
+    Platform.hideGameAds();
     
     UserBehaviorMgr.log('GAME', '实况弹指结束', { 
         winner: data.winner, 
@@ -375,12 +420,19 @@ export default class LiveFlickScene extends BaseScene {
 
   update(delta) {
     if (this.isLoading || !this.physics.engine) return;
-    if (this.isGamePaused) return;
 
+    // [修复] UI 动画必须在暂停时也能更新，否则条幅会卡住
     this.goalBanner?.update(delta);
     this.sparkSystem?.update(delta);
-    this._updateStrikerHighlights(); 
 
+    if (this.isGamePaused) {
+        // [新增] 暂停时也更新棋子的视觉效果 (如进度环、呼吸灯)，确保画面不缺失
+        this.strikers.forEach(s => s.drawProgressRing(delta));
+        return;
+    }
+
+    this._updateStrikerHighlights(); 
+    
     this.accumulator += delta;
     if (this.accumulator > this.fixedTimeStep * 5) {
         this.accumulator = this.fixedTimeStep * 5;
@@ -451,7 +503,9 @@ export default class LiveFlickScene extends BaseScene {
   }
 
   onDestroy() {
-    super.onDestroy();
+    // [新增] 销毁时隐藏广告
+    Platform.hideGameAds();
+    
     EventBus.off(Events.GOAL_SCORED, this.onGoal, this);
     EventBus.off(Events.GAME_OVER, this.onGameOver, this);
     EventBus.off(Events.COLLISION_HIT, null, this);
@@ -462,5 +516,7 @@ export default class LiveFlickScene extends BaseScene {
     this._clearEntities();
     if (this.rules) this.rules.destroy();
     if (this.physics) this.physics.destroy();
+
+    super.onDestroy();
   }
 }

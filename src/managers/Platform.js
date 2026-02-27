@@ -14,6 +14,9 @@ class Platform {
     // [新增] 存储待处理的邀请信息 (从小游戏启动参数获取)
     this.pendingInvite = null; 
     
+    // [新增] 记录已加载的分包
+    this._loadedSubpackages = new Set();
+    
     // 初始化时立即检查启动参数
     this.checkLaunchOptions();
     
@@ -608,6 +611,10 @@ class Platform {
           return Promise.resolve(); // Web 模式下所有代码都在一起
       }
 
+      if (this._loadedSubpackages.has(name)) {
+          return Promise.resolve();
+      }
+
       const provider = this.getProvider();
       if (!provider || !provider.loadSubpackage) {
           return Promise.resolve();
@@ -619,6 +626,7 @@ class Platform {
               name: name,
               success: (res) => {
                   console.log(`[Platform] Subpackage ${name} loaded successfully`);
+                  this._loadedSubpackages.add(name);
                   resolve(res);
               },
               fail: (err) => {
@@ -630,6 +638,11 @@ class Platform {
           // 可选：监听进度
           // loadTask.onProgressUpdate(res => { ... })
       });
+  }
+
+  isSubpackageLoaded(name) {
+      if (this.env === 'web') return true;
+      return this._loadedSubpackages.has(name);
   }
 
   showGameAds(adNodes) {
