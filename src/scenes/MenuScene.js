@@ -5,6 +5,7 @@ import SceneManager from '../managers/SceneManager.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import GameScene from './GameScene.js';
 import LobbyScene from './LobbyScene.js';
+import ResultScene from './ResultScene.js'; 
 import LevelSelectScene from './LevelSelectScene.js'; 
 import FoosballMenuScene from '../subpackages/foosball/scenes/FoosballMenuScene.js'; 
 import Button from '../ui/Button.js';
@@ -320,6 +321,9 @@ export default class MenuScene extends BaseScene {
 
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '查看游戏圈', 0x00AABB, () => {
         UserBehaviorMgr.log('SOCIAL', '点击朋友圈');
+        let params = {"winner":0,"gameMode":"pve","currentLevel":3,"score":{"0":2,"1":1},"stats":{"0":{"shots":20,"skills":{"super_force":6}},"1":{"shots":18,"skills":{}},"startTime":1772590612815,"endTime":1772590808294},"players":[],"myTeamId":0,"roomId":"","aiInfo":{"id":"noble","name":"贵族路易","avatar":"ai_noble","desc":"优雅，永不过时。"}};
+        SceneManager.changeScene(ResultScene, params);
+        return
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);

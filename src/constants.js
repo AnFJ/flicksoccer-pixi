@@ -45,6 +45,9 @@ export const Events = {
   USER_DATA_REFRESHED: 'user_data_refreshed' // [新增] 用户数据后台刷新完成
 };
 
+// [新增] 实况弹指模式关卡列表
+export const LIVE_FLICK_LEVELS = [4, 5, 15, 25, 35, 45, 55, 65, 75, 85, 95];
+
 // 网络消息类型
 export const NetMsg = {
   JOIN: 'JOIN',       // 加入房间

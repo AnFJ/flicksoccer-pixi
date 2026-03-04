@@ -202,14 +202,8 @@ export default class GameScene extends BaseScene {
         AudioManager.playBGM('crowd_bg_loop'); 
 
         // 展示场景内广告
-        // [修改] 使用新的原生模板广告
-        const adConfig = GameConfig.adConfig[Platform.env];
-        if (adConfig && adConfig.custom) {
-            // 左侧球场横幅 (HUD 左边下方 -> 左侧居中)
-            // [修改] 宽度缩小 50% (200 -> 100)
-            Platform.showCustomAd(adConfig.custom.game_left, { width: 100 }, 'left_center');
-            // 右侧球场横幅 (HUD 右边下方 -> 右侧居中)
-            Platform.showCustomAd(adConfig.custom.game_right, { width: 100 }, 'right_center');
+        if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
+            Platform.showGameAds(this.layout.adBoards);
         }
     };
 

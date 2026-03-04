@@ -139,6 +139,16 @@ export default class LiveFlickScene extends BaseScene {
         }, 100);
     };
 
+    const checkTutorial = () => {
+        if (this.currentLevel === 4) {
+            this.showTutorial(() => {
+                startGameFlow();
+            });
+        } else {
+            startGameFlow();
+        }
+    };
+
     if (showAd) {
         this.isLoading = true; 
         const adConfig = GameConfig.adConfig[Platform.env];
@@ -146,14 +156,79 @@ export default class LiveFlickScene extends BaseScene {
 
         Platform.showInterstitialAd(adUnitId).then(() => {
             setTimeout(() => {
-                startGameFlow();
+                checkTutorial();
             }, 200);
         });
     } else {
         setTimeout(() => {
-            startGameFlow();
+            checkTutorial();
         }, 500);
     }
+  }
+
+  showTutorial(onConfirm) {
+      const { designWidth, designHeight } = GameConfig;
+      
+      const container = new PIXI.Container();
+      this.layout.layers.ui.addChild(container);
+      
+      // 1. 半透明遮罩
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0x000000, 0.8);
+      bg.drawRect(0, 0, designWidth, designHeight);
+      bg.endFill();
+      bg.interactive = true; 
+      container.addChild(bg);
+
+      // 2. 提示面板
+      const panelW = 800;
+      const panelH = 500;
+      const panel = new PIXI.Graphics();
+      panel.beginFill(0xFFFFFF);
+      panel.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
+      panel.endFill();
+      panel.position.set(designWidth/2, designHeight/2);
+      container.addChild(panel);
+
+      // 标题
+      const title = new PIXI.Text("新玩法指引", {
+          fontSize: 50, fill: 0x333333, fontWeight: 'bold'
+      });
+      title.anchor.set(0.5);
+      title.position.set(0, -180);
+      panel.addChild(title);
+
+      // 内容
+      const content = "实况弹指模式：\n\n1. 所有己方棋子均可操作！\n2. 当棋子静止或光圈亮起时即可拖动。\n3. 进球多者获胜！";
+      const text = new PIXI.Text(content, {
+          fontSize: 36, fill: 0x555555, align: 'center', lineHeight: 60
+      });
+      text.anchor.set(0.5);
+      text.position.set(0, 0);
+      panel.addChild(text);
+
+      // 确认按钮
+      const btnW = 240;
+      const btnH = 80;
+      const btn = new PIXI.Graphics();
+      btn.beginFill(0x3498db);
+      btn.drawRoundedRect(-btnW/2, -btnH/2, btnW, btnH, 40);
+      btn.endFill();
+      btn.position.set(0, 180);
+      btn.interactive = true;
+      btn.buttonMode = true;
+      
+      const btnText = new PIXI.Text("我知道了", {
+          fontSize: 36, fill: 0xFFFFFF, fontWeight: 'bold'
+      });
+      btnText.anchor.set(0.5);
+      btn.addChild(btnText);
+      panel.addChild(btn);
+
+      btn.on('pointertap', () => {
+          container.destroy({ children: true });
+          if (onConfirm) onConfirm();
+      });
   }
 
   _createUI() {
@@ -337,6 +412,7 @@ export default class LiveFlickScene extends BaseScene {
       if (!this.isGameOver) {
           UserBehaviorMgr.log('GAME', '中途退出实况弹指');
       }
+      Platform.hideGameAds();
       SceneManager.changeScene(MenuScene);
   }
 

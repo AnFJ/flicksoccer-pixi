@@ -8,10 +8,11 @@ import RoomScene from './RoomScene.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import Button from '../ui/Button.js';
 import { GameConfig } from '../config.js';
-import { TeamId, SkillType, NetMsg } from '../constants.js';
+import { TeamId, SkillType, NetMsg, LIVE_FLICK_LEVELS } from '../constants.js';
 import ResourceManager from '../managers/ResourceManager.js';
 import NetworkMgr from '../managers/NetworkMgr.js';
 import Platform from '../managers/Platform.js';
+import LiveFlickScene from '../subpackages/live_flick/scenes/LiveFlickScene.js';
 
 import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 
@@ -105,14 +106,18 @@ export default class ResultScene extends BaseScene {
         const adConfig = GameConfig.adConfig[Platform.env];
         const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.game_over : null;
         
-        Platform.showInterstitialAd(adUnitId);
-
-        // [新增] 结果页左侧广告 (最左边中部)
-        if (adConfig && adConfig.custom) {
-            Platform.showCustomAd(adConfig.custom.result_left, { width: 180 }, 'left_center');
-            // [新增] 结果页右侧广告 (最右边中部)
-            Platform.showCustomAd(adConfig.custom.result_right, { width: 180 }, 'right_center');
-        }
+        // [修改] 广告展示逻辑：插屏优先，插屏关闭后或无插屏时再展示 Custom Ad
+        Platform.showInterstitialAd(adUnitId).then(() => {
+            // 插屏关闭后 (或失败后)，延迟 0.5s 展示 Custom Ad
+            setTimeout(() => {
+                if (this.container && !this.container.destroyed) {
+                    if (adConfig && adConfig.custom) {
+                        Platform.showCustomAd(adConfig.custom.result_left, { width: 300 }, 'left_top');
+                        Platform.showCustomAd(adConfig.custom.result_right, { width: 300 }, 'right_top');
+                    }
+                }
+            }, 500);
+        });
     }
 
     onExit() {
@@ -233,7 +238,7 @@ export default class ResultScene extends BaseScene {
         const starContainer = new PIXI.Container();
         const starCount = 5;
         const size = 90; // 星星显示大小
-        const gap = 15;
+        const gap = 10;
         
         const fullStars = Math.floor(rating / 2);
         const hasHalf = (rating % 2) >= 1;
@@ -286,7 +291,7 @@ export default class ResultScene extends BaseScene {
         scoreBg.lineStyle(2, 0xFFD700);
         scoreBg.drawRoundedRect(0, 0, 90, 44, 22);
         scoreBg.endFill();
-        scoreBg.position.set(totalW/2 + 30, -22);
+        scoreBg.position.set(totalW/2 + 20, -22);
         
         const scoreText = new PIXI.Text(rating.toFixed(1), {
             fontSize: 30, fill: 0xFFD700, fontWeight: 'bold'
@@ -768,14 +773,31 @@ export default class ResultScene extends BaseScene {
             if (isWin) {
                 rightText = "下一关";
                 rightAction = () => {
-                    UserBehaviorMgr.log('GAME', '下一关', { level: this.params.currentLevel + 1 });
-                    SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel + 1 });
+                    const nextLevel = this.params.currentLevel + 1;
+                    UserBehaviorMgr.log('GAME', '下一关', { level: nextLevel });
+                    
+                    if (LIVE_FLICK_LEVELS.includes(nextLevel)) {
+                        Platform.showToast('正在加载玩法...');
+                        Platform.loadSubpackage('live_flick').then(() => {
+                            SceneManager.changeScene(LiveFlickScene, { level: nextLevel });
+                        }).catch(e => {
+                            console.error(e);
+                            Platform.showToast('加载失败，请重试');
+                        });
+                    } else {
+                        SceneManager.changeScene(GameScene, { mode: 'pve', level: nextLevel });
+                    }
                 };
             } else {
                 rightText = "重新挑战";
                 rightAction = () => {
                     UserBehaviorMgr.log('GAME', '再来一局');
-                    SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                    
+                    if (this.params.gameMode === 'live_flick') {
+                        SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel });
+                    } else {
+                        SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                    }
                 };
             }
         }

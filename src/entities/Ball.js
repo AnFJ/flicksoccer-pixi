@@ -287,20 +287,27 @@ export default class Ball {
   // --- 逻辑方法 ---
 
   setLightningMode(active) {
+      if (this.destroyed) return;
       this.skillStates.lightning = active;
-      if (!active) this.lightningTrail.clear();
+      if (!active && this.lightningTrail && !this.lightningTrail.destroyed) {
+          this.lightningTrail.clear();
+      }
   }
 
   activateUnstoppable(duration) {
+      if (this.destroyed) return;
       this.skillStates.fire = true;
       this.skillStates.fireMaxDuration = duration;
       this.skillStates.fireTimer = duration;
       
-      this.body.frictionAir = 0;
-      this.body.friction = 0;
+      if (this.body) {
+          this.body.frictionAir = 0;
+          this.body.friction = 0;
+      }
   }
 
   resetStates() {
+      if (this.destroyed) return;
       this.skillStates.fire = false;
       this.skillStates.lightning = false;
       this.skillStates.fireTimer = 0;
@@ -310,9 +317,15 @@ export default class Ball {
           this.body.friction = this.baseFriction;
       }
       
-      this.lightningTrail.clear();
-      this.fireContainer.removeChildren();
-      this.trailRope.visible = false;
+      if (this.lightningTrail && !this.lightningTrail.destroyed) {
+          this.lightningTrail.clear();
+      }
+      if (this.fireContainer && !this.fireContainer.destroyed) {
+          this.fireContainer.removeChildren();
+      }
+      if (this.trailRope && !this.trailRope.destroyed) {
+          this.trailRope.visible = false;
+      }
   }
 
   saveRenderState() {
@@ -642,6 +655,7 @@ export default class Ball {
 
   // [新增] 销毁方法
   destroy() {
+      this.destroyed = true;
       // 只需要清理逻辑相关引用，显示对象由 Scene 统一 destroy
       this.body = null;
       // 注意：不要销毁 Ball.cachedTextures，因为它们是全局共享的

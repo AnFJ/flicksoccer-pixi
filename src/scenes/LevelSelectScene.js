@@ -12,7 +12,8 @@ import { getLevelConfig } from '../config/LevelConfig.js';
 import Platform from '../managers/Platform.js';
 import { LevelRewards } from '../config/RewardConfig.js'; 
 import ResourceManager from '../managers/ResourceManager.js'; 
-import { SkillType } from '../constants.js'; 
+import { SkillType, LIVE_FLICK_LEVELS } from '../constants.js'; 
+import LiveFlickScene from '../subpackages/live_flick/scenes/LiveFlickScene.js';
 
 export default class LevelSelectScene extends BaseScene {
     constructor() {
@@ -307,6 +308,8 @@ export default class LevelSelectScene extends BaseScene {
         const currentProgress = AccountMgr.userInfo.level || 1;
         let color = 0x3498db; // 默认蓝色
         let stateType = 'locked'; 
+        
+        const isLiveFlick = LIVE_FLICK_LEVELS.includes(level);
 
         if (isLocked) {
             color = 0x7f8c8d; // 灰色 (锁定)
@@ -315,7 +318,11 @@ export default class LevelSelectScene extends BaseScene {
             color = 0xF1C40F; // 黄色 (当前进行中)
             stateType = 'current';
         } else {
-            color = (level % 10 === 0) ? 0xe74c3c : 0x3498db; // 红色(BOSS) 或 蓝色 (已通关)
+            if (isLiveFlick) {
+                color = 0x9b59b6; // 紫色 (实况弹指)
+            } else {
+                color = (level % 10 === 0) ? 0xe74c3c : 0x3498db; // 红色(BOSS) 或 蓝色 (已通关)
+            }
             stateType = 'cleared';
         }
 
@@ -333,7 +340,18 @@ export default class LevelSelectScene extends BaseScene {
             textColor: 0xffffff,
             onClick: () => {
                 if (!isLocked) {
-                    SceneManager.changeScene(GameScene, { mode: 'pve', level: level });
+                    if (isLiveFlick) {
+                        // [新增] 实况弹指关卡
+                        Platform.showToast('正在加载玩法...');
+                        Platform.loadSubpackage('live_flick').then(() => {
+                            SceneManager.changeScene(LiveFlickScene, { level: level });
+                        }).catch(e => {
+                            console.error(e);
+                            Platform.showToast('加载失败，请重试');
+                        });
+                    } else {
+                        SceneManager.changeScene(GameScene, { mode: 'pve', level: level });
+                    }
                 } else {
                     Platform.showToast(`请先通关第 ${level-1} 关`);
                 }

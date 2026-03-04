@@ -664,6 +664,7 @@ class Platform {
           // 默认样式
           let finalStyle = { ...style };
           let ad = null;
+          let adW = finalStyle.width;
 
           // 根据预设位置自动计算坐标
           if (position) {
@@ -692,6 +693,14 @@ class Platform {
                       finalStyle.left = winW - adW - 10;
                       finalStyle.top = (winH - adH) / 2;
                       break;
+                  case 'left_top':
+                      finalStyle.left = -10;
+                      finalStyle.top = -5;
+                      break;
+                  case 'right_top':
+                      finalStyle.left = winW - adW +10;
+                      finalStyle.top = -5;
+                      break;
               }
           }
 
@@ -717,6 +726,11 @@ class Platform {
                   } else if (position === 'right_center') {
                       ad.style.left = winW - size.width - 10;
                       ad.style.top = (winH - size.height) / 2;
+                  } else if (position === 'left_top') {
+                      ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
+                  } else if (position === 'right_top') {
+                      ad.style.left = winW - size.width - 10;
+                      ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
                   }
               });
           }
@@ -755,9 +769,87 @@ class Platform {
   }
 
   showGameAds(adNodes) {
-      // 兼容旧代码，但不再执行逻辑，避免冲突
-      // 如果需要完全移除，可以在 GameScene 中删除调用
-      console.log('[Platform] showGameAds deprecated, use showCustomAd instead');
+      if (this.env === 'web') return; 
+      if (!adNodes || adNodes.length === 0) return;
+
+      const provider = this.getProvider();
+      let bannerIds = [];
+      if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
+      if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
+
+      // 先清理旧广告
+      this.hideGameAds();
+
+      adNodes.forEach((node, index) => {
+          if (index >= bannerIds.length) return;
+          const adUnitId = bannerIds[index];
+          if (!adUnitId || adUnitId.startsWith('adunit-xx')) return;
+
+          const bounds = node.getBounds();
+          if (!bounds || bounds.width <= 0) return;
+
+          try {
+              let adInstance = null;
+
+              if (this.env === 'wechat' && provider.createCustomAd) {
+                  adInstance = provider.createCustomAd({
+                      adUnitId: adUnitId,
+                      style: {
+                          left: bounds.x,
+                          top: bounds.y,
+                          width: bounds.width, 
+                          fixed: true 
+                      }
+                  });
+              }
+              else if (this.env === 'douyin' && provider.createBannerAd) {
+                  adInstance = provider.createBannerAd({
+                      adUnitId: adUnitId,
+                      style: {
+                          left: bounds.x,
+                          top: bounds.y,
+                          width: bounds.width
+                      }
+                  });
+                  adInstance.onResize(size => {
+                      const offsetY = (bounds.height - size.height) / 2;
+                      adInstance.style.top = bounds.y + offsetY;
+                      adInstance.style.left = bounds.x + (bounds.width - size.width) / 2;
+                  });
+              }
+
+              if (adInstance) {
+                  // [优化] 增加更健壮的错误处理
+                  adInstance.onError(err => {
+                      // 屏蔽常规的加载错误日志
+                      // console.log('[Platform] Ad load error:', err);
+                  });
+                  
+                  // show() 返回 Promise，catch 避免未捕获异常
+                  const showPromise = adInstance.show();
+                  if (showPromise && showPromise.catch) {
+                      showPromise.catch(err => {
+                          // console.log('[Platform] Ad show failed:', err);
+                      });
+                  }
+                  
+                  // [新增] 记录 Banner 广告展示
+                  this.logAdAction({
+                      adUnitId: adUnitId,
+                      adUnitName: 'banner',
+                      adType: 'banner',
+                      isCompleted: 1,
+                      isClicked: 0,
+                      watchTime: 0
+                  });
+
+                  this._gameAds.push(adInstance);
+              }
+
+          } catch (e) {
+              console.warn('[Platform] Create ad failed', e);
+          }
+      });
   }
 
   /**
