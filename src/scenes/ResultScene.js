@@ -40,7 +40,9 @@ export default class ResultScene extends BaseScene {
 
         if (isWin) {
             rewardCoins = 100;
-            if (gameMode === 'pve' && currentLevel === AccountMgr.userInfo.level) {
+            // [修改] 增加对 live_flick 关卡模式的判断
+            const isLevelMode = gameMode === 'pve' || (gameMode === 'live_flick' && params.isLevelMode);
+            if (isLevelMode && currentLevel === AccountMgr.userInfo.level) {
                 // 首通金币奖励
                 rewardCoins += 50;
             }
@@ -48,7 +50,9 @@ export default class ResultScene extends BaseScene {
         
         if (rewardCoins > 0) AccountMgr.addCoins(rewardCoins, false);
         
-        if (gameMode === 'pve' && isWin) {
+        // [修改] 增加对 live_flick 关卡模式的判断
+        const isLevelMode = gameMode === 'pve' || (gameMode === 'live_flick' && params.isLevelMode);
+        if (isLevelMode && isWin) {
             unlockedReward = AccountMgr.completeLevel(currentLevel, false);
         }
         
@@ -318,7 +322,7 @@ export default class ResultScene extends BaseScene {
             isTexture: false // 是否是 Pixi Texture
         };
 
-        if (params.gameMode === 'pve') {
+        if (params.gameMode === 'pve' || params.gameMode === 'live_flick') {
             if (isLeft) {
                 // 左侧：玩家自己
                 info.name = myInfo.nickname || 'Player';
@@ -769,7 +773,8 @@ export default class ResultScene extends BaseScene {
                 SceneManager.changeScene(RoomScene, { roomId: this.params.roomId, autoReady: true });
             };
         }
-        else if (this.params.gameMode === 'pve') {
+        else if (this.params.gameMode === 'pve' || (this.params.gameMode === 'live_flick' && this.params.isLevelMode)) {
+            // [修改] 仅针对关卡模式 (PVE 或 LiveFlick Level)
             if (isWin) {
                 rightText = "下一关";
                 rightAction = () => {
@@ -785,7 +790,13 @@ export default class ResultScene extends BaseScene {
                             Platform.showToast('加载失败，请重试');
                         });
                     } else {
-                        SceneManager.changeScene(GameScene, { mode: 'pve', level: nextLevel });
+                        // [修改] 传递 formationId
+                        const formationId = AccountMgr.userInfo.theme.formationId || 0;
+                        SceneManager.changeScene(GameScene, { 
+                            mode: 'pve', 
+                            level: nextLevel,
+                            formationId: formationId 
+                        });
                     }
                 };
             } else {
@@ -796,10 +807,24 @@ export default class ResultScene extends BaseScene {
                     if (this.params.gameMode === 'live_flick') {
                         SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel });
                     } else {
-                        SceneManager.changeScene(GameScene, { mode: 'pve', level: this.params.currentLevel });
+                        // [修改] 传递 formationId
+                        const formationId = AccountMgr.userInfo.theme.formationId || 0;
+                        SceneManager.changeScene(GameScene, { 
+                            mode: 'pve', 
+                            level: this.params.currentLevel,
+                            formationId: formationId
+                        });
                     }
                 };
             }
+        }
+        else if (this.params.gameMode === 'live_flick' && !this.params.isLevelMode) {
+            // [新增] 独立的实况弹指模式 (非关卡)
+            rightText = "再来一局";
+            rightAction = () => {
+                UserBehaviorMgr.log('GAME', '再来一局');
+                SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel }); // 这里的 level 可能是难度等级
+            };
         }
 
         // 使用图片背景

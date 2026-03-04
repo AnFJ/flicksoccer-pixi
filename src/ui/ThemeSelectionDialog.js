@@ -10,10 +10,19 @@ import Platform from '../managers/Platform.js';
 import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 
 export default class ThemeSelectionDialog extends PIXI.Container {
-  constructor(onClose) {
+  constructor(onClose, options = {}) {
     super();
     this.onClose = onClose;
-    this.currentTab = 0;
+    this.options = Object.assign({
+        title: '个性化主题',
+        confirmText: '保存并应用',
+        defaultTab: 0, // 0:棋子, 1:球场, 2:足球, 3:阵型
+        onConfirm: null,
+        bgImage: 'dialog_bg',
+        overlayAlpha: 0.85
+    }, options);
+
+    this.currentTab = this.options.defaultTab;
     this.tempTheme = { ...AccountMgr.userInfo.theme };
     
     // 配置
@@ -29,7 +38,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
   init() {
     const { designWidth, designHeight } = GameConfig;
     const overlay = new PIXI.Graphics();
-    overlay.beginFill(0x000000, 0.85);
+    overlay.beginFill(0x000000, this.options.overlayAlpha);
     overlay.drawRect(0, 0, designWidth, designHeight);
     overlay.interactive = true;
     this.addChild(overlay);
@@ -43,17 +52,41 @@ export default class ThemeSelectionDialog extends PIXI.Container {
     this.addChild(panel);
 
     // [修改] 背景作为子元素添加
-    const bgTex = ResourceManager.get('dialog_bg');
-    const bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
-    bg.width = panelW;
-    bg.height = panelH;
-    // 关键：将九宫格背景向左上偏移一半宽高，使其视觉中心位于 panel 的原点 (0,0)
-    bg.x = -panelW / 2;
-    bg.y = -panelH / 2;
-    panel.addChild(bg);
+    const bgTex = ResourceManager.get(this.options.bgImage) || ResourceManager.get('dialog_bg');
+    let bg;
+    if (bgTex) {
+        if (this.options.bgImage === 'bg_result_field') {
+             // 特殊处理：如果是球场背景，直接用 Sprite 并裁剪/缩放
+             bg = new PIXI.Sprite(bgTex);
+             bg.anchor.set(0.5);
+             // 保持比例填满 panel
+             const scale = Math.max(panelW / bgTex.width, panelH / bgTex.height);
+             bg.scale.set(scale);
+             
+             // 添加一个圆角遮罩
+             const mask = new PIXI.Graphics();
+             mask.beginFill(0xffffff);
+             mask.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
+             mask.endFill();
+             panel.addChild(mask);
+             bg.mask = mask;
+        } else {
+             bg = new PIXI.NineSlicePlane(bgTex, 30, 30, 30, 30);
+             bg.width = panelW;
+             bg.height = panelH;
+             bg.x = -panelW / 2;
+             bg.y = -panelH / 2;
+        }
+    } else {
+        bg = new PIXI.Graphics();
+        bg.beginFill(0x2c3e50);
+        bg.drawRoundedRect(-panelW/2, -panelH/2, panelW, panelH, 30);
+        bg.endFill();
+    }
+    panel.addChildAt(bg, 0); // 确保背景在最底层
 
     // 调整标题位置 (因为背景图可能有比较厚的上边框，稍微下移一点)
-    const title = new PIXI.Text('个性化主题', { fontSize: 50, fill: 0xffffff, fontWeight: 'bold' });
+    const title = new PIXI.Text(this.options.title, { fontSize: 50, fill: 0xffffff, fontWeight: 'bold' });
     title.anchor.set(0.5);
     title.position.set(0, -panelH/2 + 60); // 原 50 -> 70
     panel.addChild(title);
@@ -69,10 +102,16 @@ export default class ThemeSelectionDialog extends PIXI.Container {
 
     const btnY = panelH/2 - 70;
     const saveBtn = new Button({
-        text: '保存并应用', width: 260, height: 80, color: 0x2ecc71,
+        text: this.options.confirmText, width: 260, height: 80, color: 0x2ecc71,
         onClick: () => {
             AccountMgr.updateTheme(this.tempTheme);
             UserBehaviorMgr.log('THEME', '切换主题', { theme: this.tempTheme });
+            
+            // 如果有自定义回调，执行回调
+            if (this.options.onConfirm) {
+                this.options.onConfirm();
+            }
+            
             if (this.onClose) this.onClose();
             this.parent.removeChild(this);
         }

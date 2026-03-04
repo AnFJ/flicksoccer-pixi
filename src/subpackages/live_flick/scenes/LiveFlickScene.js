@@ -42,6 +42,7 @@ export default class LiveFlickScene extends BaseScene {
 
     this.gameMode = 'live_flick'; 
     this.currentLevel = 1; 
+    this.isLevelMode = false; // [新增] 标记是否为关卡模式
     this.strikers = [];
     this.ball = null;
     this.isGameOver = false;
@@ -73,6 +74,8 @@ export default class LiveFlickScene extends BaseScene {
   async onEnter(params = {}) {
     super.onEnter(params);
     this.currentLevel = params.level || 1; 
+    // [修改] 如果传入了 level 参数且大于 0，认为是关卡模式
+    this.isLevelMode = !!params.level; 
     
     this.matchStats.startTime = Date.now();
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
@@ -118,9 +121,9 @@ export default class LiveFlickScene extends BaseScene {
             AudioManager.playBGM('crowd_bg_loop'); 
 
             // [新增] 更新 HUD 提示
-            if (this.hud && this.hud.turnText) {
+            if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
                 this.hud.turnText.text = "准备开始...";
-                this.hud.turnText.style.fill = 0xffffff;
+                if (this.hud.turnText.style) this.hud.turnText.style.fill = 0xffffff;
             }
 
             if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
@@ -131,9 +134,9 @@ export default class LiveFlickScene extends BaseScene {
             setTimeout(() => {
                 if (this.isGameOver) return;
                 this.isGamePaused = false;
-                if (this.hud && this.hud.turnText) {
+                if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
                     this.hud.turnText.text = "比赛进行中";
-                    this.hud.turnText.style.fill = 0x00FF00; // 绿色
+                    if (this.hud.turnText.style) this.hud.turnText.style.fill = 0x00FF00; // 绿色
                 }
             }, 2600);
         }, 100);
@@ -225,7 +228,7 @@ export default class LiveFlickScene extends BaseScene {
       btn.addChild(btnText);
       panel.addChild(btn);
 
-      btn.on('pointertap', () => {
+      btn.on('pointerup', () => {
           container.destroy({ children: true });
           if (onConfirm) onConfirm();
       });
@@ -429,9 +432,9 @@ export default class LiveFlickScene extends BaseScene {
 
     // [新增] 进球后暂停游戏，等待条幅动画
     this.isGamePaused = true;
-    if (this.hud && this.hud.turnText) {
+    if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
         this.hud.turnText.text = "进球回放...";
-        this.hud.turnText.style.fill = 0xffffff;
+        if (this.hud.turnText.style) this.hud.turnText.style.fill = 0xffffff;
     }
 
     setTimeout(() => {
@@ -442,9 +445,9 @@ export default class LiveFlickScene extends BaseScene {
             setTimeout(() => {
                 if (this.isGameOver) return;
                 this.isGamePaused = false;
-                if (this.hud && this.hud.turnText) {
+                if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
                     this.hud.turnText.text = "比赛进行中";
-                    this.hud.turnText.style.fill = 0x00FF00;
+                    if (this.hud.turnText.style) this.hud.turnText.style.fill = 0x00FF00;
                 }
             }, 600);
         }
@@ -474,7 +477,8 @@ export default class LiveFlickScene extends BaseScene {
         winner: data.winner, 
         myTeam: this.myTeamId,
         score: this.rules.score,
-        duration: (this.matchStats.endTime - this.matchStats.startTime) / 1000
+        duration: (this.matchStats.endTime - this.matchStats.startTime) / 1000,
+        isLevelMode: this.isLevelMode
     });
 
     AudioManager.playSFX(data.winner !== -1 && data.winner === this.myTeamId ? 'win' : 'goal');
@@ -482,7 +486,8 @@ export default class LiveFlickScene extends BaseScene {
     setTimeout(() => {
         SceneManager.changeScene(ResultScene, {
             winner: data.winner,
-            gameMode: this.gameMode,
+            gameMode: 'live_flick', // 保持 live_flick，但在 ResultScene 里细分
+            isLevelMode: this.isLevelMode, // [新增] 传递是否为关卡模式
             currentLevel: this.currentLevel,
             score: this.rules.score,
             stats: this.matchStats,

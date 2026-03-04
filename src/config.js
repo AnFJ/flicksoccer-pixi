@@ -83,12 +83,12 @@ export const GameConfig = {
     strikerDensity: 0.0007,   
     
     ballFrictionAir: 0.014,  // [提高] 从 0.01 提到 0.025，模拟草地摩擦，防止太滑
-    ballRestitution: 0.9,    
+    ballRestitution: 1.0,    // [修改] 提高弹性 (0.9 -> 1.0)，减少撞墙能量损失
     ballDensity: 0.0028,      
 
     wallFriction: 0.0,       
     // [新增] 墙壁静摩擦力设为0。MatterJS 默认为 0.5，这会导致球贴墙时被"粘住"。
-    wallFrictionStatic: 0.05, 
+    wallFrictionStatic: 0.0, // [修改] 彻底去除静摩擦 (0.05 -> 0.0)，防止贴墙
     wallRestitution: 1.0,    
     wallThickness: 100       
   },

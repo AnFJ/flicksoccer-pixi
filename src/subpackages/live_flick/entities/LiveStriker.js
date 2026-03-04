@@ -9,6 +9,9 @@ export default class LiveStriker extends Striker {
         this.cooldown = 0; // 0 means ready
         this.maxCooldown = LiveFlickConfig.cooldownTime;
         
+        // 记录当前携带的技能 (将在撞击足球时传递)
+        this.activeSkill = null;
+
         // Create progress ring
         this.progressRing = new PIXI.Graphics();
         this.view.addChild(this.progressRing);
@@ -26,6 +29,11 @@ export default class LiveStriker extends Striker {
         this.isReady = false;
         this.glow.visible = false;
         this.glow.alpha = 0;
+        // 技能是一次性的，发射后如果没有撞到球，在冷却开始时也应该重置吗？
+        // 或者保留直到撞球？通常射门动作结束（冷却开始）意味着一次机会用完了。
+        // 但为了防止没撞到球技能就没了，可以保留 activeSkill 直到撞击或停止？
+        // 简化逻辑：每次发射消耗技能道具，赋予 activeSkill。如果没撞到球，技能就浪费了。
+        // 所以这里不需要清除，碰撞检测里清除。或者在停止时清除。
     }
 
     update(delta, alpha) {
@@ -33,8 +41,6 @@ export default class LiveStriker extends Striker {
         
         // Update cooldown
         if (this.cooldown > 0) {
-            // Only decrease cooldown if the striker is completely stopped
-            // We check velocity and angular velocity
             const speed = this.body.speed;
             const angularSpeed = Math.abs(this.body.angularVelocity);
             
@@ -43,6 +49,8 @@ export default class LiveStriker extends Striker {
                 if (this.cooldown <= 0) {
                     this.cooldown = 0;
                     this.isReady = true;
+                    // 棋子停稳后，清除未使用的技能状态
+                    this.activeSkill = null;
                 }
             }
         }

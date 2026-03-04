@@ -14,6 +14,7 @@ import { LevelRewards } from '../config/RewardConfig.js';
 import ResourceManager from '../managers/ResourceManager.js'; 
 import { SkillType, LIVE_FLICK_LEVELS } from '../constants.js'; 
 import LiveFlickScene from '../subpackages/live_flick/scenes/LiveFlickScene.js';
+import ThemeSelectionDialog from '../ui/ThemeSelectionDialog.js'; // [新增]
 
 export default class LevelSelectScene extends BaseScene {
     constructor() {
@@ -340,18 +341,36 @@ export default class LevelSelectScene extends BaseScene {
             textColor: 0xffffff,
             onClick: () => {
                 if (!isLocked) {
-                    if (isLiveFlick) {
-                        // [新增] 实况弹指关卡
-                        Platform.showToast('正在加载玩法...');
-                        Platform.loadSubpackage('live_flick').then(() => {
-                            SceneManager.changeScene(LiveFlickScene, { level: level });
-                        }).catch(e => {
-                            console.error(e);
-                            Platform.showToast('加载失败，请重试');
-                        });
-                    } else {
-                        SceneManager.changeScene(GameScene, { mode: 'pve', level: level });
-                    }
+                    // [修改] 点击关卡先弹出阵型选择
+                    const startGame = () => {
+                        if (isLiveFlick) {
+                            // 实况弹指关卡
+                            Platform.showToast('正在加载玩法...');
+                            Platform.loadSubpackage('live_flick').then(() => {
+                                SceneManager.changeScene(LiveFlickScene, { level: level });
+                            }).catch(e => {
+                                console.error(e);
+                                Platform.showToast('加载失败，请重试');
+                            });
+                        } else {
+                            // [修改] 将选择的阵型ID传给 GameScene
+                            const formationId = AccountMgr.userInfo.theme.formationId || 0;
+                            SceneManager.changeScene(GameScene, { 
+                                mode: 'pve', 
+                                level: level,
+                                formationId: formationId 
+                            });
+                        }
+                    };
+
+                    const dialog = new ThemeSelectionDialog(() => {}, {
+                        title: '选择阵型',
+                        confirmText: '开始比赛',
+                        defaultTab: 3, // 默认打开阵型Tab
+                        // bgImage: 'bg_result_field', // [修改] 移除自定义背景，使用默认背景
+                        onConfirm: startGame
+                    });
+                    this.container.addChild(dialog);
                 } else {
                     Platform.showToast(`请先通关第 ${level-1} 关`);
                 }
@@ -372,6 +391,18 @@ export default class LevelSelectScene extends BaseScene {
             descText.anchor.set(0.5);
             descText.position.set(0, 35); // 相对按钮中心
             btn.inner.addChild(descText);
+        } else if (isLiveFlick) {
+            // [新增] 实况弹指模式文案
+            if (btn.label) {
+                btn.label.y -= 20;
+            }
+            const liveText = new PIXI.Text("实况弹指", {
+                fontFamily: 'Arial', fontSize: 24, fill: 0xFFD700, fontWeight: 'bold',
+                dropShadow: true, dropShadowBlur: 2
+            });
+            liveText.anchor.set(0.5);
+            liveText.position.set(0, 35);
+            btn.inner.addChild(liveText);
         }
 
         this.gridContainer.addChild(btn);

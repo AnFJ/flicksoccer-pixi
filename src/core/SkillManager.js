@@ -19,19 +19,28 @@ export default class SkillManager {
     }
 
     toggleSkill(type) {
-        if (this.scene.isMoving || this.scene.isGameOver) {
-            Platform.showToast("当前无法使用技能");
-            return;
-        }
+        // [修改] 实况弹指模式下，允许随时使用技能 (除了暂停/结束)
+        if (this.scene.gameMode === 'live_flick') {
+            if (this.scene.isGamePaused || this.scene.isGameOver) {
+                Platform.showToast("当前无法使用技能");
+                return;
+            }
+        } else {
+            // 传统回合制模式的检查
+            if (this.scene.isMoving || this.scene.isGameOver) {
+                Platform.showToast("当前无法使用技能");
+                return;
+            }
 
-        const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
-        if (this.scene.gameMode === 'pvp_online' && !isMyTurn) {
-            Platform.showToast("非自己回合");
-            return;
-        }
-        if (this.scene.gameMode === 'pve' && !isMyTurn) {
-             Platform.showToast("非自己回合");
-            return;
+            const isMyTurn = this.scene.turnMgr.currentTurn === this.scene.myTeamId;
+            if (this.scene.gameMode === 'pvp_online' && !isMyTurn) {
+                Platform.showToast("非自己回合");
+                return;
+            }
+            if (this.scene.gameMode === 'pve' && !isMyTurn) {
+                 Platform.showToast("非自己回合");
+                return;
+            }
         }
 
         if (!this.activeSkills[type]) { 
@@ -56,6 +65,37 @@ export default class SkillManager {
                     teamId: this.scene.myTeamId
                 }
             });
+        }
+    }
+
+    // [新增] 单独消耗某个技能 (用于实况弹指模式)
+    consumeSkill(type) {
+        if (this.activeSkills[type]) {
+            const consumed = AccountMgr.consumeItem(type, 1);
+            if (consumed) {
+                this.activeSkills[type] = false;
+                
+                // 统计消耗
+                if (this.scene.recordSkillUsage) {
+                    this.scene.recordSkillUsage(this.scene.myTeamId, type);
+                } else if (this.scene.matchStats && this.scene.matchStats[this.scene.myTeamId]) {
+                    // 实况弹指模式的统计
+                    const stats = this.scene.matchStats[this.scene.myTeamId];
+                    if (!stats.skills[type]) stats.skills[type] = 0;
+                    stats.skills[type]++;
+                }
+
+                EventBus.emit(Events.SKILL_ACTIVATED, { type: type, active: false, teamId: this.scene.myTeamId });
+                
+                if (this.scene.gameMode === 'pvp_online') {
+                    NetworkMgr.send({
+                        type: NetMsg.SKILL,
+                        payload: { type: type, active: false, teamId: this.scene.myTeamId }
+                    });
+                }
+            } else {
+                this.activeSkills[type] = false;
+            }
         }
     }
 

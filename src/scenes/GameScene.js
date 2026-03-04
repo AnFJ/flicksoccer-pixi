@@ -124,10 +124,18 @@ export default class GameScene extends BaseScene {
 
     } else {
         this.myTeamId = TeamId.LEFT;
-        // 单机模式下先 isLoading=false，让 Formation Dialog 显示
-        // 真正点击确定后进入 initGame 再处理广告
-        this.isLoading = false; 
-        this.showFormationSelection(params);
+        
+        // [修改] 如果是从关卡选择页传来了 formationId，直接使用
+        if (params.formationId !== undefined) {
+            this.p1FormationId = params.formationId;
+            this.p2FormationId = 0; // AI 默认阵型
+            this.isLoading = false;
+            this.initGame(params, true); // true = showAd
+        } else {
+            // 兼容旧逻辑或本地双人模式
+            this.isLoading = false; 
+            this.showFormationSelection(params);
+        }
     }
   }
 

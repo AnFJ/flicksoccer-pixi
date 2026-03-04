@@ -245,12 +245,14 @@ class AccountMgr {
    * @returns {Object|null} 如果有解锁的奖励，返回奖励对象 {type, id, name...}
    */
   completeLevel(level, isFail) {
-      if (!isFail && level === this.userInfo.level) {
+      const lvl = parseInt(level);
+      console.log('completeLevel', lvl === this.userInfo.level, isFail);
+      if (!isFail && lvl === this.userInfo.level) {
           this.userInfo.level++;
-          
+          console.log('xxxx', level, this.userInfo.level)
           // 检查该等级是否有奖励
           let unlockedReward = null;
-          const reward = LevelRewards[level];
+          const reward = LevelRewards[lvl];
           
           if (reward) {
               if (reward.type === 'skill') {
@@ -267,6 +269,8 @@ class AccountMgr {
           }
 
           this.saveToCache(); 
+          // [新增] 关键数据变更，立即同步
+          this.sync();
           return unlockedReward;
       }
       return null;

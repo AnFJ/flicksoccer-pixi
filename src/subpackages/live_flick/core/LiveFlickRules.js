@@ -1,6 +1,6 @@
 import Matter from 'matter-js';
 import EventBus from '../../../managers/EventBus.js';
-import { Events, TeamId } from '../../../constants.js';
+import { Events, TeamId, SkillType } from '../../../constants.js';
 import { GameConfig } from '../../../config.js';
 
 export default class LiveFlickRules {
@@ -15,7 +15,22 @@ export default class LiveFlickRules {
     this.isGoalProcessing = false; 
     this.lastGoalTime = 0;
     
-    this.collisionHandler = (event) => this.onCollisionStart(event);
+    this.collisionHandler = (event) => {
+        const pairs = event.pairs;
+        for (let i = 0; i < pairs.length; i++) {
+            const pair = pairs[i];
+            const bodyA = pair.bodyA;
+            const bodyB = pair.bodyB;
+
+            if (!this.isGoalProcessing) {
+                this.checkGoal(bodyA, bodyB);
+            }
+            
+            this.checkNetCollision(bodyA, bodyB);
+            this.checkStrikerBallCollision(pair);
+            this.checkSoundEffects(pair);
+        }
+    };
     this.initCollisionEvents();
   }
 
@@ -31,24 +46,6 @@ export default class LiveFlickRules {
       }
       this.engine = null;
       this.scene = null;
-  }
-
-  onCollisionStart(event) {
-      const pairs = event.pairs;
-
-      for (let i = 0; i < pairs.length; i++) {
-        const pair = pairs[i];
-        const bodyA = pair.bodyA;
-        const bodyB = pair.bodyB;
-
-        if (!this.isGoalProcessing) {
-            this.checkGoal(bodyA, bodyB);
-        }
-        
-        this.checkNetCollision(bodyA, bodyB);
-        this.checkStrikerBallCollision(pair);
-        this.checkSoundEffects(pair);
-      }
   }
 
   checkSoundEffects(pair) {
@@ -97,6 +94,33 @@ export default class LiveFlickRules {
       if (isBall && isStriker) {
           const ballBody = bodyA.label === 'Ball' ? bodyA : bodyB;
           const strikerBody = bodyA.label === 'Striker' ? bodyA : bodyB;
+
+          // [新增] 技能传递逻辑：如果 Striker 携带技能，传递给 Ball
+          if (strikerBody.entity && strikerBody.entity.activeSkill) {
+              const skill = strikerBody.entity.activeSkill;
+              const ball = ballBody.entity;
+
+              if (ball) {
+                  if (skill === SkillType.SUPER_FORCE) {
+                      // 大力技能 -> 闪电特效
+                      if (ball.setLightningMode) {
+                          ball.setLightningMode(true);
+                          // 3秒后自动关闭
+                          setTimeout(() => {
+                              if (ball && !ball.destroyed) ball.setLightningMode(false);
+                          }, 3000);
+                      }
+                  } else if (skill === SkillType.UNSTOPPABLE) {
+                      // 战车技能 -> 火焰特效 + 无摩擦
+                      if (ball.activateUnstoppable) {
+                          ball.activateUnstoppable(3000);
+                      }
+                  }
+              }
+              
+              // 消耗掉 Striker 的技能状态 (一次性)
+              strikerBody.entity.activeSkill = null;
+          }
 
           const relativeVelocity = Matter.Vector.sub(strikerBody.velocity, ballBody.velocity);
           const intensity = Matter.Vector.magnitude(relativeVelocity);

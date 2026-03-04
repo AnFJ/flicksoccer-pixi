@@ -1,4 +1,5 @@
 import * as PIXI from 'pixi.js';
+import Matter from 'matter-js';
 import { GameConfig } from '../../../config.js';
 import { TeamId, SkillType } from '../../../constants.js';
 import AudioManager from '../../../managers/AudioManager.js';
@@ -144,15 +145,56 @@ export default class LiveFlickInput {
         if (this.scene.skillMgr) {
             if (this.scene.skillMgr.isActive(SkillType.SUPER_FORCE)) {
                 multiplier *= GameConfig.gameplay.skills.superForce.multiplier;
+                
+                // [修复] 标记技能状态，将在撞击足球时传递
+                if (body.entity) {
+                    body.entity.activeSkill = SkillType.SUPER_FORCE;
+                    // 给棋子一个短暂的视觉提示，表示它携带了技能
+                    if (body.entity.view) {
+                        body.entity.view.tint = 0x00FFFF; // 闪电蓝
+                        setTimeout(() => {
+                            if (body.entity && body.entity.view) body.entity.view.tint = 0xFFFFFF;
+                        }, 500);
+                    }
+                }
+
                 this.scene.skillMgr.consumeSkill(SkillType.SUPER_FORCE);
             }
             if (this.scene.skillMgr.isActive(SkillType.UNSTOPPABLE)) {
-                // Unstoppable logic usually applies to the ball or makes the striker heavy temporarily
-                // Here we just consume it for now or apply mass change if needed
-                body.mass *= 5;
+                // Unstoppable: Increase mass significantly to push through obstacles
+                const originalMass = body.mass;
+                const massMultiplier = 5;
+                Matter.Body.setMass(body, originalMass * massMultiplier);
+                
+                // Force = Mass * Acceleration. To keep Acceleration constant, Force must increase with Mass.
+                multiplier *= massMultiplier;
+
+                // [修复] 标记技能状态
+                if (body.entity) {
+                    body.entity.activeSkill = SkillType.UNSTOPPABLE;
+                    // 视觉提示
+                    if (body.entity.view) {
+                        body.entity.view.tint = 0xFF00FF; // 战车紫
+                    }
+                }
+
                 setTimeout(() => {
-                    if (body) body.mass /= 5;
+                    if (!this.scene || this.scene.isGameOver || !body) return;
+                    
+                    // Restore mass
+                    Matter.Body.setMass(body, originalMass);
+                    
+                    // Restore visual
+                    if (body.entity && body.entity.view) {
+                        body.entity.view.tint = 0xFFFFFF;
+                    }
+                    
+                    // 清除技能状态 (如果还没撞到球)
+                    if (body.entity) {
+                        body.entity.activeSkill = null;
+                    }
                 }, 3000);
+                
                 this.scene.skillMgr.consumeSkill(SkillType.UNSTOPPABLE);
             }
             if (this.scene.skillMgr.isActive(SkillType.SUPER_AIM)) {
