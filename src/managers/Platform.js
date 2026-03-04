@@ -667,15 +667,9 @@ class Platform {
 
           // 根据预设位置自动计算坐标
           if (position) {
-              // 16:9 比例，假设宽度为 300
-              if (!finalStyle.width) {
-                  if (position.includes('center')) finalStyle.width = 300;
-                  else finalStyle.width = 120; // 小广告
-              }
-
-              const adW = finalStyle.width;
+              // 20:7 比例 (用户指定)
               // 估算高度
-              const adH = adW * (9/16); 
+              const adH = adW * (7/20); 
 
               switch (position) {
                   case 'bottom_center':
