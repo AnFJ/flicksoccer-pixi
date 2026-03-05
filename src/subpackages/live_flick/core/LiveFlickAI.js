@@ -17,7 +17,7 @@ export default class LiveFlickAI {
     }
 
     update(delta) {
-        if (this.scene.isGameOver || this.scene.isGamePaused || this.scene.isLoading) return;
+        if (this.scene.isGameOver || this.scene.isGamePaused || this.scene.isLoading || this.scene.isGoalCelebration) return;
 
         this.timer += delta;
         if (this.timer >= LiveFlickConfig.aiCheckInterval) {

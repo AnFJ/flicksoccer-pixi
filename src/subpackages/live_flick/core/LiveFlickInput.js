@@ -20,6 +20,8 @@ export default class LiveFlickInput {
         this.controlStartPos = { x: 0, y: 0 };
         this.baseAimVector = { x: 0, y: 0 };
 
+        this.lastPointerPos = { x: 0, y: 0 }; // [新增] 记录最新触摸位置
+
         this.aimGraphics = new PIXI.Graphics();
     }
 
@@ -41,7 +43,7 @@ export default class LiveFlickInput {
     }
 
     onPointerDown(e) {
-        if (this.scene.isGamePaused || this.scene.isGameOver || this.scene.isLoading) return;
+        if (this.scene.isGamePaused || this.scene.isGameOver || this.scene.isLoading || this.scene.isGoalCelebration) return;
 
         const local = this.scene.container.toLocal(e.data.global);
         const pointerId = this._getPointerId(e);
@@ -52,6 +54,7 @@ export default class LiveFlickInput {
                 this.isDualControl = true;
                 this.controlStartPos = { x: local.x, y: local.y };
                 this.baseAimVector = { ...this.aimVector };
+                this.lastPointerPos = { x: local.x, y: local.y }; // Update last pos
             }
             return;
         }
@@ -66,6 +69,7 @@ export default class LiveFlickInput {
             this.dragStartPos = { x: striker.body.position.x, y: striker.body.position.y };
             this.aimVector = { x: 0, y: 0 };
             this.isDualControl = false;
+            this.lastPointerPos = { x: local.x, y: local.y }; // Update last pos
         }
     }
 
@@ -101,18 +105,36 @@ export default class LiveFlickInput {
 
         if (!this.isDragging || !this.selectedBody || pointerId !== this.aimingPointerId) return;
         
+        // [修改] 只更新位置记录，计算逻辑移至 update
         const local = this.scene.container.toLocal(e.data.global);
+        this.lastPointerPos = { x: local.x, y: local.y };
+    }
+
+    update(delta) {
+        if (!this.isDragging || !this.selectedBody) return;
+
+        // [新增] 每一帧重新计算瞄准向量和绘制起点
+        // 这样即使棋子被撞飞，箭头也会跟随棋子移动
         
+        const strikerPos = this.selectedBody.position;
+
         if (this.isDualControl) {
-            const dx = local.x - this.controlStartPos.x;
-            const dy = local.y - this.controlStartPos.y;
+            // 双指操作：向量由第二指位移决定，不受棋子位置影响
+            const dx = this.lastPointerPos.x - this.controlStartPos.x;
+            const dy = this.lastPointerPos.y - this.controlStartPos.y;
             this.aimVector = { x: this.baseAimVector.x + dx, y: this.baseAimVector.y + dy };
         } else {
-            this.aimVector = { x: this.dragStartPos.x - local.x, y: this.dragStartPos.y - local.y };
+            // 单指操作：向量由 棋子当前位置 - 手指当前位置 决定
+            // 这样符合物理直觉：拉得越远力越大，且始终以棋子为中心
+            this.aimVector = { 
+                x: strikerPos.x - this.lastPointerPos.x, 
+                y: strikerPos.y - this.lastPointerPos.y 
+            };
         }
         
         const useSuperAim = this.scene.skillMgr && this.scene.skillMgr.isActive(SkillType.SUPER_AIM);
-        this._drawAimingLine(this.aimGraphics, this.dragStartPos, this.aimVector, useSuperAim);
+        // 绘制起点始终是棋子当前位置
+        this._drawAimingLine(this.aimGraphics, strikerPos, this.aimVector, useSuperAim);
     }
 
     onPointerUp(e) {

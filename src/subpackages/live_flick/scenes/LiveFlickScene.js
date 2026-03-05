@@ -57,6 +57,8 @@ export default class LiveFlickScene extends BaseScene {
 
     this.accumulator = 0;
     this.fixedTimeStep = 1000 / 60; 
+    
+    this.isGoalCelebration = false; // [新增] 进球庆祝状态 (物理继续，输入暂停)
 
     this.activeTheme = { striker: 1, field: 1, ball: 1 };
     
@@ -430,8 +432,9 @@ export default class LiveFlickScene extends BaseScene {
     this.atmosphereCtrl.onGoal();
     this._playGoalEffectsOnly(data.newScore, data.scoreTeam);
 
-    // [新增] 进球后暂停游戏，等待条幅动画
-    this.isGamePaused = true;
+    // [修改] 进球后不暂停物理，只暂停输入，等待条幅动画
+    this.isGoalCelebration = true;
+    
     if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
         this.hud.turnText.text = "进球回放...";
         if (this.hud.turnText.style) this.hud.turnText.style.fill = 0xffffff;
@@ -444,6 +447,7 @@ export default class LiveFlickScene extends BaseScene {
             // [新增] 重置阵型动画结束后恢复游戏 (动画约500ms)
             setTimeout(() => {
                 if (this.isGameOver) return;
+                this.isGoalCelebration = false;
                 this.isGamePaused = false;
                 if (this.hud && this.hud.turnText && !this.hud.turnText.destroyed) {
                     this.hud.turnText.text = "比赛进行中";
@@ -531,6 +535,7 @@ export default class LiveFlickScene extends BaseScene {
     this.ball?.update(delta, alpha);
 
     this.aiCtrl.update(delta);
+    this.input.update(delta); // [新增] 更新输入逻辑 (瞄准线跟随)
     this.atmosphereCtrl.update();
   }
 
