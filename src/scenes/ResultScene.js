@@ -82,7 +82,7 @@ export default class ResultScene extends BaseScene {
         this.createHeader(designWidth, 120, isWin, winner);
 
         // E. 星级 (在标题下方，面板上方，使用图片素材)
-        this.createRatingStars(0, -370, rating); 
+        this.createRatingStars(-60, -370, rating); 
 
         // F. 数据统计与头部 (都在面板内部)
         // [核心修改] 传入完整的参数以便解析名字头像
@@ -120,7 +120,7 @@ export default class ResultScene extends BaseScene {
                         Platform.showCustomAd(adConfig.custom.result_right, { width: 300 }, 'right_top');
                     }
                 }
-            }, 500);
+            }, 50);
         });
     }
 
