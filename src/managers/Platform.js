@@ -339,7 +339,7 @@ class Platform {
 
   async loadRemoteAsset(fileName) {
       if (this.env === 'web') {
-          return `assets-origin/${fileName}`;
+          return `subpackages/static_assets/assets/${fileName}`;
       }
 
       const provider = this.getProvider();

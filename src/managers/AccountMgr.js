@@ -246,10 +246,17 @@ class AccountMgr {
    */
   completeLevel(level, isFail) {
       const lvl = parseInt(level);
-      console.log('completeLevel', lvl === this.userInfo.level, isFail);
-      if (!isFail && lvl === this.userInfo.level) {
-          this.userInfo.level++;
-          console.log('xxxx', level, this.userInfo.level)
+      const currentLevel = parseInt(this.userInfo.level);
+      
+      console.log(`[AccountMgr] completeLevel: target=${lvl}, current=${currentLevel}, isFail=${isFail}`);
+      
+      if (!isFail && lvl >= currentLevel) {
+          // 只有当通关关卡大于等于当前记录等级时，才提升等级
+          if (lvl === currentLevel) {
+              this.userInfo.level = currentLevel + 1;
+              console.log(`[AccountMgr] Level Up! New Level: ${this.userInfo.level}`);
+          }
+          
           // 检查该等级是否有奖励
           let unlockedReward = null;
           const reward = LevelRewards[lvl];
@@ -269,8 +276,10 @@ class AccountMgr {
           }
 
           this.saveToCache(); 
-          // [新增] 关键数据变更，立即同步
+          // [新增] 关键数据变更，立即同步并通知 UI
           this.sync();
+          EventBus.emit(Events.USER_DATA_REFRESHED);
+          
           return unlockedReward;
       }
       return null;

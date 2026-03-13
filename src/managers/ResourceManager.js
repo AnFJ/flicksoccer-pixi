@@ -33,14 +33,14 @@ class ResourceManager {
       live_flick_icon_btn: 'assets/images/icon/liveflick_btn.png',
       
       // [新增] 对话框背景 (外部素材)
-      dialog_bg: 'remote:dialog_bg.png',
+      dialog_bg: 'subpackages/static_assets/assets/dialog_bg.png',
       
       // [新增] 结果页素材
-      result_bg: 'remote:result_bg.png', // 金属边框对话框
-      result_content_bg: 'remote:result_content_bg.png', // 红蓝对战条
-      bg_result_field: 'remote:pure_field_bg.png', // [保留] 备用通用背景
-      bg_result_victory: 'remote:victory_field_bg.png', // [新增] 胜利背景
-      bg_result_failed: 'remote:failed_field_bg.png',   // [新增] 失败背景
+      result_bg: 'subpackages/static_assets/assets/result_bg.png', // 金属边框对话框
+      result_content_bg: 'subpackages/static_assets/assets/result_content_bg.png', // 红蓝对战条
+      bg_result_field: 'subpackages/static_assets/assets/pure_field_bg.png', // [保留] 备用通用背景
+      bg_result_victory: 'subpackages/static_assets/assets/victory_field_bg.png', // [新增] 胜利背景
+      bg_result_failed: 'subpackages/static_assets/assets/failed_field_bg.png',   // [新增] 失败背景
 
       // 结果页按钮与图标
       btn_result_end: 'assets/images/btn/result_end_btn.png',
@@ -81,7 +81,7 @@ class ResourceManager {
 
     // 动态注册主题资源
     this.gameManifest['field_1'] = `assets/images/fieldtheme/field_combined1.png`;
-    this.gameManifest['field_2'] = `remote:field_combined2.png`;
+    this.gameManifest['field_2'] = `subpackages/static_assets/assets/field_combined2.png`;
 
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
     for (let i = 1; i <= 4; i++) {
@@ -127,14 +127,8 @@ class ResourceManager {
             continue;
         }
         count++;
-        if (rawUrl.startsWith('http') || rawUrl.startsWith('https')) {
-             loadQueue.push({ key, type: 'local', url: rawUrl });
-        } else if (rawUrl.startsWith('remote:')) {
-            const fileName = rawUrl.split(':')[1];
-            loadQueue.push({ key, type: 'remote', fileName });
-        } else {
-            loadQueue.push({ key, type: 'local', url: rawUrl });
-        }
+        // 所有资源现在都通过分包加载，不再区分远程
+        loadQueue.push({ key, type: 'local', url: rawUrl });
       }
 
       if (count === 0) {
@@ -143,19 +137,7 @@ class ResourceManager {
           return;
       }
 
-      const remoteItems = loadQueue.filter(item => item.type === 'remote');
-      if (remoteItems.length > 0) {
-          await Promise.all(remoteItems.map(async (item) => {
-              try {
-                  const localPathOrUrl = await Platform.loadRemoteAsset(item.fileName);
-                  loader.add(item.key, localPathOrUrl);
-              } catch (e) {
-                  console.warn(`[Resource] Failed to resolve remote asset: ${item.fileName}`, e);
-              }
-          }));
-      }
-
-      loadQueue.filter(item => item.type === 'local').forEach(item => {
+      loadQueue.forEach(item => {
           loader.add(item.key, item.url);
       });
 

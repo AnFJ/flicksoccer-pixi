@@ -42,7 +42,10 @@ export default class ResultScene extends BaseScene {
             rewardCoins = 100;
             // [修改] 增加对 live_flick 关卡模式的判断
             const isLevelMode = gameMode === 'pve' || (gameMode === 'live_flick' && params.isLevelMode);
-            if (isLevelMode && currentLevel === AccountMgr.userInfo.level) {
+            const currentLvlNum = parseInt(currentLevel);
+            const userLvlNum = parseInt(AccountMgr.userInfo.level);
+            
+            if (isLevelMode && currentLvlNum === userLvlNum) {
                 // 首通金币奖励
                 rewardCoins += 50;
             }
@@ -54,6 +57,7 @@ export default class ResultScene extends BaseScene {
         const isLevelMode = gameMode === 'pve' || (gameMode === 'live_flick' && params.isLevelMode);
         if (isLevelMode && isWin) {
             unlockedReward = AccountMgr.completeLevel(currentLevel, false);
+            console.log(`[ResultScene] Level completion processed. Unlocked:`, unlockedReward);
         }
         
         const rating = this.calculateRating(isWin, score, stats, myTeamId);
@@ -749,19 +753,34 @@ export default class ResultScene extends BaseScene {
 
         let leftText = '返回主页';
         let leftAction = () => {
-            UserBehaviorMgr.log('GAME', '返回菜单页');
+            UserBehaviorMgr.log('CLICK', '结果页_返回主菜单', { level: this.params.currentLevel });
+            Platform.hideGameAds();
             SceneManager.changeScene(MenuScene);
         };
         
         let rightText = "再来一局";
         let rightAction = () => {
-            UserBehaviorMgr.log('GAME', '再来一局');
-            SceneManager.changeScene(GameScene, { mode: this.params.gameMode });
+            UserBehaviorMgr.log('CLICK', '结果页_再来一局', { level: this.params.currentLevel });
+            Platform.hideGameAds();
+            if (this.params.gameMode === 'live_flick') {
+                SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel });
+            } else if (this.params.gameMode === 'pvp_local') {
+                SceneManager.changeScene(GameScene, { mode: 'pvp_local' });
+            } else {
+                // [修改] 传递 formationId
+                const formationId = AccountMgr.userInfo.theme.formationId || 0;
+                SceneManager.changeScene(GameScene, { 
+                    mode: 'pve', 
+                    level: this.params.currentLevel,
+                    formationId: formationId
+                });
+            }
         };
         
         if (this.params.gameMode === 'pvp_online') {
             leftText = '结束游戏';
             leftAction = () => {
+                UserBehaviorMgr.log('CLICK', '结果页_结束在线游戏');
                 NetworkMgr.send({ type: NetMsg.LEAVE });
                 NetworkMgr.close();
                 Platform.removeStorage('last_room_id');
@@ -770,6 +789,7 @@ export default class ResultScene extends BaseScene {
 
             rightText = '再来一局';
             rightAction = () => {
+                UserBehaviorMgr.log('CLICK', '结果页_在线再来一局');
                 SceneManager.changeScene(RoomScene, { roomId: this.params.roomId, autoReady: true });
             };
         }
@@ -779,9 +799,15 @@ export default class ResultScene extends BaseScene {
                 rightText = "下一关";
                 rightAction = () => {
                     const nextLevel = this.params.currentLevel + 1;
-                    UserBehaviorMgr.log('GAME', '下一关', { level: nextLevel });
+                    UserBehaviorMgr.log('CLICK', '结果页_下一关', { from: this.params.currentLevel, to: nextLevel });
+                    Platform.hideGameAds();
                     
-                    if (LIVE_FLICK_LEVELS.includes(nextLevel)) {
+                    if (this.params.gameMode === 'live_flick') {
+                        if (nextLevel > LIVE_FLICK_LEVELS) {
+                            Platform.showToast("已通关所有实况关卡！");
+                            SceneManager.changeScene(MenuScene);
+                            return;
+                        }
                         Platform.showToast('正在加载玩法...');
                         Platform.loadSubpackage('live_flick').then(() => {
                             SceneManager.changeScene(LiveFlickScene, { level: nextLevel });
@@ -790,7 +816,7 @@ export default class ResultScene extends BaseScene {
                             Platform.showToast('加载失败，请重试');
                         });
                     } else {
-                        // [修改] 传递 formationId
+                        // 默认 PVE 模式
                         const formationId = AccountMgr.userInfo.theme.formationId || 0;
                         SceneManager.changeScene(GameScene, { 
                             mode: 'pve', 
@@ -802,7 +828,8 @@ export default class ResultScene extends BaseScene {
             } else {
                 rightText = "重新挑战";
                 rightAction = () => {
-                    UserBehaviorMgr.log('GAME', '再来一局');
+                    UserBehaviorMgr.log('CLICK', '结果页_重新挑战', { level: this.params.currentLevel });
+                    Platform.hideGameAds();
                     
                     if (this.params.gameMode === 'live_flick') {
                         SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel });
@@ -822,7 +849,8 @@ export default class ResultScene extends BaseScene {
             // [新增] 独立的实况弹指模式 (非关卡)
             rightText = "再来一局";
             rightAction = () => {
-                UserBehaviorMgr.log('GAME', '再来一局');
+                UserBehaviorMgr.log('CLICK', '结果页_实况再来一局');
+                Platform.hideGameAds();
                 SceneManager.changeScene(LiveFlickScene, { level: this.params.currentLevel }); // 这里的 level 可能是难度等级
             };
         }

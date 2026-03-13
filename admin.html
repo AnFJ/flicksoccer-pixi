@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>弹指足球 - 后台管理</title>
     <!-- 引入 Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/vue@3.3.4/dist/vue.global.js"></script>
     <!-- 引入 Element Plus 样式 -->
-    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.4.4/dist/index.css" />
     <!-- 引入 Element Plus -->
-    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.js"></script>
     <!-- 引入 Element Plus 图标 -->
-    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
     <style>
         body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif; background-color: #f5f7fa; }
         #app { height: 100vh; display: flex; flex-direction: column; }
@@ -153,6 +153,11 @@
                                 <el-option label="微信" value="wechat"></el-option>
                                 <el-option label="抖音" value="douyin"></el-option>
                             </el-select>
+                            <el-input v-model="userFilter.level" placeholder="等级" style="width: 100px;" clearable @clear="fetchUsers"></el-input>
+                            <el-select v-model="userFilter.orderBy" placeholder="排序" style="width: 150px;" clearable @clear="fetchUsers">
+                                <el-option label="默认排序" value=""></el-option>
+                                <el-option label="最后登录时间倒序" value="last_login_desc"></el-option>
+                            </el-select>
                             <el-date-picker
                                 v-model="userFilter.dateRange"
                                 type="daterange"
@@ -223,6 +228,7 @@
                     <div v-if="currentTab === 'ad_list'">
                         <div class="filter-container">
                             <el-input v-model="adFilter.userId" placeholder="用户ID" style="width: 200px;" clearable @clear="fetchAdList"></el-input>
+                            <el-input v-model="adFilter.adUnitName" placeholder="广告位名称" style="width: 150px;" clearable @clear="fetchAdList"></el-input>
                             <el-select v-model="adFilter.adType" placeholder="广告类型" style="width: 150px;" clearable @clear="fetchAdList">
                                 <el-option label="插屏广告" value="interstitial"></el-option>
                                 <el-option label="激励视频" value="rewardedVideo"></el-option>
@@ -396,14 +402,10 @@
     <script>
         const { createApp, ref, reactive, onMounted } = Vue;
         const { ElMessage } = ElementPlus;
-        const { DataAnalysis, User, List } = ElementPlusIconsVue;
+        // [修复] ElementPlusIconsVue 是全局变量，直接解构会报错，需要遍历注册
+        const ElementPlusIcons = ElementPlusIconsVue;
 
         const app = createApp({
-            components: {
-                DataAnalysis,
-                User,
-                List
-            },
             setup() {
                 const isLoggedIn = ref(false);
                 const loginForm = reactive({
@@ -431,6 +433,8 @@
                 const userFilter = reactive({
                     nickname: '',
                     platform: '',
+                    level: '',
+                    orderBy: '',
                     dateRange: []
                 });
 
@@ -449,6 +453,7 @@
                 const adFilter = reactive({
                     userId: '',
                     adType: '',
+                    adUnitName: '',
                     dateRange: []
                 });
                 const adLoading = ref(false);
@@ -502,7 +507,84 @@
                     }
                 };
 
-                // ... (fetchStats, fetchUsers, etc.)
+                // 获取统计数据
+                const fetchStats = async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/stats`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            Object.assign(statsData, data);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取统计数据失败');
+                    }
+                };
+
+                // 获取用户列表
+                const fetchUsers = async () => {
+                    loading.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: currentPage.value,
+                            pageSize: pageSize.value
+                        });
+                        if (userFilter.nickname) params.append('nickname', userFilter.nickname);
+                        if (userFilter.platform) params.append('platform', userFilter.platform);
+                        if (userFilter.level) params.append('level', userFilter.level);
+                        if (userFilter.orderBy) params.append('orderBy', userFilter.orderBy);
+                        if (userFilter.dateRange && userFilter.dateRange.length === 2) {
+                            params.append('startDate', userFilter.dateRange[0]);
+                            params.append('endDate', userFilter.dateRange[1]);
+                        }
+
+                        const res = await fetch(`${API_BASE}/api/admin/users?${params.toString()}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            userList.value = data.list;
+                            totalUsers.value = data.total;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取用户列表失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const handlePageChange = (page) => {
+                    currentPage.value = page;
+                    fetchUsers();
+                };
+
+                const showDetails = (row) => {
+                    currentUser.value = row;
+                    detailVisible.value = true;
+                };
+
+                const showMatches = async (row) => {
+                    matchVisible.value = true;
+                    matchLoading.value = true;
+                    matchHistory.value = [];
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/user/matches?userId=${row.user_id}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            matchHistory.value = data.list;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取对局历史失败');
+                    } finally {
+                        matchLoading.value = false;
+                    }
+                };
 
                 // 获取用户行为列表
                 const fetchBehavior = async () => {
@@ -595,6 +677,7 @@
                         });
                         if (adFilter.userId) params.append('userId', adFilter.userId);
                         if (adFilter.adType) params.append('adType', adFilter.adType);
+                        if (adFilter.adUnitName) params.append('adUnitName', adFilter.adUnitName);
                         if (adFilter.dateRange && adFilter.dateRange.length === 2) {
                             params.append('startDate', adFilter.dateRange[0]);
                             params.append('endDate', adFilter.dateRange[1]);
@@ -621,22 +704,6 @@
                     fetchAdList();
                 };
 
-                // 获取统计数据
-                const fetchStats = async () => {
-                    try {
-                        const res = await fetch(`${API_BASE}/api/admin/stats`, {
-                            headers: { 'x-admin-auth': 'admin-secret-token' }
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            Object.assign(statsData, data);
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        ElMessage.error('获取统计数据失败');
-                    }
-                };
-
                 // 辅助函数
                 const formatJson = (jsonStr) => {
                     try {
@@ -649,71 +716,9 @@
                     }
                 };
 
-                // 获取用户列表
-                const fetchUsers = async () => {
-                    loading.value = true;
-                    try {
-                        const params = new URLSearchParams({
-                            page: currentPage.value,
-                            pageSize: pageSize.value
-                        });
-                        if (userFilter.nickname) params.append('nickname', userFilter.nickname);
-                        if (userFilter.platform) params.append('platform', userFilter.platform);
-                        if (userFilter.dateRange && userFilter.dateRange.length === 2) {
-                            params.append('startDate', userFilter.dateRange[0]);
-                            params.append('endDate', userFilter.dateRange[1]);
-                        }
-
-                        const res = await fetch(`${API_BASE}/api/admin/users?${params.toString()}`, {
-                            headers: { 'x-admin-auth': 'admin-secret-token' }
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            userList.value = data.list;
-                            totalUsers.value = data.total;
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        ElMessage.error('获取用户列表失败');
-                    } finally {
-                        loading.value = false;
-                    }
-                };
-
-                const handlePageChange = (page) => {
-                    currentPage.value = page;
-                    fetchUsers();
-                };
-
-                const showDetails = (row) => {
-                    currentUser.value = row;
-                    detailVisible.value = true;
-                };
-
-                const showMatches = async (row) => {
-                    matchVisible.value = true;
-                    matchLoading.value = true;
-                    matchHistory.value = [];
-                    try {
-                        const res = await fetch(`${API_BASE}/api/admin/user/matches?userId=${row.user_id}`, {
-                            headers: { 'x-admin-auth': 'admin-secret-token' }
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            matchHistory.value = data.list;
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        ElMessage.error('获取对局历史失败');
-                    } finally {
-                        matchLoading.value = false;
-                    }
-                };
-
                 const getUnlockedThemeIds = (jsonStr) => {
                     try {
                         const data = JSON.parse(jsonStr || '{}');
-                        // 假设结构是 { striker: [1], field: [1] ... }
                         let ids = [];
                         for (let key in data) {
                             if (Array.isArray(data[key])) {
@@ -778,7 +783,6 @@
                     formatJson,
                     getUnlockedThemeIds,
                     getSkillCount,
-                    // 用户行为
                     behaviorList,
                     behaviorFilter,
                     behaviorLoading,
@@ -795,6 +799,11 @@
                 };
             }
         });
+
+        // [修复] 注册所有图标
+        for (const [key, component] of Object.entries(ElementPlusIcons)) {
+            app.component(key, component);
+        }
 
         app.use(ElementPlus);
         app.mount('#app');

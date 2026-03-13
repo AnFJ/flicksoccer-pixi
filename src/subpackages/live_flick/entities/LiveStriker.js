@@ -39,20 +39,21 @@ export default class LiveStriker extends Striker {
     update(delta, alpha) {
         super.update(delta, alpha);
         
-        // Update cooldown
+        // Update cooldown (Always update, regardless of speed)
         if (this.cooldown > 0) {
-            const speed = this.body.speed;
-            const angularSpeed = Math.abs(this.body.angularVelocity);
-            
-            if (speed < 0.1 && angularSpeed < 0.1) {
-                this.cooldown -= delta;
-                if (this.cooldown <= 0) {
-                    this.cooldown = 0;
-                    this.isReady = true;
-                    // 棋子停稳后，清除未使用的技能状态
-                    this.activeSkill = null;
-                }
+            this.cooldown -= delta;
+            if (this.cooldown <= 0) {
+                this.cooldown = 0;
+                this.isReady = true;
             }
+        }
+
+        // Clear skill if stopped AND ready
+        const speed = this.body.speed;
+        const angularSpeed = Math.abs(this.body.angularVelocity);
+        
+        if (this.activeSkill && this.isReady && speed < 0.1 && angularSpeed < 0.1) {
+            this.activeSkill = null;
         }
 
         this.drawProgressRing(delta);

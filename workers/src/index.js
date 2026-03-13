@@ -434,6 +434,8 @@ export default {
           const pageSize = parseInt(params.get('pageSize') || '10');
           const nickname = params.get('nickname');
           const platform = params.get('platform');
+          const level = params.get('level');
+          const orderBy = params.get('orderBy');
           const startDate = params.get('startDate');
           const endDate = params.get('endDate');
 
@@ -448,6 +450,10 @@ export default {
               whereClause += ' AND platform = ?';
               args.push(platform);
           }
+          if (level) {
+              whereClause += ' AND level = ?';
+              args.push(parseInt(level));
+          }
           if (startDate) {
               whereClause += ' AND created_at >= ?';
               args.push(startDate);
@@ -459,12 +465,17 @@ export default {
 
           const offset = (page - 1) * pageSize;
           
+          let orderClause = 'ORDER BY created_at DESC';
+          if (orderBy === 'last_login_desc') {
+              orderClause = 'ORDER BY last_login DESC';
+          }
+
           // 查询总数
           const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM users WHERE ${whereClause}`).bind(...args).first();
           const total = countResult.total;
 
           // 查询列表
-          const users = await env.DB.prepare(`SELECT * FROM users WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+          const users = await env.DB.prepare(`SELECT * FROM users WHERE ${whereClause} ${orderClause} LIMIT ? OFFSET ?`)
               .bind(...args, pageSize, offset).all();
 
           return response({
@@ -615,6 +626,7 @@ export default {
           const pageSize = parseInt(params.get('pageSize') || '10');
           const userId = params.get('userId');
           const adType = params.get('adType');
+          const adUnitName = params.get('adUnitName');
           const startDate = params.get('startDate');
           const endDate = params.get('endDate');
 
@@ -628,6 +640,10 @@ export default {
           if (adType) {
               whereClause += ' AND ad_type = ?';
               args.push(adType);
+          }
+          if (adUnitName) {
+              whereClause += ' AND ad_unit_name LIKE ?';
+              args.push(`%${adUnitName}%`);
           }
           if (startDate) {
               whereClause += ' AND created_at >= ?';

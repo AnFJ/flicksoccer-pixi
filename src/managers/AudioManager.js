@@ -13,52 +13,47 @@ class AudioManager {
     console.log('[Audio] Initializing sounds...');
     
     // 1. 本地音频注册
-    this.registerSound('collision', 'assets/sounds/collision.mp3');
-    this.registerSound('goal', 'assets/sounds/goal.mp3');
-    this.registerSound('win', 'assets/sounds/win.mp3');
+    this.registerSound('collision', 'subpackages/static_assets/assets/sounds/collision.mp3');
+    this.registerSound('goal', 'subpackages/static_assets/assets/sounds/goal.mp3');
+    this.registerSound('win', 'subpackages/static_assets/assets/sounds/win.mp3');
     
-    this.registerSound('hit_ball', 'assets/sounds/hit_ball.mp3');
-    this.registerSound('hit_wall', 'assets/sounds/hit_wall.mp3');
-    this.registerSound('hit_striker', 'assets/sounds/hit_striker.mp3'); 
-    this.registerSound('hit_post', 'assets/sounds/hit_post.mp3');
+    this.registerSound('hit_ball', 'subpackages/static_assets/assets/sounds/hit_ball.mp3');
+    this.registerSound('hit_wall', 'subpackages/static_assets/assets/sounds/hit_wall.mp3');
+    this.registerSound('hit_striker', 'subpackages/static_assets/assets/sounds/hit_striker.mp3'); 
+    this.registerSound('hit_post', 'subpackages/static_assets/assets/sounds/hit_post.mp3');
 
     // 碰撞分级音效
-    this.registerSound('ball_hit_striker_1', 'assets/sounds/ball_hit_striker_1.mp3');
-    this.registerSound('ball_hit_striker_2', 'assets/sounds/ball_hit_striker_2.mp3');
-    this.registerSound('ball_hit_striker_3', 'assets/sounds/ball_hit_striker_3.mp3');
+    this.registerSound('ball_hit_striker_1', 'subpackages/static_assets/assets/sounds/ball_hit_striker_1.mp3');
+    this.registerSound('ball_hit_striker_2', 'subpackages/static_assets/assets/sounds/ball_hit_striker_2.mp3');
+    this.registerSound('ball_hit_striker_3', 'subpackages/static_assets/assets/sounds/ball_hit_striker_3.mp3');
 
-    this.registerSound('striker_hit_striker_1', 'assets/sounds/striker_hit_striker_1.mp3');
-    this.registerSound('striker_hit_striker_2', 'assets/sounds/striker_hit_striker_2.mp3');
-    this.registerSound('striker_hit_striker_3', 'assets/sounds/striker_hit_striker_3.mp3');
+    this.registerSound('striker_hit_striker_1', 'subpackages/static_assets/assets/sounds/striker_hit_striker_1.mp3');
+    this.registerSound('striker_hit_striker_2', 'subpackages/static_assets/assets/sounds/striker_hit_striker_2.mp3');
+    this.registerSound('striker_hit_striker_3', 'subpackages/static_assets/assets/sounds/striker_hit_striker_3.mp3');
 
-    this.registerSound('striker_hit_edge', 'assets/sounds/striker_hit_edge.mp3');
+    this.registerSound('striker_hit_edge', 'subpackages/static_assets/assets/sounds/striker_hit_edge.mp3');
 
-    this.registerSound('skill_fire', 'assets/sounds/skill_fire.mp3');
-    this.registerSound('skill_lightning', 'assets/sounds/skill_lightning.mp3');
+    this.registerSound('skill_fire', 'subpackages/static_assets/assets/sounds/skill_fire.mp3');
+    this.registerSound('skill_lightning', 'subpackages/static_assets/assets/sounds/skill_lightning.mp3');
 
-    // 2. 远程音频注册 (需先下载/获取路径)
-    // 定义远程文件列表
+    // 2. 远程音频注册 (已移至分包)
     const remoteAudios = [
         { key: 'crowd_bg_loop', file: 'crowd_bg_loop.mp3' },
         { key: 'crowd_cheer_1', file: 'crowd_cheer_1.mp3' },
         { key: 'crowd_cheer_2', file: 'crowd_cheer_2.mp3' },
         { key: 'crowd_cheer_3', file: 'crowd_cheer_3.mp3' },
-        { key: 'crowd_sigh_1', file: 'crowd_sigh_1.mp3' }, // 假设这些也可能被移到远程，如果还在本地请保留在上方
+        { key: 'crowd_sigh_1', file: 'crowd_sigh_1.mp3' },
         { key: 'crowd_sigh_2', file: 'crowd_sigh_2.mp3' },
         { key: 'crowd_sigh_3', file: 'crowd_sigh_3.mp3' },
         { key: 'crowd_anticipation_1', file: 'crowd_anticipation_1.mp3' },
         { key: 'crowd_anticipation_2', file: 'crowd_anticipation_2.mp3' }
     ];
 
-    // 本地可能还保留的
-    // 如果这些也被移走了，请将其移动到 remoteAudios 列表，这里为了演示，只处理您明确提到的几个
-    // 注意：您提到的 'cowd' 应该是 'crowd' 的笔误，这里使用 crowd
-    
-    // 处理远程加载
-    await Promise.all(remoteAudios.map(async (item) => {
-        const path = await Platform.loadRemoteAsset(item.file);
+    // 处理分包加载
+    remoteAudios.forEach((item) => {
+        const path = `subpackages/static_assets/assets-origin/${item.file}`;
         this.registerSound(item.key, path);
-    }));
+    });
   }
 
   registerSound(key, src) {

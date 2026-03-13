@@ -6,6 +6,7 @@ import AccountMgr from '../managers/AccountMgr.js';
 import Platform from '../managers/Platform.js'; 
 import ResourceManager from '../managers/ResourceManager.js';
 import AudioManager from '../managers/AudioManager.js'; 
+import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 import MenuScene from './MenuScene.js';
 import RoomScene from './RoomScene.js'; // [新增]
 import NetworkMgr from '../managers/NetworkMgr.js'; // [新增]
@@ -17,13 +18,17 @@ export default class LoginScene extends BaseScene {
     super();
     this.progressBar = null;
     this.loadingLabel = null;
+    this.currentProgress = 0;
+    this.progressTimer = null;
+    this.loadStartTime = 0;
   }
 
   async onEnter() {
     super.onEnter();
+    this.loadStartTime = Date.now();
+    UserBehaviorMgr.log('SYSTEM', '进入游戏', { time: this.loadStartTime });
+    
     const { designWidth, designHeight } = GameConfig;
-
-    AudioManager.init();
 
     await ResourceManager.loadLoginResources();
 
@@ -85,9 +90,30 @@ export default class LoginScene extends BaseScene {
 
   _updateProgress(percent) {
       if (!this.progressBar) return;
-      const p = Math.max(0, Math.min(percent, 1));
-      this.progressFill.scale.x = p;
-      this.loadingLabel.text = `资源加载中... ${Math.floor(p * 100)}%`;
+      // 视觉进度条最高 100% (scale.x = 1)
+      const visualP = Math.max(0, Math.min(percent, 1));
+      this.progressFill.scale.x = visualP;
+      // 文字进度可以超过 100%
+      this.loadingLabel.text = `资源加载中... ${Math.floor(percent * 100)}%`;
+  }
+
+  _startProgressTimer() {
+      if (this.progressTimer) clearInterval(this.progressTimer);
+      this.progressTimer = setInterval(() => {
+          this.currentProgress += 0.01;
+          this._updateProgress(this.currentProgress);
+      }, 60);
+  }
+
+  _stopProgressTimer(forceComplete = false) {
+      if (this.progressTimer) {
+          clearInterval(this.progressTimer);
+          this.progressTimer = null;
+      }
+      if (forceComplete && this.currentProgress < 1) {
+          this.currentProgress = 1;
+      }
+      this._updateProgress(this.currentProgress);
   }
 
   async _startLoadingProcess(w, h) {
@@ -96,34 +122,41 @@ export default class LoginScene extends BaseScene {
               Platform.enterFullscreen();
           }
 
-          // 1. 尝试读取本地缓存
+          // 开启模拟进度条：每 0.1s 增加 1%
+          this.currentProgress = 0;
+          this._startProgressTimer();
+
+          // 1. 启动静默登录 (并行，不阻塞分包加载)
+          const loginPromise = AccountMgr.silentLogin();
+
+          // 2. 尝试读取本地缓存 (用于秒开判断)
           const hasCache = AccountMgr.loadFromCache();
           
-          // 2. 启动资源加载 (Promise)
-          const assetLoadPromise = ResourceManager.loadGameResources((progress) => {
-              this._updateProgress(progress / 100); 
-          });
-
-          // 3. 启动登录 (Promise)
-          // 无论是否有缓存，都要发请求去同步最新数据/检查Token
-          const loginPromise = AccountMgr.silentLogin();
+          // 3. 加载所有分包
+          await Promise.all([
+              Platform.loadSubpackage('static_assets')
+          ]);
+          
+          // 4. 初始化音频 (依赖分包资源路径)
+          const audioInitPromise = AudioManager.init();
+          
+          // 5. 启动资源加载 (依赖分包资源)
+          // 注意：这里不再直接用 ResourceManager 的回调更新进度，而是统一由定时器控制
+          const assetLoadPromise = ResourceManager.loadGameResources();
 
           if (hasCache) {
               // --- 分支 A: 命中缓存 (秒开模式) ---
-              // 只等待资源加载完毕，不等待登录接口
-              // 假设有缓存的一定不是需要授权的新用户
-              await assetLoadPromise;
-              
-              // 确保登录请求在后台继续跑，不 await 它
-              // 但要处理可能的未捕获异常
+              await Promise.all([assetLoadPromise, audioInitPromise]);
               loginPromise.catch(e => console.warn('Background login warning:', e));
               
-              this._onLoadingComplete(w, h, false); // false = 不需要检查 isNewUser
+              this._stopProgressTimer(true); // 强制到 100% (如果还没到)
+              this._onLoadingComplete(w, h, false);
           } else {
               // --- 分支 B: 无缓存 (普通模式) ---
-              // 必须等待所有完成，因为要判断是否 isNewUser
-              await Promise.all([assetLoadPromise, loginPromise]);
-              this._onLoadingComplete(w, h, true); // true = 需要检查 isNewUser
+              await Promise.all([assetLoadPromise, audioInitPromise, loginPromise]);
+              
+              this._stopProgressTimer(true); // 强制到 100% (如果还没到)
+              this._onLoadingComplete(w, h, true);
           }
 
       } catch (err) {
@@ -137,8 +170,14 @@ export default class LoginScene extends BaseScene {
   }
 
   _onLoadingComplete(w, h, checkNewUser) {
-      this._updateProgress(1.0);
+      this._stopProgressTimer(); // 确保定时器关闭
       
+      const duration = Date.now() - this.loadStartTime;
+      UserBehaviorMgr.log('SYSTEM', '登录加载耗时', { 
+          isNewUser: AccountMgr.isNewUser, 
+          duration: duration 
+      });
+
       // 稍微延迟一点点提升体验
       setTimeout(() => {
           if (this.progressBar) {
