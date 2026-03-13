@@ -588,8 +588,8 @@ export default class LiveFlickScene extends BaseScene {
       });
   }
 
-  onDestroy() {
-    // [新增] 销毁时隐藏广告
+  onExit() {
+    // [新增] 退出时隐藏广告
     Platform.hideGameAds();
     
     EventBus.off(Events.GOAL_SCORED, this.onGoal, this);
@@ -601,8 +601,8 @@ export default class LiveFlickScene extends BaseScene {
 
     this._clearEntities();
     if (this.rules) this.rules.destroy();
-    if (this.physics) this.physics.destroy();
+    if (this.physics) this.physics.clear();
 
-    super.onDestroy();
+    super.onExit();
   }
 }

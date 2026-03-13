@@ -19,20 +19,28 @@ export default class BaseScene {
    * 场景退出时调用
    */
   onExit() {
-    console.log(`[BaseScene] Exiting scene...`);
+    console.log(`[BaseScene] Exiting scene: ${this.constructor.name}`);
     
-    // 移除所有事件监听
-    this.container.removeAllListeners();
-    
-    // [核心修复] 使用 destroy 彻底销毁容器及其子元素
-    // children: true  -> 递归销毁子对象 (Sprite, Graphics 等)
-    // texture: false  -> 不销毁纹理 (因为纹理通常由 ResourceManager 管理，或者是复用的)
-    // baseTexture: false -> 不销毁基础纹理
-    this.container.destroy({
-        children: true,
-        texture: false,
-        baseTexture: false
-    });
+    // 移除所有容器级别的事件监听
+    if (this.container) {
+        this.container.removeAllListeners();
+        
+        // [核心修复] 使用 destroy 彻底销毁容器及其子元素
+        if (!this.container.destroyed) {
+            this.container.destroy({
+                children: true,
+                texture: false,
+                baseTexture: false
+            });
+        }
+    }
+  }
+
+  /**
+   * 警告：请使用 onExit 而不是 onDestroy
+   */
+  onDestroy() {
+      console.warn(`[BaseScene] ${this.constructor.name} called onDestroy, but SceneManager uses onExit!`);
   }
 
   /**

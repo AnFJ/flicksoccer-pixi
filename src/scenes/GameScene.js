@@ -1147,12 +1147,12 @@ export default class GameScene extends BaseScene {
       Platform.hideGameAds();
       AudioManager.stopBGM();
       
-      EventBus.off(Events.GOAL_SCORED, this);
-      EventBus.off(Events.GAME_OVER, this);
-      EventBus.off(Events.COLLISION_HIT, this);
-      EventBus.off(Events.PLAY_SOUND, this); 
-      EventBus.off(Events.SKILL_ACTIVATED, this); 
-      EventBus.off(Events.ITEM_UPDATE, this); 
+      EventBus.off(Events.GOAL_SCORED, this.onGoal, this);
+      EventBus.off(Events.GAME_OVER, this.onGameOver, this);
+      EventBus.off(Events.COLLISION_HIT, null, this);
+      EventBus.off(Events.PLAY_SOUND, this.onPlaySound, this); 
+      EventBus.off(Events.SKILL_ACTIVATED, this.onSkillStateChange, this); 
+      EventBus.off(Events.ITEM_UPDATE, this.onItemUpdate, this); 
       
       if (this.networkCtrl) {
           this.networkCtrl.destroy();
