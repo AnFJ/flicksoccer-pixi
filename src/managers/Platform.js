@@ -1066,21 +1066,17 @@ class Platform {
 
   handleSocialAction() {
     if (this.env === 'wechat') {
+        // 微信平台：打开游戏圈
         const wx = this.getProvider();
         if (wx.createPageManager) {
             const pageManager = wx.createPageManager();
             pageManager.load({
-              openlink: '-SSEykJvFV3pORt5kTNpSxd30-TvafFgaZqHSUv3S6kVRb84TEE5RwHDiSF5f7nrJ6jVNpIsfaLHpurmt0qQJ2oX03HgDnc57u_Jz-MxLhkW8BahDJx2uHr0THo_701Wfg8QgkLfZchjnilapXRsz5r7YJsb36Aq6fN0F-H_QzDNoqaZBCiHIGX36PZuElKlWwSxqwIX4ruc0zAVFyp1EE3MCH2VXe4icADWEwO7P0LDqZHaESNstcVG-EskNEyncO_k-AE6oq542gY2m0IUAwEGxclH4yCHpNHKRnkeVFqYUbWxMY7Gj1h5o-c7agzhkD_ia8qOF6x8NtcEnxbuXw', // 由不同渠道获得的OPENLINK值
+              openlink: '-SSEykJvFV3pORt5kTNpSxd30-TvafFgaZqHSUv3S6kVRb84TEE5RwHDiSF5f7nrJ6jVNpIsfaLHpurmt0qQJ2oX03HgDnc57u_Jz-MxLhkW8BahDJx2uHr0THo_701Wfg8QgkLfZchjnilapXRsz5r7YJsb36Aq6fN0F-H_QzDNoqaZBCiHIGX36PZuElKlWwSxqwIX4ruc0zAVFyp1EE3MCH2VXe4icADWEwO7P0LDqZHaESNstcVG-EskNEyncO_k-AE6oq542gY2m0IUAwEGxclH4yCHpNHKRnkeVFqYUbWxMY7Gj1h5o-c7agzhkD_ia8qOF6x8NtcEnxbuXw',
             }).then((res) => {
-              // 加载成功，res 可能携带不同活动、功能返回的特殊回包信息（具体请参阅渠道说明）
-              console.log(res);
-
-              // 加载成功后按需显示
+              console.log('WeChat GameClub loaded', res);
               pageManager.show();
-
             }).catch((err) => {
-              // 加载失败，请查阅 err 给出的错误信息
-              console.error(err);
+              console.error('WeChat GameClub load failed', err);
               this.showToast('无法打开游戏圈');
             })
         } else if (wx.createGameClubButton) {
@@ -1089,22 +1085,25 @@ class Platform {
             this.showToast('当前版本不支持游戏圈');
         }
     } else if (this.env === 'douyin') {
+        // 抖音平台：侧边栏复访能力
         const tt = this.getProvider();
         if (tt.navigateToScene) {
             tt.navigateToScene({
                 scene: "sidebar",
                 success: (res) => {
-                    console.log('Navigate to sidebar success', res);
+                    console.log('跳转侧边栏成功', res);
                 },
                 fail: (err) => {
-                    console.warn('Navigate to sidebar failed', err);
-                    this.showToast('侧边栏功能暂不可用');
+                    console.warn('跳转侧边栏失败', err);
+                    // 如果跳转失败，通常是因为用户没有从侧边栏启动过，或者版本不支持
+                    this.showToast('侧边栏功能暂不可用，请手动收藏');
                 }
             });
         } else {
-            this.showToast('请点击右上角收藏游戏');
+            this.showToast('请点击右上角收藏游戏，从侧边栏再次进入');
         }
     } else if (this.env === 'web') {
+        // Web平台：复制链接分享/反馈
         const url = window.location.href;
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(() => {

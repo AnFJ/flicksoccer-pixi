@@ -26,15 +26,13 @@ function copyRecursiveSync(src, dest) {
   }
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // 判断构建模式
   const isH5 = mode === 'h5';
   const isDouyin = mode === 'douyin';
+  const isProduction = command === 'build';
   
   // 确定输出目录
-  // H5 -> ../game_dist/flicksoccer (或 dist-h5)
-  // 抖音 -> dist-tt
-  // 微信(默认) -> dist
   let outDir = 'dist';
   if (isH5) outDir = '../game_dist/flicksoccer';
   else if (isDouyin) outDir = 'dist-tt';
@@ -47,42 +45,37 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: './',
-    base: './', // H5 部署时通常使用相对路径
+    base: './', 
     define: {
-      // Pixi.js 等库可能需要 process.env.NODE_ENV
-      'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development'),
+      // 确保构建时使用 production 环境，除非明确指定
+      'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
     },
     build: {
       outDir: outDir,
       emptyOutDir: true,
       
-      // H5 模式下不需要 lib 配置
-      // 小游戏模式下需要 lib 配置，打包成单个 JS 文件
       lib: isH5 ? false : {
-        entry: path.resolve(__dirname, entryFile), // [修改] 使用动态入口
+        entry: path.resolve(__dirname, entryFile), 
         name: 'Game',
-        // 强制输出文件名为 game.js
         fileName: () => 'game.js', 
-        formats: ['cjs'] // 小游戏使用 CommonJS 规范
+        formats: ['cjs'] 
       },
       
       rollupOptions: {
-        // 小游戏模式下，不要排除任何依赖，全部打包进一个文件
-        external: isH5 ? [] : [], 
+        external: [], 
         input: isH5 ? {
             main: path.resolve(__dirname, 'index.html'),
             admin: path.resolve(__dirname, 'admin.html')
         } : undefined,
         output: {
-          // 确保全局变量不冲突
           extend: true,
-          // [移除] 移除 banner "use strict"; 以兼容旧适配器代码
         }
       },
       // 使用 esbuild 压缩
       minify: 'esbuild',
-      // 小游戏环境下使用 inline sourcemap，避免开发者工具加载 .map 文件 404
-      sourcemap: isDouyin ?  'inline': true
+      // [优化] 抖音小游戏不再使用 inline sourcemap，避免主包体积过大
+      // 如果需要调试，可以设置为 true (生成独立 .map 文件)
+      sourcemap: isDouyin ? false : true
     },
     resolve: {
       alias: {
@@ -111,8 +104,6 @@ export default defineConfig(({ mode }) => {
         closeBundle() {
           const srcAssets = path.resolve(__dirname, 'assets');
           const destAssets = path.resolve(__dirname, outDir, 'assets');
-          const srcAssetsOrigin = path.resolve(__dirname, 'assets-origin');
-          const destAssetsOrigin = path.resolve(__dirname, outDir, 'assets-origin');
           
           // 1. 复制通用资源文件
           if (fs.existsSync(srcAssets)) {
@@ -159,16 +150,23 @@ export default defineConfig(({ mode }) => {
 
           // 3. 复制小游戏核心配置文件 (根据平台区分)
           if (!isH5) {
-              const srcGameJson = path.resolve(__dirname, 'game.json');
-              const destGameJson = path.resolve(__dirname, outDir, 'game.json');
-              
-              // 复制 game.json (通用)
-              if (fs.existsSync(srcGameJson)) {
-                  fs.copyFileSync(srcGameJson, destGameJson);
-                  console.log(`[Vite] Copied game.json`);
+              // 3.1 复制 game.json (根据平台选择源文件)
+              let srcGameJson = path.resolve(__dirname, 'game.json');
+              if (isDouyin) {
+                  const ttGameJson = path.resolve(__dirname, 'tt-game.json');
+                  if (fs.existsSync(ttGameJson)) {
+                      srcGameJson = ttGameJson;
+                      console.log(`[Vite] Using tt-game.json for Douyin build`);
+                  }
               }
 
-              // 复制项目配置文件 project.config.json
+              const destGameJson = path.resolve(__dirname, outDir, 'game.json');
+              if (fs.existsSync(srcGameJson)) {
+                  fs.copyFileSync(srcGameJson, destGameJson);
+                  console.log(`[Vite] Copied ${path.basename(srcGameJson)} to game.json`);
+              }
+
+              // 3.2 复制项目配置文件 project.config.json
               if (isDouyin) {
                   // 抖音: 使用 tt-project.config.json 但重命名为 project.config.json 方便 IDE 识别
                   const srcTTConfig = path.resolve(__dirname, 'tt-project.config.json');

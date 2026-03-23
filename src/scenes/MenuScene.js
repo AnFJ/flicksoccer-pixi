@@ -319,11 +319,9 @@ export default class MenuScene extends BaseScene {
     let currentY = avatarRadius * 2 + 20 + btnRadius; 
     const btnX = avatarRadius;
 
-    const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', '意见反馈', 0x00AABB, () => {
-        UserBehaviorMgr.log('SOCIAL', '点击朋友圈');
-        // let params = {"winner":0,"gameMode":"pve","currentLevel":3,"score":{"0":2,"1":1},"stats":{"0":{"shots":20,"skills":{"super_force":6}},"1":{"shots":18,"skills":{}},"startTime":1772590612815,"endTime":1772590808294},"players":[],"myTeamId":0,"roomId":"","aiInfo":{"id":"noble","name":"贵族路易","avatar":"ai_noble","desc":"优雅，永不过时。"}};
-        // SceneManager.changeScene(ResultScene, params);
-        // return
+    const socialLabel = Platform.env === 'douyin' ? '打开侧边栏' : (Platform.env === 'wechat' ? '游戏圈' : '意见反馈');
+    const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', socialLabel, 0x00AABB, () => {
+        UserBehaviorMgr.log('SOCIAL', `点击${socialLabel}`);
         Platform.handleSocialAction();
     });
     container.addChild(socialBtn);
