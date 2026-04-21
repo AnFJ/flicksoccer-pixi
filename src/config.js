@@ -179,29 +179,31 @@ export const GameConfig = {
           }
       },
       douyin: {
-          banners: ['adunit-left-placeholder', 'adunit-right-placeholder'],
+          banners: ['6bjmaip4fufcml5m7c', '6bjmaip4fufcml5m7c'],
+          // [新增] 原生模板广告 (自定义广告)
           custom: {
-              menu_banner: 'adunit-dy-menu-banner',
-              game_left: 'adunit-dy-game-left',
-              game_right: 'adunit-dy-game-right',
-              result_left: 'adunit-dy-result-left',
-              result_right: 'adunit-dy-result-right'
+              menu_banner: '6bjmaip4fufcml5m7c',
+              game_left: '1bp11hk7gmn245upj6',
+              game_right: '3jjgi289m3k93d9a82',
+              result_left: 'j38893fi77i135h9ji',
+              result_right: '78k3ng115ul58hnick'
           },
           interstitial: {
-              startup: 'adunit-dy-startup',
-              before_game: 'adunit-dy-before-game',
-              game_over: 'adunit-dy-game-over'
+              startup: 'p3q0g7ihj5i2scjbhm',
+              before_game: 'a2rpheppnjh8qqkscp',
+              game_over: 'bbekcb77i2e2ce501k'
           },
           rewardedVideo: {
-              coins: 'adunit-dy-coins',
-              super_aim: 'adunit-dy-aim',
-              unstoppable: 'adunit-dy-car',
-              super_force: 'adunit-dy-force',
-              theme_striker: 'adunit-dy-striker',
-              theme_field: 'adunit-dy-field',
-              theme_ball: 'adunit-dy-ball',
-              theme_formation: 'adunit-dy-formation',
-              unlock_mode: 'adunit-mode-unlock-placeholder'
+              coins: '29gjflljb1229kceuu',
+              super_aim: '5nkggo1jgr35ogswr7',
+              unstoppable: '49g257ek6ij6bjl631',
+              super_force: 'fqj3k5qp826dlkoaj4',
+              theme_striker: 'hqjl8fc0i32l8aih87',
+              theme_field: 'd01058dabh1b2hj2ag',
+              theme_ball: '56c004lcblh81k922k',
+              theme_formation: 'c4lkljc3gj7clbfrmp',
+              unlock_mode_local: 'pelbb5l005e8je5dl2',
+              unlock_mode_online: 'c0b38ff3f0e36h7199'
           }
       }
   },

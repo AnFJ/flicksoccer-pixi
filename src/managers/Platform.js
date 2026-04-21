@@ -664,12 +664,10 @@ class Platform {
           // 默认样式
           let finalStyle = { ...style };
           let ad = null;
-          let adW = finalStyle.width;
+          let adW = finalStyle.width || 300; 
 
           // 根据预设位置自动计算坐标
           if (position) {
-              // 20:7 比例 (用户指定)
-              // 估算高度
               const adH = adW * (7/20); 
 
               switch (position) {
@@ -698,41 +696,44 @@ class Platform {
                       finalStyle.top = -5;
                       break;
                   case 'right_top':
-                      finalStyle.left = winW - adW +10;
+                      finalStyle.left = winW - adW + 10;
                       finalStyle.top = -5;
                       break;
               }
           }
 
-          if (this.env === 'wechat' && provider.createCustomAd) {
+          // 优先尝试 createCustomAd (原生模板广告)
+          if (provider.createCustomAd) {
               ad = provider.createCustomAd({
                   adUnitId: adUnitId,
                   style: finalStyle
               });
-          } else if (this.env === 'douyin' && provider.createBannerAd) {
-              // 抖音 Banner 广告
+          } else if (provider.createBannerAd) {
+              // 兼容降级为 Banner 广告 (特别是老版本或不支持 Custom 的环境)
               ad = provider.createBannerAd({
                   adUnitId: adUnitId,
                   style: finalStyle
               });
               
-              // 抖音广告加载后可能需要重新调整位置 (因为高度不确定)
-              ad.onResize(size => {
-                  if (position === 'bottom_center') {
-                      ad.style.left = (winW - size.width) / 2;
-                      ad.style.top = winH - size.height - 10;
-                  } else if (position === 'left_center') {
-                      ad.style.top = (winH - size.height) / 2;
-                  } else if (position === 'right_center') {
-                      ad.style.left = winW - size.width - 10;
-                      ad.style.top = (winH - size.height) / 2;
-                  } else if (position === 'left_top') {
-                      ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
-                  } else if (position === 'right_top') {
-                      ad.style.left = winW - size.width - 10;
-                      ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
-                  }
-              });
+              if (this.env === 'douyin' || !provider.createCustomAd) {
+                // 抖音/低版本微信 Banner 可能需要重调位置
+                ad.onResize(size => {
+                    if (position === 'bottom_center') {
+                        ad.style.left = (winW - size.width) / 2;
+                        ad.style.top = winH - size.height - 10;
+                    } else if (position === 'left_center') {
+                        ad.style.top = (winH - size.height) / 2;
+                    } else if (position === 'right_center') {
+                        ad.style.left = winW - size.width - 10;
+                        ad.style.top = (winH - size.height) / 2;
+                    } else if (position === 'left_top') {
+                        ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
+                    } else if (position === 'right_top') {
+                        ad.style.left = winW - size.width - 10;
+                        ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
+                    }
+                });
+              }
           }
 
           if (ad) {
@@ -791,7 +792,7 @@ class Platform {
           try {
               let adInstance = null;
 
-              if (this.env === 'wechat' && provider.createCustomAd) {
+              if (provider.createCustomAd) {
                   adInstance = provider.createCustomAd({
                       adUnitId: adUnitId,
                       style: {
@@ -802,7 +803,7 @@ class Platform {
                       }
                   });
               }
-              else if (this.env === 'douyin' && provider.createBannerAd) {
+              else if (provider.createBannerAd) {
                   adInstance = provider.createBannerAd({
                       adUnitId: adUnitId,
                       style: {
@@ -965,9 +966,6 @@ class Platform {
   }
 
   async showRewardedVideoAd(adUnitId) {
-      if(this.env == 'douyin') {
-        return true;
-      }
       if (this.env === 'web') {
           this.showToast('广告模拟成功');
           return new Promise(resolve => {
