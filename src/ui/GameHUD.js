@@ -4,6 +4,7 @@ import { GameConfig } from '../config.js';
 import { TeamId, SkillType } from '../constants.js';
 import AccountMgr from '../managers/AccountMgr.js';
 import ResourceManager from '../managers/ResourceManager.js';
+import Platform from '../managers/Platform.js';
 import Button from './Button.js';
 
 export default class GameHUD extends PIXI.Container {
@@ -129,10 +130,11 @@ export default class GameHUD extends PIXI.Container {
         else if (rightPlayer) rightLevel = rightPlayer.level;
     }
 
-    const leftInfo = { name: myInfo.nickname || "You", avatar: myInfo.avatarUrl };
+    const isDouyin = Platform.env === 'douyin';
+    const leftInfo = { name: myInfo.nickname || (isDouyin ? "你" : "You"), avatar: myInfo.avatarUrl };
     
     // [核心修改] PVE 模式下，右侧信息从 extraData.aiInfo 中获取
-    let rightInfo = { name: "Player 2", avatar: '' };
+    let rightInfo = { name: isDouyin ? "玩家 2" : "Player 2", avatar: '' };
     if (this.gameMode === 'pve') {
         if (this.extraData.aiInfo) {
             // 从资源管理器中加载 AI 头像
@@ -142,7 +144,7 @@ export default class GameHUD extends PIXI.Container {
                 avatar: aiAvatar // 这里直接传 texture，需要下文 createAvatarWithSkills 支持
             };
         } else {
-            rightInfo = { name: "Easy AI", avatar: '' };
+            rightInfo = { name: isDouyin ? "简单电脑" : "Easy AI", avatar: '' };
         }
     }
 
@@ -249,7 +251,8 @@ export default class GameHUD extends PIXI.Container {
         tagBg.drawRect(-innerSize/2, innerSize/2 - tagH, innerSize, tagH);
         tagBg.endFill();
         
-        const lvlText = new PIXI.Text(`Lv.${level}`, {
+        const lvlPrefix = Platform.env === 'douyin' ? '等级 ' : 'Lv.';
+        const lvlText = new PIXI.Text(`${lvlPrefix}${level}`, {
             fontFamily: 'Arial', fontSize: 14, fill: 0xFFFFFF, fontWeight: 'bold'
         });
         lvlText.anchor.set(0.5);
@@ -553,11 +556,16 @@ export default class GameHUD extends PIXI.Container {
   updateTurn(currentTurn) {
     if (!this.turnText) return;
     const isLeft = currentTurn === TeamId.LEFT;
+    const isDouyin = Platform.env === 'douyin';
     let str = "";
     if (isLeft) {
-        str = "红方回合 (Player 1)";
+        str = isDouyin ? "红方回合 (玩家 1)" : "红方回合 (Player 1)";
     } else {
-        str = this.gameMode === 'pve' ? "蓝方回合 (AI)" : "蓝方回合 (Player 2)";
+        if (this.gameMode === 'pve') {
+            str = isDouyin ? "蓝方回合 (电脑)" : "蓝方回合 (AI)";
+        } else {
+            str = isDouyin ? "蓝方回合 (玩家 2)" : "蓝方回合 (Player 2)";
+        }
     }
     this.turnText.text = str;
     this.turnText.style.fill = isLeft ? 0xcc3333 : 0x3366cc;

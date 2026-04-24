@@ -156,7 +156,8 @@ export default class RoomListDialog extends PIXI.Container {
       nameText.anchor.set(0, 0.5);
       nameText.position.set(infoX, h/2 - 15);
       
-      const lvlText = new PIXI.Text(`Lv.${level}`, {
+      const lvlPrefix = Platform.env === 'douyin' ? '等级 ' : 'Lv.';
+      const lvlText = new PIXI.Text(`${lvlPrefix}${level}`, {
           fontFamily: 'Arial', fontSize: 24, fill: 0xF1C40F
       });
       lvlText.anchor.set(0, 0.5);

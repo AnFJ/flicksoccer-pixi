@@ -179,7 +179,7 @@ export const GameConfig = {
           }
       },
       douyin: {
-          banners: ['1bp11hk7gmn245upj6', '3jjgi289m3k93d9a82'],
+          banners: ['6bjmaip4fufcml5m7c', '6bjmaip4fufcml5m7c'],
           // [新增] 原生模板广告 (自定义广告)
           custom: {
               menu_banner: '6bjmaip4fufcml5m7c',

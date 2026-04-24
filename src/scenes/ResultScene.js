@@ -318,10 +318,11 @@ export default class ResultScene extends BaseScene {
     getPlayerInfo(teamId, params) {
         const myInfo = AccountMgr.userInfo;
         const isLeft = teamId === TeamId.LEFT;
+        const isDouyin = Platform.env === 'douyin';
         
         // 默认兜底
         let info = {
-            name: isLeft ? 'Player 1' : 'Player 2',
+            name: isLeft ? (isDouyin ? '玩家 1' : 'Player 1') : (isDouyin ? '玩家 2' : 'Player 2'),
             avatar: null, // null 表示用文字头像
             isTexture: false // 是否是 Pixi Texture
         };
@@ -329,7 +330,7 @@ export default class ResultScene extends BaseScene {
         if (params.gameMode === 'pve' || params.gameMode === 'live_flick') {
             if (isLeft) {
                 // 左侧：玩家自己
-                info.name = myInfo.nickname || 'Player';
+                info.name = myInfo.nickname || (isDouyin ? '玩家' : 'Player');
                 info.avatar = myInfo.avatarUrl;
             } else {
                 // 右侧：AI
@@ -339,7 +340,7 @@ export default class ResultScene extends BaseScene {
                     info.avatar = ResourceManager.get(params.aiInfo.avatar);
                     info.isTexture = true;
                 } else {
-                    info.name = "AI Opponent";
+                    info.name = isDouyin ? "电脑对手" : "AI Opponent";
                     info.avatar = ResourceManager.get('ai_robot');
                     info.isTexture = true;
                 }
@@ -347,11 +348,11 @@ export default class ResultScene extends BaseScene {
         } else if (params.gameMode === 'pvp_local') {
             if (isLeft) {
                 // 左侧：P1 (账号持有者)
-                info.name = myInfo.nickname || 'Player 1';
+                info.name = myInfo.nickname || (isDouyin ? '玩家 1' : 'Player 1');
                 info.avatar = myInfo.avatarUrl;
             } else {
                 // 右侧：本地 Guest
-                info.name = 'Player 2';
+                info.name = isDouyin ? '玩家 2' : 'Player 2';
                 info.avatar = null;
             }
         } else if (params.gameMode === 'pvp_online') {
@@ -360,7 +361,7 @@ export default class ResultScene extends BaseScene {
             const player = players.find(p => p.teamId === teamId);
             
             if (player) {
-                info.name = player.nickname || (isLeft ? 'Red' : 'Blue');
+                info.name = player.nickname || (isLeft ? (isDouyin ? '红方' : 'Red') : (isDouyin ? '蓝方' : 'Blue'));
                 info.avatar = player.avatar;
             } else {
                 // 如果找不到数据 (理论上不应发生)，尝试用本地数据兜底自己
@@ -368,7 +369,7 @@ export default class ResultScene extends BaseScene {
                     info.name = myInfo.nickname;
                     info.avatar = myInfo.avatarUrl;
                 } else {
-                    info.name = "Waiting...";
+                    info.name = isDouyin ? "等待中..." : "Waiting...";
                 }
             }
         }

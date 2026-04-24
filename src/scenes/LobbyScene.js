@@ -275,7 +275,8 @@ export default class LobbyScene extends BaseScene {
 
   createKeypad(w, h) {
       const startY = 320;
-      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', 'GO'];
+      const isDouyin = Platform.env === 'douyin';
+      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', isDouyin ? '加入' : 'GO'];
       const keyW = 180;
       const keyH = 100;
       const gap = 20;
@@ -302,9 +303,12 @@ export default class LobbyScene extends BaseScene {
   }
 
   onKeyPress(key) {
+      const isDouyin = Platform.env === 'douyin';
+      const goKey = isDouyin ? '加入' : 'GO';
+      
       if (key === '清空') {
           this.roomNumber = "";
-      } else if (key === 'GO') {
+      } else if (key === goKey) {
           if (this.roomNumber.length === 4) {
               this.joinRoom(this.roomNumber);
           } else {

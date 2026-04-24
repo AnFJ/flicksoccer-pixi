@@ -83,7 +83,8 @@ export default class InventoryView extends PIXI.Container {
     statsContainer.addChild(coinZone);
 
     // --- 等级区域 ---
-    const levelText = new PIXI.Text(`等级: Lv.${info.level}`, {
+    const lvlPrefixStr = Platform.env === 'douyin' ? '' : 'Lv.';
+    const levelText = new PIXI.Text(`等级: ${lvlPrefixStr}${info.level}`, {
         fontFamily: 'Arial', fontSize: 36, fill: 0x3498db
     });
     levelText.anchor.set(0.5);

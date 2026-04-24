@@ -223,8 +223,9 @@ export default class MenuScene extends BaseScene {
   refreshUI() {
       if (this.destroyed) return;
       const user = AccountMgr.userInfo;
+      const lvlPrefix = Platform.env === 'douyin' ? '等级 ' : 'Lv.';
       if (this.coinsText) this.coinsText.text = `💰 ${user.coins}`;
-      if (this.levelText) this.levelText.text = `Lv.${user.level}`;
+      if (this.levelText) this.levelText.text = `${lvlPrefix}${user.level}`;
       if (this.nameText) this.nameText.text = user.nickname;
       this.refreshLockIcons();
       // [修复] 刷新头像
@@ -379,7 +380,8 @@ export default class MenuScene extends BaseScene {
     levelBg.position.set(textX, textStartY + 60);
     container.addChild(levelBg);
 
-    const levelText = new PIXI.Text(`Lv.${user.level}`, {
+    const lvlPrefix = Platform.env === 'douyin' ? '等级 ' : 'Lv.';
+    const levelText = new PIXI.Text(`${lvlPrefix}${user.level}`, {
         fontFamily: 'Arial', fontSize: 24, fill: 0xFFFFFF, fontWeight: 'bold'
     });
     levelText.anchor.set(0.5);
