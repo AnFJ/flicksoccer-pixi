@@ -113,7 +113,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
             }
             
             if (this.onClose) this.onClose();
-            this.parent.removeChild(this);
+            if (this.parent) this.parent.removeChild(this);
         }
     });
     saveBtn.position.set(-280, btnY - 40);
@@ -123,7 +123,7 @@ export default class ThemeSelectionDialog extends PIXI.Container {
         text: '取消', width: 200, height: 80, color: 0x95a5a6,
         onClick: () => {
             if (this.onClose) this.onClose();
-            this.parent.removeChild(this);
+            if (this.parent) this.parent.removeChild(this);
         }
     });
     cancelBtn.position.set(80, btnY - 40);

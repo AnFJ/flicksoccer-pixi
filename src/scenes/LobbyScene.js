@@ -162,7 +162,7 @@ export default class LobbyScene extends BaseScene {
           text: '继续游戏', width: btnWidth, height: 90, color: 0x2ecc71,
           onClick: () => {
               // 移除对话框
-              this.container.removeChild(dialog);
+              if (this.container) this.container.removeChild(dialog);
               // 进入房间
               this.joinRoom(roomId);
           }
@@ -177,7 +177,7 @@ export default class LobbyScene extends BaseScene {
               // 1. 清除本地缓存
               Platform.removeStorage('last_room_id');
               // 2. 移除对话框
-              this.container.removeChild(dialog);
+              if (this.container) this.container.removeChild(dialog);
               // 3. 初始化正常大厅 UI
               this.initNormalLobby(w, h);
           }

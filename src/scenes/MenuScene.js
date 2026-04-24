@@ -167,7 +167,12 @@ export default class MenuScene extends BaseScene {
                   } else {
                       UserBehaviorMgr.log('GAME', '解锁模式失败', { mode: modeKey });
                   }
-              }
+              },
+              () => {
+                  UserBehaviorMgr.log('GAME', '解锁模式取消', { mode: modeKey });
+              },
+              "观看视频",
+              "取消"
           );
           this.container.addChild(dialog);
       }

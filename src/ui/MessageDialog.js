@@ -8,13 +8,16 @@ export default class MessageDialog extends PIXI.Container {
    * @param {string} title 标题
    * @param {string} message 内容
    * @param {Function} onConfirm 确认回调
+   * @param {Function} onCancel 取消回调 (可选，若提供则显示取消按钮)
+   * @param {string} confirmText 确认按钮文字 (默认: 确定)
+   * @param {string} cancelText 取消按钮文字 (默认: 取消)
    */
-  constructor(title, message, onConfirm) {
+  constructor(title, message, onConfirm, onCancel = null, confirmText = '确定', cancelText = '取消') {
     super();
-    this.init(title, message, onConfirm);
+    this.init(title, message, onConfirm, onCancel, confirmText, cancelText);
   }
 
-  init(title, message, onConfirm) {
+  init(title, message, onConfirm, onCancel, confirmText, cancelText) {
     const { designWidth, designHeight } = GameConfig;
     
     // 1. 全屏遮罩 (阻挡点击)
@@ -51,19 +54,43 @@ export default class MessageDialog extends PIXI.Container {
     msgText.position.set(0, 0);
     box.addChild(msgText);
 
-    // 5. 确认按钮
-    const btnW = 200;
-    const btn = new Button({
-        text: '确定', width: btnW, height: 80, color: 0x2ecc71,
-        onClick: () => {
-            if (this.parent) {
-                this.parent.removeChild(this);
+    // 5. 按钮构造
+    const btnW = 220;
+    const btnH = 80;
+    const gap = 40;
+
+    if (onCancel) {
+        // 双按钮模式
+        const confirmBtn = new Button({
+            text: confirmText, width: btnW, height: btnH, color: 0x2ecc71,
+            onClick: () => {
+                this.destroy();
+                if (onConfirm) onConfirm();
             }
-            if (onConfirm) onConfirm();
-        }
-    });
-    // [修复] 按钮居中: x = -width/2
-    btn.position.set(-btnW / 2, 120);
-    box.addChild(btn);
+        });
+        confirmBtn.position.set(gap / 2, 120);
+        box.addChild(confirmBtn);
+
+        const cancelBtn = new Button({
+            text: cancelText, width: btnW, height: btnH, color: 0x95a5a6,
+            onClick: () => {
+                this.destroy();
+                if (onCancel) onCancel();
+            }
+        });
+        cancelBtn.position.set(-btnW - gap / 2, 120);
+        box.addChild(cancelBtn);
+    } else {
+        // 单按钮模式 (保持原样但在文字上支持自定义)
+        const btn = new Button({
+            text: confirmText, width: btnW, height: btnH, color: 0x2ecc71,
+            onClick: () => {
+                this.destroy();
+                if (onConfirm) onConfirm();
+            }
+        });
+        btn.position.set(-btnW / 2, 120);
+        box.addChild(btn);
+    }
   }
 }

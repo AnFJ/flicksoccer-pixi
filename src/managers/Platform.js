@@ -820,17 +820,17 @@ class Platform {
               }
 
               if (adInstance) {
-                  // [优化] 增加更健壮的错误处理
+                  // [优化] 恢复并加强报错日志，方便调试抖音 ID 状态
                   adInstance.onError(err => {
-                      // 屏蔽常规的加载错误日志
-                      // console.log('[Platform] Ad load error:', err);
+                      console.error(`[Platform] Ad load error (${adUnitId}):`, err);
+                      // 抖音环境下如果是 1004 代表无填充，1002 代表 ID 错误
                   });
                   
                   // show() 返回 Promise，catch 避免未捕获异常
                   const showPromise = adInstance.show();
                   if (showPromise && showPromise.catch) {
                       showPromise.catch(err => {
-                          // console.log('[Platform] Ad show failed:', err);
+                          console.warn(`[Platform] Ad show failed (${adUnitId}):`, err);
                       });
                   }
                   
