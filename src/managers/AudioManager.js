@@ -51,7 +51,7 @@ class AudioManager {
 
     // 处理分包加载
     remoteAudios.forEach((item) => {
-        const path = `subpackages/static_assets/assets-origin/${item.file}`;
+        const path = `subpackages/static_assets/assets/remote-sounds/${item.file}`;
         this.registerSound(item.key, path);
     });
   }

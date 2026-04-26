@@ -26,8 +26,11 @@ class Platform {
     // [新增] 延迟初始化插屏广告预加载 (不阻塞首屏)
     setTimeout(() => this.initInterstitialAds(), 2000);
 
-    // [新增] 广告日志缓存
     this._adLogs = [];
+    // [新增] 记录游戏开始时间，用于抖音插屏广告 30s 限制校验
+    this._gameStartTime = Date.now();
+    this._interstitialMinTime = 30000; // 抖音要求进入游戏 30s 后才能展示插屏广告
+    
     // [新增] 监听应用隐藏/退出事件，进行上报
     this.registerLifecycleListeners();
   }
@@ -661,14 +664,31 @@ class Platform {
           const winW = sysInfo.windowWidth;
           const winH = sysInfo.windowHeight;
 
-          // 默认样式
+          // 计算 Laya 引擎坐标到系统逻辑像素的缩放比例
+          const scaleX = winW / GameConfig.designWidth;
+          const scaleY = winH / GameConfig.designHeight;
+
           let finalStyle = { ...style };
           let ad = null;
           let adW = finalStyle.width || 300; 
 
-          // 根据预设位置自动计算坐标
+          // 坐标转换逻辑：如果数值看起来是引擎坐标（大于系统的逻辑像素范围），则进行缩放
+          const needsScale = (val) => typeof val === 'number' && val > (Math.max(winW, winH) + 50); 
+
+          if (needsScale(adW)) adW *= scaleX;
+          if (needsScale(finalStyle.left)) finalStyle.left *= scaleX;
+          if (needsScale(finalStyle.top)) finalStyle.top *= scaleY;
+
+          // 针对抖音：宽度必须在 300-1000 逻辑像素之间
+          if (this.env === 'douyin') {
+              if (adW < 300) adW = 300;
+              if (adW > 1000) adW = 1000;
+          }
+          finalStyle.width = adW;
+
+          // 根据预设位置自动计算坐标 (逻辑像素)
           if (position) {
-              const adH = adW * (7/20); 
+              const adH = adW * (7/20); // 预估高度比
 
               switch (position) {
                   case 'bottom_center':
@@ -692,31 +712,42 @@ class Platform {
                       finalStyle.top = (winH - adH) / 2;
                       break;
                   case 'left_top':
-                      finalStyle.left = -10;
-                      finalStyle.top = -5;
+                      finalStyle.left = 10;
+                      finalStyle.top = 20; 
                       break;
                   case 'right_top':
-                      finalStyle.left = winW - adW + 10;
-                      finalStyle.top = -5;
+                      finalStyle.left = winW - adW - 10;
+                      finalStyle.top = 20;
                       break;
               }
           }
 
-          // 优先尝试 createCustomAd (原生模板广告)
-          if (provider.createCustomAd) {
-              ad = provider.createCustomAd({
-                  adUnitId: adUnitId,
-                  style: finalStyle
-              });
-          } else if (provider.createBannerAd) {
-              // 兼容降级为 Banner 广告 (特别是老版本或不支持 Custom 的环境)
-              ad = provider.createBannerAd({
-                  adUnitId: adUnitId,
-                  style: finalStyle
-              });
-              
+          const createAd = () => {
+              if (provider.createCustomAd) {
+                  try {
+                      return provider.createCustomAd({ adUnitId: adUnitId, style: finalStyle });
+                  } catch (e) { 
+                      console.warn('[Platform] createCustomAd failed:', e);
+                      return null; 
+                  }
+              }
+              return null;
+          };
+
+          ad = createAd();
+
+          // 降级策略
+          if (!ad && provider.createBannerAd) {
+              try {
+                  ad = provider.createBannerAd({ adUnitId: adUnitId, style: finalStyle });
+              } catch (e) {
+                  console.warn('[Platform] Banner creation fallback failed', e);
+              }
+          }
+
+          if (ad) {
+              // 抖音/低版本微信 Banner 可能需要重调位置
               if (this.env === 'douyin' || !provider.createCustomAd) {
-                // 抖音/低版本微信 Banner 可能需要重调位置
                 ad.onResize(size => {
                     if (position === 'bottom_center') {
                         ad.style.left = (winW - size.width) / 2;
@@ -727,45 +758,43 @@ class Platform {
                         ad.style.left = winW - size.width - 10;
                         ad.style.top = (winH - size.height) / 2;
                     } else if (position === 'left_top') {
-                        ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
+                        ad.style.top = 20;
                     } else if (position === 'right_top') {
                         ad.style.left = winW - size.width - 10;
-                        ad.style.top = winH * (GameConfig.dimensions.topBarHeight / GameConfig.designHeight) + 10;
+                        ad.style.top = 20;
                     }
                 });
               }
-          }
 
-          if (ad) {
               ad.onLoad(() => {
-                  console.log(`[Platform] CustomAd/Banner loaded: ${adUnitId}`);
+                  console.log(`[Platform] Ad loaded: ${adUnitId}`);
               });
 
               ad.onError((err) => {
-                  console.warn(`[Platform] CustomAd/Banner load error: ${adUnitId}`, err);
+                  console.error(`[Platform] Ad load error: ${adUnitId}`, err);
               });
-
-              ad.show().then(() => {
-                  console.log(`[Platform] CustomAd/Banner shown: ${adUnitId}`);
-                  // [新增] 记录自定义广告展示
-                  this.logAdAction({
-                      adUnitId: adUnitId,
-                      adUnitName: 'custom_ad', 
-                      adType: 'custom',
-                      isCompleted: 1,
-                      isClicked: 0,
-                      watchTime: 0
-                  });
-              }).catch(err => {
-                  console.warn(`[Platform] CustomAd/Banner show failed: ${adUnitId}`, err);
-              });
+              setTimeout(() => {
+                ad.show().then(() => {
+                  console.log(`[Platform] Ad shown: ${adUnitId}`, ad.style, ad);
+                    this.logAdAction({
+                        adUnitId: adUnitId,
+                        adUnitName: 'custom_ad', 
+                        adType: 'custom',
+                        isCompleted: 1,
+                        isClicked: 0,
+                        watchTime: 0
+                    });
+                }).catch(err => {
+                    console.error(`[Platform] Ad show failed: ${adUnitId}`, err);
+                });
+              }, 500);
+              
 
               this._gameAds.push(ad);
               return ad;
           }
-
       } catch (e) {
-          console.warn('[Platform] Create custom ad failed', e);
+          console.error('[Platform] Create custom ad failed', e);
       }
   }
 
@@ -774,6 +803,14 @@ class Platform {
       if (!adNodes || adNodes.length === 0) return;
 
       const provider = this.getProvider();
+      const sysInfo = provider.getSystemInfoSync();
+      const winW = sysInfo.windowWidth;
+      const winH = sysInfo.windowHeight;
+
+      // [新增] 计算 Laya 引擎坐标到系统逻辑像素的缩放比例
+      const scaleX = winW / GameConfig.designWidth;
+      const scaleY = winH / GameConfig.designHeight;
+
       let bannerIds = [];
       if (this.env === 'wechat') bannerIds = GameConfig.adConfig.wechat.banners || [];
       if (this.env === 'douyin') bannerIds = GameConfig.adConfig.douyin.banners || [];
@@ -789,6 +826,23 @@ class Platform {
           const bounds = node.getBounds();
           if (!bounds || bounds.width <= 0) return;
 
+          // [转换] 将 Laya 引擎坐标转换为系统逻辑像素
+          let adL = bounds.x * scaleX;
+          let adT = bounds.y * scaleY;
+          let adW = bounds.width * scaleX;
+
+          // [抖音特有限制] Banner 宽度必须在 300-1000 逻辑像素之间
+          if (this.env === 'douyin') {
+              if (adW < 300) {
+                  const diff = 300 - adW;
+                  adW = 300;
+                  adL -= diff / 2; // 尝试居中
+              }
+              // 边缘检查
+              if (adL < 0) adL = 0;
+              if (adL + adW > winW) adL = winW - adW;
+          }
+
           try {
               let adInstance = null;
 
@@ -796,9 +850,9 @@ class Platform {
                   adInstance = provider.createCustomAd({
                       adUnitId: adUnitId,
                       style: {
-                          left: bounds.x,
-                          top: bounds.y,
-                          width: bounds.width, 
+                          left: adL,
+                          top: adT,
+                          width: adW, 
                           fixed: true 
                       }
                   });
@@ -807,15 +861,17 @@ class Platform {
                   adInstance = provider.createBannerAd({
                       adUnitId: adUnitId,
                       style: {
-                          left: bounds.x,
-                          top: bounds.y,
-                          width: bounds.width
+                          left: adL,
+                          top: adT,
+                          width: adW
                       }
                   });
                   adInstance.onResize(size => {
-                      const offsetY = (bounds.height - size.height) / 2;
-                      adInstance.style.top = bounds.y + offsetY;
-                      adInstance.style.left = bounds.x + (bounds.width - size.width) / 2;
+                      // 垂直居中修正 (对齐占位节点中心)
+                      const targetT = adT + (bounds.height * scaleY - size.height) / 2;
+                      const targetL = adL + (adW - size.width) / 2;
+                      adInstance.style.top = targetT;
+                      adInstance.style.left = targetL;
                   });
               }
 
@@ -900,6 +956,17 @@ class Platform {
           return false;
       }
 
+      // [新增] 抖音小游戏插屏广告 30s 限制校验
+      if (this.env === 'douyin') {
+          const timeElapsed = Date.now() - this._gameStartTime;
+          if (timeElapsed < this._interstitialMinTime) {
+              const remaining = Math.ceil((this._interstitialMinTime - timeElapsed) / 1000);
+              console.warn(`[Platform] 抖音插屏广告需在进入游戏 30s 后才能展示，还剩 ${remaining}s。此次展示已取消。`);
+              // 如果只剩最后几秒（如 5s 内），可以考虑设置一个延时任务，但这里先简单拦截掉
+              return false;
+          }
+      }
+
       // 1. 尝试获取预加载的实例，如果没有则创建
       if (!this._interstitialAds[adUnitId]) {
           this.preloadInterstitialAd(adUnitId);
@@ -955,6 +1022,26 @@ class Platform {
           const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.startup : null;
 
           if (adUnitId) {
+              // [优化] 如果是抖音环境，确保至少 30s 后才尝试首次弹出
+              if (this.env === 'douyin') {
+                  const timeElapsed = Date.now() - this._gameStartTime;
+                  const delay = Math.max(0, this._interstitialMinTime - timeElapsed + 500); // 额外加 500ms 缓冲
+                  
+                  this.showCustomAd(adConfig.custom.menu_banner, { width: 700 }, 'bottom_center');
+                  if (delay > 0) {
+                      console.log(`[Platform] 抖音启动插屏将在 ${Math.ceil(delay/1000)}s 后展示...`);
+                      setTimeout(() => {
+                          this.showInterstitialAd(adUnitId).then(success => {
+                              if (success) {
+                                  this.setStorage('last_daily_interstitial_date', todayStr);
+                                  console.log('[Platform] Delayed daily interstitial shown.');
+                              }
+                          });
+                      }, delay);
+                      return;
+                  }
+              }
+
               this.showInterstitialAd(adUnitId).then(success => {
                   if (success) {
                       this.setStorage('last_daily_interstitial_date', todayStr);

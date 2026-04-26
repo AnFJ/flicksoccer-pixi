@@ -119,7 +119,7 @@ export default class ResultScene extends BaseScene {
             // 插屏关闭后 (或失败后)，延迟 0.5s 展示 Custom Ad
             setTimeout(() => {
                 if (this.container && !this.container.destroyed) {
-                    if (adConfig && adConfig.custom) {
+                    if (adConfig && adConfig.custom && Platform.env !== 'douyin') {
                         Platform.showCustomAd(adConfig.custom.result_left, { width: 300 }, 'left_top');
                         Platform.showCustomAd(adConfig.custom.result_right, { width: 300 }, 'right_top');
                     }
