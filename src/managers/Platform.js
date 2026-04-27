@@ -527,9 +527,18 @@ class Platform {
         return new Promise((resolve, reject) => {
             provider.login({
                 success: (res) => {
+                    // 获取场景值
+                    let scene = null;
+                    if (provider.getLaunchOptionsSync) {
+                        try {
+                            const options = provider.getLaunchOptionsSync();
+                            scene = options ? options.scene : null;
+                        } catch (e) {}
+                    }
                     resolve({ 
                         type: this.env, 
-                        code: res.code 
+                        code: res.code,
+                        scene: scene
                     });
                 },
                 fail: (err) => {

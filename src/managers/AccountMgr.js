@@ -97,6 +97,10 @@ class AccountMgr {
           if (userInfoToSync) {
               payload.userInfo = userInfoToSync;
           }
+          // [新增] 场景值上报
+          if (creds.scene) {
+              payload.scene = creds.scene;
+          }
           userData = await NetworkMgr.post('/api/login/minigame', payload);
       }
 
@@ -125,6 +129,7 @@ class AccountMgr {
       this.userInfo.id = data.user_id;
       this.userInfo.nickname = data.nickname;
       this.userInfo.avatarUrl = data.avatar_url;
+      this.userInfo.scene = data.scene || null; // [新增] 场景值
       
       // [新增] 如果没有头像，分配一个随机头像
       if (!this.userInfo.avatarUrl) {

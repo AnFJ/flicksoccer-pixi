@@ -212,7 +212,7 @@ export default {
 
       // --- 3. 小游戏登录 (微信/抖音) ---
       if (path === '/api/login/minigame' && request.method === 'POST') {
-        const { platform, code, userInfo } = await request.json();
+        const { platform, code, userInfo, scene } = await request.json();
         if (!code || !platform) return response({ error: 'Missing code or platform' }, 400);
 
         let openId = null;
@@ -243,13 +243,14 @@ export default {
             theme: JSON.stringify(INITIAL_THEME),
             unlocked_themes: JSON.stringify(INITIAL_UNLOCKED),
             match_stats: JSON.stringify(INITIAL_MATCH_STATS),
-            daily_unlocks: JSON.stringify(INITIAL_DAILY_UNLOCKS) // [新增]
+            daily_unlocks: JSON.stringify(INITIAL_DAILY_UNLOCKS), // [新增]
+            scene: scene ? String(scene) : null // [新增]
           };
-
+  
           await env.DB.prepare(
-            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats, daily_unlocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats, user.daily_unlocks).run();
-
+            'INSERT INTO users (user_id, platform, nickname, avatar_url, level, coins, items, checkin_history, theme, unlocked_themes, match_stats, daily_unlocks, scene) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(user.user_id, user.platform, user.nickname, user.avatar_url, user.level, user.coins, user.items, user.checkin_history, user.theme, user.unlocked_themes, user.match_stats, user.daily_unlocks, user.scene).run();
+  
           user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
 
         } else {
@@ -293,6 +294,14 @@ export default {
             user.daily_unlocks = JSON.stringify(INITIAL_DAILY_UNLOCKS);
             updateSqlParts.push("daily_unlocks = ?");
             updateArgs.push(user.daily_unlocks);
+            needsUpdate = true;
+          }
+          
+          // [新增] 补充场景值 (如果之前没有)
+          if (!user.scene && scene) {
+            user.scene = String(scene);
+            updateSqlParts.push("scene = ?");
+            updateArgs.push(user.scene);
             needsUpdate = true;
           }
           
@@ -434,6 +443,7 @@ export default {
           const pageSize = parseInt(params.get('pageSize') || '10');
           const nickname = params.get('nickname');
           const platform = params.get('platform');
+          const scene = params.get('scene');
           const level = params.get('level');
           const orderBy = params.get('orderBy');
           const startDate = params.get('startDate');
@@ -449,6 +459,10 @@ export default {
           if (platform) {
               whereClause += ' AND platform = ?';
               args.push(platform);
+          }
+          if (scene) {
+              whereClause += ' AND scene = ?';
+              args.push(scene);
           }
           if (level) {
               whereClause += ' AND level = ?';
@@ -523,9 +537,10 @@ export default {
               todayReg: todayReg.count,
               yesterdayReg: yesterdayReg.count,
               todayActive: todayActive.count,
-              yesterdayActive: yesterdayActive.count
-          });
-      }
+              yesterdayActive: yesterdayActive.count,
+            sceneStats: (await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all()).results
+        });
+    }
 
       // --- 7. 广告上报与统计 ---
       

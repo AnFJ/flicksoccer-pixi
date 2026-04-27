@@ -142,6 +142,17 @@
                                 </el-card>
                             </el-col>
                         </el-row>
+
+                        <h3>场景值分布</h3>
+                        <el-row :gutter="20">
+                            <el-col :span="6" v-for="(item, idx) in statsData.sceneStats" :key="idx">
+                                <el-card class="stat-card">
+                                    <div class="stat-label">{{ item.platform === 'wechat' ? '微信' : '抖音' }}: {{ item.scene }}</div>
+                                    <div class="stat-value">{{ item.count }}</div>
+                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">{{ getSceneDesc(item.scene, item.platform) }}</div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
                     </div>
 
                     <!-- 账号统计 Tab -->
@@ -153,6 +164,7 @@
                                 <el-option label="微信" value="wechat"></el-option>
                                 <el-option label="抖音" value="douyin"></el-option>
                             </el-select>
+                            <el-input v-model="userFilter.scene" placeholder="场景值" style="width: 120px;" clearable @clear="fetchUsers"></el-input>
                             <el-input v-model="userFilter.level" placeholder="等级" style="width: 100px;" clearable @clear="fetchUsers"></el-input>
                             <el-select v-model="userFilter.orderBy" placeholder="排序" style="width: 150px;" clearable @clear="fetchUsers">
                                 <el-option label="默认排序" value=""></el-option>
@@ -179,6 +191,13 @@
                             </el-table-column>
                             <el-table-column prop="nickname" label="昵称" width="150"></el-table-column>
                             <el-table-column prop="platform" label="平台" width="100"></el-table-column>
+                            <el-table-column prop="scene" label="场景值" width="120">
+                                <template #default="scope">
+                                    <el-tooltip :content="getSceneDesc(scope.row.scene, scope.row.platform)" placement="top">
+                                        <span>{{ scope.row.scene || '-' }}</span>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
                             <el-table-column prop="level" label="等级" width="80"></el-table-column>
                             <el-table-column prop="coins" label="金币" width="100"></el-table-column>
                             <el-table-column prop="created_at" label="注册时间" width="180"></el-table-column>
@@ -420,6 +439,7 @@
                 const statsData = reactive({
                     totalUsers: 0,
                     platformStats: [],
+                    sceneStats: [],
                     todayReg: 0,
                     yesterdayReg: 0,
                     todayActive: 0,
@@ -433,6 +453,7 @@
                 const userFilter = reactive({
                     nickname: '',
                     platform: '',
+                    scene: '',
                     level: '',
                     orderBy: '',
                     dateRange: []
@@ -533,6 +554,7 @@
                         });
                         if (userFilter.nickname) params.append('nickname', userFilter.nickname);
                         if (userFilter.platform) params.append('platform', userFilter.platform);
+                        if (userFilter.scene) params.append('scene', userFilter.scene);
                         if (userFilter.level) params.append('level', userFilter.level);
                         if (userFilter.orderBy) params.append('orderBy', userFilter.orderBy);
                         if (userFilter.dateRange && userFilter.dateRange.length === 2) {
@@ -740,6 +762,30 @@
                     }
                 };
 
+                const getSceneDesc = (scene, platform) => {
+                    if (!scene) return '未知';
+                    const s = String(scene);
+                    const wxScenes = {
+                        '1001': '主栏目历史', '1005': '顶部搜索框', '1006': '搜索结果', '1007': '单人聊天会话',
+                        '1008': '群聊会话', '1011': '扫描二维码', '1012': '长按图片识别二维码', '1013': '手机相册识别二维码',
+                        '1014': '小程序订阅消息', '1019': '微信钱包', '1020': '公众号详情页', '1023': '安卓系统桌面图标',
+                        '1024': '小程序个人中心', '1025': '扫描一维码', '1030': '自动化测试', '1031': '长按图片识别一维码',
+                        '1032': '手机相册识别一维码', '1035': '公众号自定义菜单', '1036': 'App分享', '1037': '小程序分享',
+                        '1038': '从另一个小程序返回', '1043': '公众号模板消息', '1044': '带 shareTicket 的群聊会话',
+                        '1047': '扫描小程序码', '1048': '长按图片识别小程序码', '1049': '手机相册识别小程序码',
+                        '1053': '公众号文章', '1089': '微信聊天主界面下拉', '1090': '长按小程序列表进入',
+                        '1102': '公众号文章广告', '1103': '发现栏小程序主入口我的小程序', '1104': '微信聊天主界面下拉任务栏我的小程序'
+                    };
+                    const ttScenes = {
+                        '011004': '侧边栏', '011016': '收藏', '011002': '搜索', '021001': '小程序入口',
+                        '011007': '任务栏', '011001': '会话', '011003': '扫码', '011005': '其他小程序',
+                        '011006': '生活服务', '011008': '扫码入口'
+                    };
+                    if (platform === 'wechat') return wxScenes[s] || '微信场景 ' + s;
+                    if (platform === 'douyin') return ttScenes[s] || '抖音场景 ' + s;
+                    return '场景 ' + s;
+                };
+
                 onMounted(() => {
                     if (localStorage.getItem('admin_logged_in') === 'true') {
                         isLoggedIn.value = true;
@@ -783,6 +829,7 @@
                     formatJson,
                     getUnlockedThemeIds,
                     getSkillCount,
+                    getSceneDesc,
                     behaviorList,
                     behaviorFilter,
                     behaviorLoading,
