@@ -44,6 +44,7 @@ import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 export default class GameScene extends BaseScene {
   constructor() {
     super();
+    this.sceneName = 'GameScene';
     this.physics = new PhysicsEngine();
     
     this.layout = new GameLayout(this);

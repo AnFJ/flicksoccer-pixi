@@ -1233,21 +1233,25 @@ class Platform {
       try {
           // 尝试从全局获取 SceneManager
           const sm = (typeof window !== 'undefined' ? window.SceneManager : null);
-          if (!sm || !sm.currentScene) return true;
+          if (!sm || !sm.currentScene) {
+              console.log('[Platform] No SceneManager or currentScene found, assuming safe.');
+              return true;
+          }
           
           const scene = sm.currentScene;
-          const sceneName = scene.constructor.name || '';
+          // 增加多种方式获取场景名，防止混淆
+          const sceneName = scene.sceneName || (scene.constructor ? scene.constructor.name : '') || '';
           
-          // 如果在游戏场景或直播/比赛场景中，认为是不安全的
-          const unsafeKeywords = ['GameScene', 'LiveFlickScene', 'MatchScene'];
-          const isUnsafe = unsafeKeywords.some(key => sceneName.includes(key));
+          // 如果在游戏场景、结算场景或直播/比赛场景中，认为是不安全的
+          const unsafeKeywords = ['GameScene', 'ResultScene', 'LiveFlickScene', 'MatchScene', 'Game', 'Play', 'Battle'];
+          const isUnsafe = unsafeKeywords.some(key => sceneName.toLowerCase().includes(key.toLowerCase()));
           
-          if (isUnsafe) {
-              console.log(`[Platform] Current scene (${sceneName}) is unsafe for interstitial.`);
-          }
+          console.log(`[Platform] Scene detection: name="${sceneName}", isUnsafe=${isUnsafe}`);
+          
           return !isUnsafe;
       } catch (e) {
-          return true; // 发生异常时默认允许，避免逻辑阻塞
+          console.error('[Platform] isSafeForInterstitial error:', e);
+          return true; // 发生异常时默认允许
       }
   }
 

@@ -19,6 +19,7 @@ import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 export default class ResultScene extends BaseScene {
     constructor() {
         super();
+        this.sceneName = 'ResultScene';
         this.params = {};
         this.confetti = []; // 粒子数组
         this.elapsed = 0;

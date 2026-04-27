@@ -25,8 +25,9 @@ import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 import LiveFlickScene from '../subpackages/live_flick/scenes/LiveFlickScene.js';
 
 export default class MenuScene extends BaseScene {
-  onEnter() {
-    super.onEnter();
+  onEnter(params) {
+    super.onEnter(params);
+    this.sceneName = 'MenuScene';
     UserBehaviorMgr.log('SYSTEM', '进入菜单页');
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;

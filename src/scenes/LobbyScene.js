@@ -17,6 +17,7 @@ import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 export default class LobbyScene extends BaseScene {
   constructor() {
     super();
+    this.sceneName = 'LobbyScene';
     this.inputDisplay = null;
     this.roomNumber = "";
     this.loadingText = null;

@@ -32,6 +32,7 @@ import LiveFlickRules from '../core/LiveFlickRules.js';
 export default class LiveFlickScene extends BaseScene {
   constructor() {
     super();
+    this.sceneName = 'LiveFlickScene';
     this.physics = new PhysicsEngine();
     
     this.layout = new GameLayout(this);

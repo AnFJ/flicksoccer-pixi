@@ -19,6 +19,7 @@ import ResourceManager from '../managers/ResourceManager.js';
 export default class RoomScene extends BaseScene {
   constructor() {
     super();
+    this.sceneName = 'RoomScene';
     this.players = [];
     this.readyBtn = null;
     this.formationBtn = null;
