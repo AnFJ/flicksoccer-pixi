@@ -30,6 +30,7 @@ class Platform {
     // [新增] 记录游戏开始时间，用于抖音插屏广告 30s 限制校验
     this._gameStartTime = Date.now();
     this._interstitialMinTime = 30000; // 抖音要求进入游戏 30s 后才能展示插屏广告
+    this._pendingDailyInterstitial = null; // [新增] 抖音待补发的每日插屏广告
     
     // [新增] 监听应用隐藏/退出事件，进行上报
     this.registerLifecycleListeners();
@@ -1027,16 +1028,29 @@ class Platform {
                   const timeElapsed = Date.now() - this._gameStartTime;
                   const delay = Math.max(0, this._interstitialMinTime - timeElapsed + 500); // 额外加 500ms 缓冲
                   
-                  this.showCustomAd(adConfig.custom.menu_banner, { width: 700 }, 'bottom_center');
+                  // [修复] 增加 banner 展示频率控制，避免重复显示
+                  const lastBannerDate = this.getStorage('last_menu_banner_date');
+                  if (lastBannerDate !== todayStr) {
+                      this.showCustomAd(adConfig.custom.menu_banner, { width: 700 }, 'bottom_center');
+                      this.setStorage('last_menu_banner_date', todayStr);
+                  }
+                  
                   if (delay > 0) {
                       console.log(`[Platform] 抖音启动插屏将在 ${Math.ceil(delay/1000)}s 后展示...`);
                       setTimeout(() => {
-                          this.showInterstitialAd(adUnitId).then(success => {
-                              if (success) {
-                                  this.setStorage('last_daily_interstitial_date', todayStr);
-                                  console.log('[Platform] Delayed daily interstitial shown.');
-                              }
-                          });
+                          // 延迟到期后，检查当前场景是否适合展示
+                          if (this.isSafeForInterstitial()) {
+                              this.showInterstitialAd(adUnitId).then(success => {
+                                  if (success) {
+                                      this.setStorage('last_daily_interstitial_date', todayStr);
+                                      console.log('[Platform] Delayed daily interstitial shown.');
+                                  }
+                              });
+                          } else {
+                              // 如果不安全（在游戏中），记录下来，等回到菜单再展示
+                              console.log('[Platform] Current scene not safe for interstitial, pending...');
+                              this._pendingDailyInterstitial = { adUnitId, date: todayStr };
+                          }
                       }, delay);
                       return;
                   }
@@ -1200,6 +1214,58 @@ class Platform {
             this.showToast('请使用浏览器自带分享功能');
         }
     }
+  }
+
+  /**
+   * [新增] 检查当前场景是否适合展示插屏广告
+   * 避开游戏场景，防止打断玩家操作
+   */
+  isSafeForInterstitial() {
+      try {
+          // 尝试从全局获取 SceneManager
+          const sm = (typeof window !== 'undefined' ? window.SceneManager : null);
+          if (!sm || !sm.currentScene) return true;
+          
+          const scene = sm.currentScene;
+          const sceneName = scene.constructor.name || '';
+          
+          // 如果在游戏场景或直播/比赛场景中，认为是不安全的
+          const unsafeKeywords = ['GameScene', 'LiveFlickScene', 'MatchScene'];
+          const isUnsafe = unsafeKeywords.some(key => sceneName.includes(key));
+          
+          if (isUnsafe) {
+              console.log(`[Platform] Current scene (${sceneName}) is unsafe for interstitial.`);
+          }
+          return !isUnsafe;
+      } catch (e) {
+          return true; // 发生异常时默认允许，避免逻辑阻塞
+      }
+  }
+
+  /**
+   * [新增] 尝试补发之前被拦截的每日插屏 (针对抖音 30s 限制)
+   * 通常在切换到菜单或结算页时由外部调用
+   */
+  tryShowPendingInterstitial() {
+      if (this.env !== 'douyin' || !this._pendingDailyInterstitial) return;
+      
+      const { adUnitId, date } = this._pendingDailyInterstitial;
+      const todayStr = new Date().toDateString();
+      
+      // 只有同一天且场景安全才尝试补发
+      if (date === todayStr && this.isSafeForInterstitial()) {
+          console.log('[Platform] Consuming pending daily interstitial...');
+          this.showInterstitialAd(adUnitId).then(success => {
+              if (success) {
+                  this.setStorage('last_daily_interstitial_date', todayStr);
+                  this._pendingDailyInterstitial = null;
+                  console.log('[Platform] Pending daily interstitial shown.');
+              }
+          });
+      } else if (date !== todayStr) {
+          // 过期清空
+          this._pendingDailyInterstitial = null;
+      }
   }
 }
 

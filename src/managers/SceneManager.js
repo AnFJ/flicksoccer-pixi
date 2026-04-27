@@ -1,10 +1,16 @@
 
 import { GameConfig } from '../config.js';
+import Platform from './Platform.js';
 
 class SceneManager {
   constructor() {
     this.app = null;
     this.currentScene = null;
+    
+    // [新增] 暴露实例到全局，方便 Platform 判断当前场景
+    if (typeof window !== 'undefined') {
+        window.SceneManager = this;
+    }
   }
 
   /**
@@ -63,6 +69,9 @@ class SceneManager {
 
     // 生命周期，传入参数
     scene.onEnter(params);
+
+    // [新增] 针对抖音：如果有待显示的每日首次插屏，尝试在此刻展示（确保环境安全）
+    Platform.tryShowPendingInterstitial();
   }
 
   /**
