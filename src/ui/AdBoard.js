@@ -2,22 +2,22 @@
 import * as PIXI from 'pixi.js';
 import { GameConfig } from '../config.js';
 import Platform from '../managers/Platform.js';
+import AdManager from '../managers/AdManager.js';
 
 export default class AdBoard extends PIXI.Container {
   /**
    * @param {number} width 宽
    * @param {number} height 高
-   * @param {number} index 索引(用于决定颜色)
+   * @param {number} index 索引 (0:左侧, 1:右侧)
    */
   constructor(width, height, index) {
     super();
     this.boardWidth = width;
     this.boardHeight = height;
     this.index = index;
+    this.positionTag = index === 0 ? 'left' : 'right';
     
-    // 从配置中获取对应的广告数据
-    const adConfig = GameConfig.visuals.ui.adBoardConfig || [];
-    this.adData = adConfig[index % adConfig.length];
+    this.currentAdData = null; // 当前正在展示的广告配置项
 
     this.bgGraphics = null;     // 背景层
     this.imageSprite = null;    // 图片层
@@ -26,11 +26,8 @@ export default class AdBoard extends PIXI.Container {
 
     this.init();
     
-    // 初始化后立即开始异步加载图片，不阻塞主线程
-    this.loadRemoteImage();
-    
-    // 初始化交互
-    this.initInteraction();
+    // 初始展示默认广告
+    this.updateAd('default');
   }
 
   init() {
@@ -39,23 +36,18 @@ export default class AdBoard extends PIXI.Container {
     const colors = GameConfig.visuals.ui.adBoardColors;
     const color = colors[this.index % colors.length];
 
-    // 1. 背景层 (严格填充 w * h)
+    // 1. 背景层
     this.bgGraphics = new PIXI.Graphics();
-    
-    // 简单的阴影 (向右下偏移一点点)
     this.bgGraphics.beginFill(0x000000, 0.3);
     this.bgGraphics.drawRect(-w/2 + 5, -h/2 + 5, w, h);
     this.bgGraphics.endFill();
 
-    // 板子主体底色
     this.bgGraphics.beginFill(color);
     this.bgGraphics.drawRect(-w/2, -h/2, w, h);
     this.bgGraphics.endFill();
-    
     this.addChild(this.bgGraphics);
 
-    // 2. 占位文字 (默认显示，图片加载成功后隐藏)
-    // 竖排文字处理
+    // 2. 占位文字
     const textStr = this.index === 0 ? "广\n告\n位" : "精\n选";
     this.placeholderText = new PIXI.Text(textStr, {
         fontFamily: 'Arial Black', fontSize: 32, fill: 0xffffff, align: 'center',
@@ -64,78 +56,100 @@ export default class AdBoard extends PIXI.Container {
     this.placeholderText.anchor.set(0.5);
     this.addChild(this.placeholderText);
 
-    // 3. 边框层 (始终在最上层，严格贴合边缘)
+    // 3. 边框层
     this.borderGraphics = new PIXI.Graphics();
-    // 边框画在内部，避免增加实际尺寸
     this.borderGraphics.lineStyle(4, 0xffffff, 0.8, 0); 
     this.borderGraphics.drawRect(-w/2, -h/2, w, h);
     this.addChild(this.borderGraphics);
 
-    // [优化] 移除旋转，保持竖直状态以适配 Banner/Custom 广告
     this.rotation = 0;
   }
 
+  /**
+   * 根据触发器更新广告内容
+   * @param {string} trigger 
+   */
+  async updateAd(trigger) {
+      // 1. 获取新配置
+      const adData = AdManager.getAd(trigger, this.positionTag);
+      
+      // 如果没有任何动态配置
+      if (!AdManager.hasAnyConfig() && !adData) {
+          // 这里可以执行旧的兜底逻辑
+      }
+
+      // 如果配置没变（图片链接一致），则不需要更新
+      if (this.currentAdData && adData && this.currentAdData.imageUrl === adData.imageUrl) {
+          return;
+      }
+
+      this.currentAdData = adData;
+      
+      if (adData && adData.imageUrl) {
+          await this.loadRemoteImage(adData.imageUrl);
+      } else {
+          // 如果没有动态配置，尝试回退到本地 Config 兜底 (旧逻辑)
+          const localConfigs = GameConfig.visuals.ui.adBoardConfig || [];
+          const localData = localConfigs[this.index % localConfigs.length];
+          if (localData && localData.imageUrl) {
+              await this.loadRemoteImage(localData.imageUrl);
+              this.currentAdData = localData;
+          }
+      }
+
+      this.initInteraction();
+  }
+
   initInteraction() {
-      // 如果配置了 AppID，说明这是个可跳转的广告位
-      if (this.adData && this.adData.targetAppId) {
+      // 重置交互
+      this.interactive = false;
+      this.buttonMode = false;
+      this.removeAllListeners('pointerdown');
+      this.removeAllListeners('pointerup');
+      this.removeAllListeners('pointerupoutside');
+
+      // 只要有动态配置或静态跳转配置
+      const appId = this.currentAdData?.appId || this.currentAdData?.targetAppId;
+      if (appId) {
           this.interactive = true;
-          this.buttonMode = true; // 鼠标手型(Web有效)
+          this.buttonMode = true;
 
-          this.on('pointerdown', () => {
-              this.scale.set(0.95);
-          });
-
+          this.on('pointerdown', () => { this.scale.set(0.95); });
           this.on('pointerup', () => {
               this.scale.set(1.0);
-              // 执行跳转
-              Platform.navigateToMiniProgram(this.adData.targetAppId, this.adData.path);
+              Platform.navigateToMiniProgram(appId, this.currentAdData.path);
           });
-          
-          this.on('pointerupoutside', () => {
-              this.scale.set(1.0);
-          });
+          this.on('pointerupoutside', () => { this.scale.set(1.0); });
       }
   }
 
-  async loadRemoteImage() {
-    if (!this.adData || !this.adData.imageUrl) return;
-    const url = this.adData.imageUrl;
-
+  async loadRemoteImage(url) {
     try {
-        // 异步加载纹理
         const texture = await PIXI.Texture.fromURL(url);
-        
-        // 如果组件已经被销毁，停止后续操作
-        // @ts-ignore
         if (this._destroyed) return;
 
-        // 创建 Sprite
+        // 清理旧图片
+        if (this.imageSprite) {
+            this.removeChild(this.imageSprite);
+            this.imageSprite.destroy();
+        }
+
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
-
-        // [优化] 设置尺寸填满整个广告牌，不留边距
         sprite.width = this.boardWidth;
         sprite.height = this.boardHeight;
 
-        // 插入层级：背景之上，边框之下
-        // 现在的 children 顺序是: [0:Bg, 1:Text, 2:Border]
-        
-        // 隐藏占位文字
         if (this.placeholderText) {
             this.placeholderText.visible = false;
         }
 
         this.imageSprite = sprite;
-        
-        // 找到 borderGraphics 的索引，确保插入在它之前
         const borderIndex = this.getChildIndex(this.borderGraphics);
         this.addChildAt(sprite, borderIndex);
 
-        console.log(`[AdBoard] Loaded ad image: ${url}`);
-
+        console.log(`[AdBoard] Updated ad image: ${url}`);
     } catch (e) {
-        // 加载失败静默处理，保持显示占位文字
-        console.warn(`[AdBoard] Failed to load ad image: ${url}`, e);
+        console.warn(`[AdBoard] Failed to load ad: ${url}`, e);
     }
   }
 }

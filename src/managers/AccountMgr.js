@@ -2,6 +2,7 @@
 import Platform from './Platform.js';
 import NetworkMgr from './NetworkMgr.js';
 import EventBus from './EventBus.js';
+import AdManager from './AdManager.js';
 import { Events } from '../constants.js';
 import { LevelRewards } from '../config/RewardConfig.js'; 
 
@@ -106,6 +107,10 @@ class AccountMgr {
 
       if (userData && !userData.error) {
           this.parseUserData(userData);
+          // [新增] 初始化广告配置
+          if (userData.adConfig) {
+              AdManager.init(userData.adConfig);
+          }
           this.isLoggedIn = true;
           this.isNewUser = !!userData.is_new_user; 
           this.saveToCache();

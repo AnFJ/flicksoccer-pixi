@@ -40,6 +40,7 @@ import AIChatController from '../core/AIChatController.js';
 import AtmosphereController from '../core/AtmosphereController.js';
 
 import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
+import AdManager from '../managers/AdManager.js';
 
 export default class GameScene extends BaseScene {
   constructor() {
@@ -210,9 +211,13 @@ export default class GameScene extends BaseScene {
         this.goalBanner?.play(startText);
         AudioManager.playBGM('crowd_bg_loop'); 
 
+        // [修改] 根据当前局数更新广告位
+        const roundTrigger = `round${this.currentLevel % 3 || 3}`;
+        this._updateAdBoards(roundTrigger);
+
         // 展示场景内广告
         if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-            Platform.showGameAds(this.layout.adBoards);
+            // Platform.showGameAds(this.layout.adBoards); 
         }
     };
 
@@ -544,6 +549,10 @@ export default class GameScene extends BaseScene {
   }
 
   onGoal(data) {
+    // [修改] 进球后更新广告位
+    const trigger = data.scoreTeam === this.myTeamId ? 'goal_us' : 'goal_them';
+    this._updateAdBoards(trigger);
+    
     // 1. 如果是网络对战，委托给 NetworkCtrl 处理权威逻辑
     if (this.networkCtrl) {
         // 如果我是发送方，NetworkCtrl 会返回 false -> 继续执行 UI
@@ -666,6 +675,24 @@ export default class GameScene extends BaseScene {
     
     // [新增] 更新教程逻辑
     this._updateTutorial(delta);
+
+    // [新增] 检查氛围更新广告 (如果氛围值很高，切换到 screaming 广告)
+    if (this.atmosphereCtrl && this.atmosphereCtrl.isHighTension && !this._isScreamingAdActive) {
+        this._isScreamingAdActive = true;
+        this._updateAdBoards('screaming');
+    } else if (this.atmosphereCtrl && !this.atmosphereCtrl.isHighTension && this._isScreamingAdActive) {
+        this._isScreamingAdActive = false;
+        // 恢复到当前局数的广告
+        this._updateAdBoards(`round${this.currentLevel % 3 || 3}`);
+    }
+  }
+
+  _updateAdBoards(trigger) {
+      if (this.layout && this.layout.adBoards) {
+          this.layout.adBoards.forEach(board => {
+              board.updateAd(trigger);
+          });
+      }
   }
 
   _updateTutorial(delta) {
