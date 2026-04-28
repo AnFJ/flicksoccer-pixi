@@ -85,6 +85,10 @@
                         <el-icon><list /></el-icon>
                         <span>用户行为</span>
                     </el-menu-item>
+                    <el-menu-item index="ad_config">
+                        <el-icon><picture /></el-icon>
+                        <span>看板配置</span>
+                    </el-menu-item>
                 </el-menu>
             </div>
             
@@ -109,12 +113,22 @@
                                 <el-card class="stat-card">
                                     <div class="stat-label">今日注册</div>
                                     <div class="stat-value">{{ statsData.todayReg }}</div>
+                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+                                        <span v-for="p in statsData.todayRegByPlat" :key="p.platform" style="margin-right: 8px;">
+                                            {{ p.platform === 'wechat' ? '微信' : (p.platform === 'douyin' ? '抖音' : p.platform) }}: {{ p.count }}
+                                        </span>
+                                    </div>
                                 </el-card>
                             </el-col>
                             <el-col :span="6">
                                 <el-card class="stat-card">
                                     <div class="stat-label">今日活跃</div>
                                     <div class="stat-value">{{ statsData.todayActive }}</div>
+                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+                                        <span v-for="p in statsData.todayActiveByPlat" :key="p.platform" style="margin-right: 8px;">
+                                            {{ p.platform === 'wechat' ? '微信' : (p.platform === 'douyin' ? '抖音' : p.platform) }}: {{ p.count }}
+                                        </span>
+                                    </div>
                                 </el-card>
                             </el-col>
                         </el-row>
@@ -123,12 +137,22 @@
                                 <el-card class="stat-card">
                                     <div class="stat-label">昨日注册</div>
                                     <div class="stat-value">{{ statsData.yesterdayReg }}</div>
+                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+                                        <span v-for="p in statsData.yesterdayRegByPlat" :key="p.platform" style="margin-right: 8px;">
+                                            {{ p.platform === 'wechat' ? '微信' : (p.platform === 'douyin' ? '抖音' : p.platform) }}: {{ p.count }}
+                                        </span>
+                                    </div>
                                 </el-card>
                             </el-col>
                             <el-col :span="6">
                                 <el-card class="stat-card">
                                     <div class="stat-label">昨日活跃</div>
                                     <div class="stat-value">{{ statsData.yesterdayActive }}</div>
+                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+                                        <span v-for="p in statsData.yesterdayActiveByPlat" :key="p.platform" style="margin-right: 8px;">
+                                            {{ p.platform === 'wechat' ? '微信' : (p.platform === 'douyin' ? '抖音' : p.platform) }}: {{ p.count }}
+                                        </span>
+                                    </div>
                                 </el-card>
                             </el-col>
                         </el-row>
@@ -353,9 +377,103 @@
                             ></el-pagination>
                         </div>
                     </div>
+
+                    <!-- 广告看板配置 Tab -->
+                    <div v-if="currentTab === 'ad_config'">
+                        <div class="filter-container">
+                            <el-button type="primary" @click="handleAddAdConfig">新增配置项</el-button>
+                            <el-button type="success" @click="saveAdConfigs">保存并发布</el-button>
+                            <span style="margin-left: 20px; color: #909399; font-size: 14px;">(保存后实时生效，同一个触发时机多个配置则随机抽取)</span>
+                        </div>
+
+                        <el-table :data="adConfigList" border style="width: 100%">
+                            <el-table-column label="图片预览" width="120">
+                                <template #default="scope">
+                                    <el-image 
+                                        style="width: 80px; height: 40px" 
+                                        :src="scope.row.imageUrl" 
+                                        fit="cover"
+                                        :preview-src-list="[scope.row.imageUrl]"
+                                        preview-teleported
+                                    >
+                                        <template #error>
+                                            <div style="font-size: 12px; color: #f56c6c;">无效图</div>
+                                        </template>
+                                    </el-image>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="position" label="展示位置" width="120">
+                                <template #default="scope">
+                                    <el-tag>{{ scope.row.position === 'left' ? '左侧广告牌' : '右侧广告牌' }}</el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="trigger" label="展示时机" width="180">
+                                <template #default="scope">
+                                    {{ getTriggerDesc(scope.row.trigger) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="appId" label="跳转小程序" width="150" show-overflow-tooltip>
+                                <template #default="scope">{{ scope.row.appId || '不跳转' }}</template>
+                            </el-table-column>
+                            <el-table-column prop="expiryDate" label="过期日期" width="130"></el-table-column>
+                            <el-table-column label="操作">
+                                <template #default="scope">
+                                    <el-button size="small" @click="handleEditAdConfig(scope.$index, scope.row)">编辑</el-button>
+                                    <el-button size="small" type="danger" @click="handleDeleteAdConfig(scope.$index)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
                 </div>
             </div>
         </div>
+
+        <!-- 广告配置编辑弹窗 -->
+        <el-dialog v-model="adConfigDialogVisible" :title="adConfigIdx === -1 ? '新增广告' : '编辑广告'" width="500px">
+            <el-form :model="adConfigForm" label-width="100px">
+                <el-form-item label="图片链接">
+                    <el-input v-model="adConfigForm.imageUrl" placeholder="WebP图链接(1024x256,透明背景)"></el-input>
+                    <div style="font-size: 12px; color: #909399;">建议使用 WebP 格式提升加载性能</div>
+                </el-form-item>
+                <el-form-item label="展示位置">
+                    <el-radio-group v-model="adConfigForm.position">
+                        <el-radio label="left">左侧</el-radio>
+                        <el-radio label="right">右侧</el-radio>
+                    </el-radio-group>
+                </el-form-item>
+                <el-form-item label="触发时机">
+                    <el-select v-model="adConfigForm.trigger" style="width: 100%;">
+                        <el-option label="默认/兜底" value="default"></el-option>
+                        <el-option label="全场呐喊(比赛焦灼)" value="screaming"></el-option>
+                        <el-option label="我方进球" value="goal_us"></el-option>
+                        <el-option label="对方进球" value="goal_them"></el-option>
+                        <el-option label="第一局展示" value="round1"></el-option>
+                        <el-option label="第二局展示" value="round2"></el-option>
+                        <el-option label="第三局展示" value="round3"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="跳转AppID">
+                    <el-input v-model="adConfigForm.appId" placeholder="wx... (留空不跳转)"></el-input>
+                </el-form-item>
+                <el-form-item label="跳转路径">
+                    <el-input v-model="adConfigForm.path" placeholder="pages/index/index"></el-input>
+                </el-form-item>
+                <el-form-item label="过期日期">
+                    <el-date-picker
+                      v-model="adConfigForm.expiryDate"
+                      type="date"
+                      placeholder="选择日期"
+                      value-format="YYYY-MM-DD"
+                      style="width: 100%;"
+                    ></el-date-picker>
+                    <div style="font-size: 12px; color: #909399;">过期后该条配置不再被前端获取</div>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="adConfigDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="confirmAdConfig">确定</el-button>
+            </template>
+        </el-dialog>
 
         <!-- 行为详情弹窗 -->
         <el-dialog v-model="behaviorDetailVisible" title="行为详情" width="70%">
@@ -493,6 +611,19 @@
                 const behaviorDetailVisible = ref(false);
                 const currentBehaviorActions = ref([]);
 
+                // 广告看板配置项
+                const adConfigList = ref([]);
+                const adConfigDialogVisible = ref(false);
+                const adConfigIdx = ref(-1);
+                const adConfigForm = reactive({
+                    imageUrl: '',
+                    position: 'left',
+                    trigger: 'default',
+                    appId: '',
+                    path: '',
+                    expiryDate: ''
+                });
+
                 // API Base URL (根据当前环境自动判断，如果是开发环境可能需要调整)
                 const API_BASE = 'https://flicksoccer.afragin.dpdns.org';
 
@@ -525,7 +656,90 @@
                         fetchAdList();
                     } else if (index === 'behavior') {
                         fetchBehavior();
+                    } else if (index === 'ad_config') {
+                        fetchAdConfigs();
                     }
+                };
+
+                // 获取后台广告配置
+                const fetchAdConfigs = async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/ad/config`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            adConfigList.value = data.list || [];
+                        }
+                    } catch (e) {
+                        ElMessage.error('获取广告配置失败');
+                    }
+                };
+
+                const handleAddAdConfig = () => {
+                    adConfigIdx.value = -1;
+                    Object.assign(adConfigForm, {
+                        imageUrl: '',
+                        position: 'left',
+                        trigger: 'default',
+                        appId: '',
+                        path: '',
+                        expiryDate: ''
+                    });
+                    adConfigDialogVisible.value = true;
+                };
+
+                const handleEditAdConfig = (index, row) => {
+                    adConfigIdx.value = index;
+                    Object.assign(adConfigForm, row);
+                    adConfigDialogVisible.value = true;
+                };
+
+                const confirmAdConfig = () => {
+                    if (!adConfigForm.imageUrl) return ElMessage.warning('请输入图片链接');
+                    if (adConfigIdx.value === -1) {
+                        adConfigList.value.push({ ...adConfigForm });
+                    } else {
+                        adConfigList.value[adConfigIdx.value] = { ...adConfigForm };
+                    }
+                    adConfigDialogVisible.value = false;
+                };
+
+                const handleDeleteAdConfig = (index) => {
+                    adConfigList.value.splice(index, 1);
+                };
+
+                const saveAdConfigs = async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/ad/config`, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-admin-auth': 'admin-secret-token' 
+                            },
+                            body: JSON.stringify({ list: adConfigList.value })
+                        });
+                        if (res.ok) {
+                            ElMessage.success('保存发布成功');
+                        } else {
+                            ElMessage.error('保存失败');
+                        }
+                    } catch (e) {
+                        ElMessage.error('网络请求失败');
+                    }
+                };
+
+                const getTriggerDesc = (trigger) => {
+                    const dict = {
+                        'default': '默认/兜底',
+                        'screaming': '全场呐喊(比赛焦灼)',
+                        'goal_us': '我方进球',
+                        'goal_them': '对方进球',
+                        'round1': '第一局',
+                        'round2': '第二局',
+                        'round3': '第三局'
+                    };
+                    return dict[trigger] || trigger;
                 };
 
                 // 获取统计数据
@@ -776,13 +990,48 @@
                         '1053': '公众号文章', '1089': '微信聊天主界面下拉', '1090': '长按小程序列表进入',
                         '1102': '公众号文章广告', '1103': '发现栏小程序主入口我的小程序', '1104': '微信聊天主界面下拉任务栏我的小程序'
                     };
-                    const ttScenes = {
-                        '011004': '侧边栏', '011016': '收藏', '011002': '搜索', '021001': '小程序入口',
-                        '011007': '任务栏', '011001': '会话', '011003': '扫码', '011005': '其他小程序',
-                        '011006': '生活服务', '011008': '扫码入口'
-                    };
+                    
                     if (platform === 'wechat') return wxScenes[s] || '微信场景 ' + s;
-                    if (platform === 'douyin') return ttScenes[s] || '抖音场景 ' + s;
+                    
+                    if (platform === 'douyin' || platform === 'tt') {
+                        // 开发者文档：字节场景值通常为6位，前两位为“宿主平台”，后四位为“入口场景”
+                        if (s.length === 6) {
+                            const hostId = s.substring(0, 2);
+                            const sceneId = s.substring(2);
+                            
+                            const hostMap = {
+                                '01': '抖音',
+                                '02': '今日头条',
+                                '03': '西瓜视频',
+                                '04': '抖音极速版',
+                                '05': '头条极速版',
+                                '06': '番茄小说',
+                                '07': '抖音小程序盒子',
+                                '08': '飞书'
+                            };
+                            
+                            const sceneMap = {
+                                '1001': '单人会话', '1002': '搜索结果页', '1003': '扫码', '1004': '侧边栏',
+                                '1005': '其他小程序跳转', '1006': '生活服务', '1007': '任务栏/我的小程序', 
+                                '1008': '二维码入口', '1011': '关注页面', '1012': '个人中心', '1013': '历史记录',
+                                '1014': '分享卡片', '1016': '收藏夹', '1017': '订阅消息', '1020': '视频锚点',
+                                '1021': '评论区置顶', '1022': '关注栏直播间', '1023': '推荐栏直播间', '1024': '拍同款',
+                                '1101': '扫码(旧)', '1102': '搜索(旧)', '1103': '收藏(旧)'
+                            };
+                            
+                            const hostName = hostMap[hostId] || '未知宿主(' + hostId + ')';
+                            const sceneName = sceneMap[sceneId] || '场景值(' + sceneId + ')';
+                            return `${hostName} - ${sceneName}`;
+                        }
+                        
+                        const ttScenes = {
+                            '011004': '抖音-侧边栏', '011016': '抖音-收藏', '011002': '抖音-搜索', '021001': '头条-入口',
+                            '011007': '抖音-任务栏', '011001': '抖音-会话', '011003': '抖音-扫码', '011005': '抖音-其他小程序',
+                            '011006': '抖音-生活服务', '011008': '抖音-扫码入口'
+                        };
+                        return ttScenes[s] || '抖音场景 ' + s;
+                    }
+                    
                     return '场景 ' + s;
                 };
 
@@ -842,7 +1091,18 @@
                     handleBehaviorPageChange,
                     showBehaviorDetails,
                     getActionCount,
-                    formatDate
+                    formatDate,
+                    adConfigList,
+                    adConfigDialogVisible,
+                    adConfigIdx,
+                    adConfigForm,
+                    fetchAdConfigs,
+                    handleAddAdConfig,
+                    handleEditAdConfig,
+                    confirmAdConfig,
+                    handleDeleteAdConfig,
+                    saveAdConfigs,
+                    getTriggerDesc
                 };
             }
         });

@@ -207,7 +207,7 @@ export default {
           }
         }
 
-        return response({ ...user, is_new_user: isNewUser });
+        return response({ ...user, is_new_user: isNewUser, adConfig: await getEffectiveAds(env) });
       }
 
       // --- 3. 小游戏登录 (微信/抖音) ---
@@ -334,7 +334,7 @@ export default {
           }
         }
 
-        return response({ ...user, is_new_user: isNewUser });
+        return response({ ...user, is_new_user: isNewUser, adConfig: await getEffectiveAds(env) });
       }
 
       // --- 4. 更新用户数据 ---
@@ -517,30 +517,42 @@ export default {
           const totalUsers = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
           
           // 各平台用户数
-          const platformStats = await env.DB.prepare('SELECT platform, COUNT(*) as count FROM users GROUP BY platform').all();
+          const platformStats = (await env.DB.prepare('SELECT platform, COUNT(*) as count FROM users GROUP BY platform').all()).results;
           
-          // 今日注册
-          const todayReg = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(created_at) = date('now', '+8 hours')").first();
-          
-          // 昨日注册
-          const yesterdayReg = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(created_at) = date('now', '+8 hours', '-1 day')").first();
-          
-          // 今日访问 (last_login)
-          const todayActive = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(last_login) = date('now', '+8 hours')").first();
-          
-          // 昨日访问
-          const yesterdayActive = await env.DB.prepare("SELECT COUNT(*) as count FROM users WHERE date(last_login) = date('now', '+8 hours', '-1 day')").first();
+          // 获取明细的辅助函数
+          const getDailyStats = async (dateModifier, field = 'created_at') => {
+              const res = await env.DB.prepare(`
+                  SELECT platform, COUNT(*) as count 
+                  FROM users 
+                  WHERE date(${field}) = date('now', '+8 hours'${dateModifier})
+                  GROUP BY platform
+              `).all();
+              return res.results;
+          };
+
+          const [todayRegByPlat, yesterdayRegByPlat, todayActiveByPlat, yesterdayActiveByPlat] = await Promise.all([
+              getDailyStats(''),
+              getDailyStats(", '-1 day'"),
+              getDailyStats('', 'last_login'),
+              getDailyStats(", '-1 day'", 'last_login')
+          ]);
+
+          const sumPlat = (list) => list.reduce((a, b) => a + b.count, 0);
 
           return response({
               totalUsers: totalUsers.count,
-              platformStats: platformStats.results,
-              todayReg: todayReg.count,
-              yesterdayReg: yesterdayReg.count,
-              todayActive: todayActive.count,
-              yesterdayActive: yesterdayActive.count,
-            sceneStats: (await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all()).results
-        });
-    }
+              platformStats,
+              todayReg: sumPlat(todayRegByPlat),
+              todayRegByPlat,
+              yesterdayReg: sumPlat(yesterdayRegByPlat),
+              yesterdayRegByPlat,
+              todayActive: sumPlat(todayActiveByPlat),
+              todayActiveByPlat,
+              yesterdayActive: sumPlat(yesterdayActiveByPlat),
+              yesterdayActiveByPlat,
+              sceneStats: (await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all()).results
+          });
+      }
 
       // --- 7. 广告上报与统计 ---
       
@@ -746,6 +758,24 @@ export default {
           });
       }
 
+      // --- 9. 广告图配置管理 ---
+      
+      // 9.1 获取全量配置
+      if (path === '/api/admin/ad/config' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+          const configsStr = await env.GAME_DATA.get('GAME_AD_CONFIGS');
+          return response({ list: JSON.parse(configsStr || '[]') });
+      }
+
+      // 9.2 修改配置
+      if (path === '/api/admin/ad/config' && request.method === 'POST') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+          const { list } = await request.json();
+          if (!Array.isArray(list)) return response({ error: 'Invalid config format' }, 400);
+          await env.GAME_DATA.put('GAME_AD_CONFIGS', JSON.stringify(list));
+          return response({ success: true });
+      }
+
       return response({ error: 'Not Found' }, 404);
 
     } catch (e) {
@@ -776,4 +806,45 @@ async function fetchDouyinSession(code, env) {
   });
   const data = await res.json();
   return data.data?.openid;
+}
+
+/**
+ * 筛选有效广告配置
+ */
+async function getEffectiveAds(env) {
+    try {
+        const configsStr = await env.GAME_DATA.get('GAME_AD_CONFIGS');
+        if (!configsStr) return null;
+        
+        const configs = JSON.parse(configsStr);
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        
+        // 1. 过滤过期项
+        const activeConfigs = configs.filter(item => {
+            return !item.expiryDate || item.expiryDate >= todayStr;
+        });
+        
+        if (activeConfigs.length === 0) return null;
+        
+        // 2. 按 trigger + position 分组并随机抽取
+        const grouped = {}; // { 'trigger_position': [configs] }
+        activeConfigs.forEach(item => {
+            const key = `${item.trigger}_${item.position}`;
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(item);
+        });
+        
+        const finalConfig = {};
+        for(let key in grouped) {
+            const list = grouped[key];
+            const selected = list[Math.floor(Math.random() * list.length)];
+            finalConfig[key] = selected;
+        }
+        
+        return finalConfig;
+    } catch (e) {
+        console.error('getEffectiveAds error:', e);
+        return null;
+    }
 }

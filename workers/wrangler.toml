@@ -47,6 +47,10 @@ WX_APP_SECRET = "0a61baa8d8274a5b8e81be80fac76ba2"
 DY_APP_ID = "tt4ace3c73d4ac0c4902"
 DY_APP_SECRET = "04891e29900176e8722a675d539787a572711e07"
 
+[[kv_namespaces]]
+binding = "GAME_DATA"
+id = "9fce907de73f495cb2c877f495ee6d5e"
+
 # 允许跨域
 [dev]
 port = 8787
