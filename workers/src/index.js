@@ -207,7 +207,7 @@ export default {
           }
         }
 
-        return response({ ...user, is_new_user: isNewUser, adConfig: await getEffectiveAds(env) });
+        return response({ ...user, is_new_user: isNewUser });
       }
 
       // --- 3. 小游戏登录 (微信/抖音) ---
@@ -334,10 +334,16 @@ export default {
           }
         }
 
-        return response({ ...user, is_new_user: isNewUser, adConfig: await getEffectiveAds(env) });
+        return response({ ...user, is_new_user: isNewUser });
       }
 
-      // --- 4. 更新用户数据 ---
+      // --- 4. 获取广告配置 (独立接口) ---
+      if (path === '/api/game/ad-config' && request.method === 'GET') {
+          const adConfig = await getEffectiveAds(env);
+          return response({ adConfig });
+      }
+
+      // --- 5. 更新用户数据 ---
       if (path === '/api/user/update' && request.method === 'POST') {
         const { userId, coins, level, items, checkinHistory, theme, unlockedThemes, dailyUnlocks } = await request.json();
 
@@ -809,7 +815,7 @@ async function fetchDouyinSession(code, env) {
 }
 
 /**
- * 筛选有效广告配置
+ * 筛选有效广告配置 (支持左右双图结构)
  */
 async function getEffectiveAds(env) {
     try {
@@ -817,29 +823,25 @@ async function getEffectiveAds(env) {
         if (!configsStr) return null;
         
         const configs = JSON.parse(configsStr);
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
         
-        // 1. 过滤过期项
-        const activeConfigs = configs.filter(item => {
-            return !item.expiryDate || item.expiryDate >= todayStr;
-        });
+        // 1. 过滤未生效项
+        const activeConfigs = configs.filter(item => item.isActive !== false);
         
         if (activeConfigs.length === 0) return null;
         
-        // 2. 按 trigger + position 分组并随机抽取
-        const grouped = {}; // { 'trigger_position': [configs] }
+        // 2. 按 trigger 分组并随机抽取
+        const grouped = {}; // { 'trigger': [configs] }
         activeConfigs.forEach(item => {
-            const key = `${item.trigger}_${item.position}`;
-            if (!grouped[key]) grouped[key] = [];
-            grouped[key].push(item);
+            const trigger = item.trigger || 'default';
+            if (!grouped[trigger]) grouped[trigger] = [];
+            grouped[trigger].push(item);
         });
         
         const finalConfig = {};
-        for(let key in grouped) {
-            const list = grouped[key];
+        for(let trigger in grouped) {
+            const list = grouped[trigger];
             const selected = list[Math.floor(Math.random() * list.length)];
-            finalConfig[key] = selected;
+            finalConfig[trigger] = selected;
         }
         
         return finalConfig;

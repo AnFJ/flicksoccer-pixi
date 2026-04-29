@@ -387,24 +387,34 @@
                         </div>
 
                         <el-table :data="adConfigList" border style="width: 100%">
-                            <el-table-column label="图片预览" width="120">
+                            <el-table-column label="左图预览" width="120">
                                 <template #default="scope">
                                     <el-image 
                                         style="width: 80px; height: 40px" 
-                                        :src="scope.row.imageUrl" 
+                                        :src="scope.row.leftImageUrl" 
                                         fit="cover"
-                                        :preview-src-list="[scope.row.imageUrl]"
+                                        :preview-src-list="[scope.row.leftImageUrl]"
                                         preview-teleported
                                     >
                                         <template #error>
-                                            <div style="font-size: 12px; color: #f56c6c;">无效图</div>
+                                            <div style="font-size: 12px; color: #f56c6c;">无左图</div>
                                         </template>
                                     </el-image>
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="position" label="展示位置" width="120">
+                            <el-table-column label="右图预览" width="120">
                                 <template #default="scope">
-                                    <el-tag>{{ scope.row.position === 'left' ? '左侧广告牌' : '右侧广告牌' }}</el-tag>
+                                    <el-image 
+                                        style="width: 80px; height: 40px" 
+                                        :src="scope.row.rightImageUrl" 
+                                        fit="cover"
+                                        :preview-src-list="[scope.row.rightImageUrl]"
+                                        preview-teleported
+                                    >
+                                        <template #error>
+                                            <div style="font-size: 12px; color: #f56c6c;">无右图</div>
+                                        </template>
+                                    </el-image>
                                 </template>
                             </el-table-column>
                             <el-table-column prop="trigger" label="展示时机" width="180">
@@ -412,10 +422,16 @@
                                     {{ getTriggerDesc(scope.row.trigger) }}
                                 </template>
                             </el-table-column>
+                            <el-table-column prop="isActive" label="状态" width="100">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.isActive !== false ? 'success' : 'info'">
+                                        {{ scope.row.isActive !== false ? '生效中' : '已禁用' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
                             <el-table-column prop="appId" label="跳转小程序" width="150" show-overflow-tooltip>
                                 <template #default="scope">{{ scope.row.appId || '不跳转' }}</template>
                             </el-table-column>
-                            <el-table-column prop="expiryDate" label="过期日期" width="130"></el-table-column>
                             <el-table-column label="操作">
                                 <template #default="scope">
                                     <el-button size="small" @click="handleEditAdConfig(scope.$index, scope.row)">编辑</el-button>
@@ -428,18 +444,13 @@
             </div>
         </div>
 
-        <!-- 广告配置编辑弹窗 -->
         <el-dialog v-model="adConfigDialogVisible" :title="adConfigIdx === -1 ? '新增广告' : '编辑广告'" width="500px">
-            <el-form :model="adConfigForm" label-width="100px">
-                <el-form-item label="图片链接">
-                    <el-input v-model="adConfigForm.imageUrl" placeholder="WebP图链接(1024x256,透明背景)"></el-input>
-                    <div style="font-size: 12px; color: #909399;">建议使用 WebP 格式提升加载性能</div>
+            <el-form :model="adConfigForm" label-width="120px">
+                <el-form-item label="左侧图片链接">
+                    <el-input v-model="adConfigForm.leftImageUrl" placeholder="WebP图链接(1024x256,透明背景)"></el-input>
                 </el-form-item>
-                <el-form-item label="展示位置">
-                    <el-radio-group v-model="adConfigForm.position">
-                        <el-radio label="left">左侧</el-radio>
-                        <el-radio label="right">右侧</el-radio>
-                    </el-radio-group>
+                <el-form-item label="右侧图片链接">
+                    <el-input v-model="adConfigForm.rightImageUrl" placeholder="WebP图链接(1024x256,透明背景)"></el-input>
                 </el-form-item>
                 <el-form-item label="触发时机">
                     <el-select v-model="adConfigForm.trigger" style="width: 100%;">
@@ -452,21 +463,14 @@
                         <el-option label="第三局展示" value="round3"></el-option>
                     </el-select>
                 </el-form-item>
+                <el-form-item label="是否生效">
+                    <el-switch v-model="adConfigForm.isActive"></el-switch>
+                </el-form-item>
                 <el-form-item label="跳转AppID">
                     <el-input v-model="adConfigForm.appId" placeholder="wx... (留空不跳转)"></el-input>
                 </el-form-item>
                 <el-form-item label="跳转路径">
                     <el-input v-model="adConfigForm.path" placeholder="pages/index/index"></el-input>
-                </el-form-item>
-                <el-form-item label="过期日期">
-                    <el-date-picker
-                      v-model="adConfigForm.expiryDate"
-                      type="date"
-                      placeholder="选择日期"
-                      value-format="YYYY-MM-DD"
-                      style="width: 100%;"
-                    ></el-date-picker>
-                    <div style="font-size: 12px; color: #909399;">过期后该条配置不再被前端获取</div>
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -616,12 +620,12 @@
                 const adConfigDialogVisible = ref(false);
                 const adConfigIdx = ref(-1);
                 const adConfigForm = reactive({
-                    imageUrl: '',
-                    position: 'left',
+                    leftImageUrl: '',
+                    rightImageUrl: '',
                     trigger: 'default',
+                    isActive: true,
                     appId: '',
-                    path: '',
-                    expiryDate: ''
+                    path: ''
                 });
 
                 // API Base URL (根据当前环境自动判断，如果是开发环境可能需要调整)
@@ -679,24 +683,27 @@
                 const handleAddAdConfig = () => {
                     adConfigIdx.value = -1;
                     Object.assign(adConfigForm, {
-                        imageUrl: '',
-                        position: 'left',
+                        leftImageUrl: '',
+                        rightImageUrl: '',
                         trigger: 'default',
+                        isActive: true,
                         appId: '',
-                        path: '',
-                        expiryDate: ''
+                        path: ''
                     });
                     adConfigDialogVisible.value = true;
                 };
 
                 const handleEditAdConfig = (index, row) => {
                     adConfigIdx.value = index;
-                    Object.assign(adConfigForm, row);
+                    Object.assign(adConfigForm, {
+                        ...row,
+                        isActive: row.isActive !== false
+                    });
                     adConfigDialogVisible.value = true;
                 };
 
                 const confirmAdConfig = () => {
-                    if (!adConfigForm.imageUrl) return ElMessage.warning('请输入图片链接');
+                    if (!adConfigForm.leftImageUrl && !adConfigForm.rightImageUrl) return ElMessage.warning('请至少输入一张图片链接');
                     if (adConfigIdx.value === -1) {
                         adConfigList.value.push({ ...adConfigForm });
                     } else {
