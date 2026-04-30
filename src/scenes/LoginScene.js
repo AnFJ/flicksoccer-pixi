@@ -126,36 +126,32 @@ export default class LoginScene extends BaseScene {
           this.currentProgress = 0;
           this._startProgressTimer();
 
-          // 1. 启动静默登录 (并行，不阻塞分包加载)
+          // 1. 启动静默登录 (关键路径)
           const loginPromise = AccountMgr.silentLogin();
 
           // 2. 尝试读取本地缓存 (用于秒开判断)
           const hasCache = AccountMgr.loadFromCache();
           
-          // 3. 加载所有分包
-          await Promise.all([
-              Platform.loadSubpackage('static_assets')
-          ]);
-          
-          // 4. 初始化音频 (依赖分包资源路径)
-          const audioInitPromise = AudioManager.init();
-          
-          // 5. 启动资源加载 (依赖分包资源)
-          // 注意：这里不再直接用 ResourceManager 的回调更新进度，而是统一由定时器控制
+          // 3. --- [核心优化] 非关键路径：后台异步加载分包与后续资源 ---
+          // 不使用 await，让它们在后台跑
+          this._loadBackgroundSubpackages();
+
+          // 4. 加载主包资源 (关键路径：决定进度条)
+          // 只加载 gameManifest 中的资源，这部分现在不含任何分包路径
           const assetLoadPromise = ResourceManager.loadGameResources();
 
           if (hasCache) {
               // --- 分支 A: 命中缓存 (秒开模式) ---
-              await Promise.all([assetLoadPromise, audioInitPromise]);
+              await assetLoadPromise; // 仅等待主包资源
               loginPromise.catch(e => console.warn('Background login warning:', e));
               
-              this._stopProgressTimer(true); // 强制到 100% (如果还没到)
+              this._stopProgressTimer(true); // 强制到 100%
               this._onLoadingComplete(w, h, false);
           } else {
               // --- 分支 B: 无缓存 (普通模式) ---
-              await Promise.all([assetLoadPromise, audioInitPromise, loginPromise]);
+              await Promise.all([assetLoadPromise, loginPromise]);
               
-              this._stopProgressTimer(true); // 强制到 100% (如果还没到)
+              this._stopProgressTimer(true); // 强制到 100%
               this._onLoadingComplete(w, h, true);
           }
 
@@ -166,6 +162,32 @@ export default class LoginScene extends BaseScene {
           this.loadingLabel.once('pointerdown', () => {
              this._startLoadingProcess(w, h);
           });
+      }
+  }
+
+  /**
+   * [新增] 后台加载逻辑：加载分包代码 -> 加载分包图片 -> 初始化音频
+   */
+  async _loadBackgroundSubpackages() {
+      let t1 = Date.now();
+      try {
+          console.log('[Login] Async loading subpackages in background...');
+          // 1. 加载分包代码
+          await Promise.all([
+              Platform.loadSubpackage('static_assets'),
+              Platform.loadSubpackage('foosball') // 顺便把桌上足球的分包代码也异步带上
+          ]);
+          console.log("分包加载耗时:", Date.now() - t1);
+          // 2. 分包代码就绪后，继续加载分包图片资源
+          const subAssetPromise = ResourceManager.loadBackgroundSubResources();
+          
+          // 3. 分包代码就绪后，初始化音频管理器 (音频资源通常在 static_assets 分包中)
+          const audioInitPromise = AudioManager.init();
+
+          await Promise.all([subAssetPromise, audioInitPromise]);
+          console.log('[Login] All background resources (sub-assets & audio) ready.', Date.now() - t1);
+      } catch (e) {
+          console.warn('[Login] Background loading failed:', e);
       }
   }
 

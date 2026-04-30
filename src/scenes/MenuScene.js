@@ -19,6 +19,7 @@ import LotteryDialog from '../ui/LotteryDialog.js';
 import { drawLottery } from '../config/LotteryConfig.js'; 
 import EventBus from '../managers/EventBus.js';
 import { Events } from '../constants.js'; 
+import AdManager from '../managers/AdManager.js';
 
 import UserBehaviorMgr from '../managers/UserBehaviorMgr.js';
 
@@ -29,6 +30,10 @@ export default class MenuScene extends BaseScene {
     super.onEnter(params);
     this.sceneName = 'MenuScene';
     UserBehaviorMgr.log('SYSTEM', '进入菜单页');
+
+    // [新增] 异步拉取并缓存广告配置
+    AdManager.fetchConfig();
+
     const { designWidth, designHeight } = GameConfig;
     const user = AccountMgr.userInfo;
 

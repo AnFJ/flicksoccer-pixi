@@ -1,10 +1,35 @@
 
+import * as PIXI from 'pixi.js';
+import NetworkMgr from './NetworkMgr.js';
+
 /**
  * 广告牌配置管理器 (支持运营配置化)
  */
 class AdManager {
     constructor() {
-        this.adConfigs = null; // 格式: { 'trigger_position': { imageUrl, position, trigger, appId, path } }
+        this.adConfigs = null; // 格式: { 'trigger': { leftImageUrl, rightImageUrl, appId, path } }
+        this.isFetching = false;
+    }
+
+    /**
+     * 从服务器获取广告配置
+     */
+    async fetchConfig() {
+        if (this.isFetching) return;
+        this.isFetching = true;
+        
+        try {
+            console.log('[AdManager] Fetching ad config...');
+            const response = await NetworkMgr.get('/api/game/ad-config');
+            
+            if (response && response.adConfig) {
+                this.init(response.adConfig);
+            }
+        } catch (e) {
+            console.error('[AdManager] Fetch config failed:', e);
+        } finally {
+            this.isFetching = false;
+        }
     }
 
     /**
@@ -14,6 +39,33 @@ class AdManager {
     init(adConfig) {
         console.log('[AdManager] Initialized with config:', adConfig);
         this.adConfigs = adConfig;
+        this.preloadImages();
+    }
+
+    /**
+     * [新增] 预加载所有配置中的图片到 PIXI 缓存
+     */
+    async preloadImages() {
+        if (!this.adConfigs) return;
+        
+        const urls = new Set();
+        Object.values(this.adConfigs).forEach(config => {
+            if (config.leftImageUrl) urls.add(config.leftImageUrl);
+            if (config.rightImageUrl) urls.add(config.rightImageUrl);
+        });
+
+        if (urls.size === 0) return;
+        console.log(`[AdManager] Preloading ${urls.size} ad images...`);
+        
+        // 使用 PIXI 内部纹理缓存进行预加载
+        const promises = Array.from(urls).map(url => {
+            return PIXI.Texture.fromURL(url).catch(e => {
+                console.warn(`[AdManager] Preload failed: ${url}`, e);
+            });
+        });
+
+        await Promise.all(promises);
+        console.log('[AdManager] All ad images preloaded.');
     }
 
     /**
@@ -24,19 +76,26 @@ class AdManager {
     getAd(trigger, position) {
         if (!this.adConfigs) return null;
 
-        // 1. 尝试获取精准匹配的广告
-        const key = `${trigger}_${position}`;
-        if (this.adConfigs[key]) {
-            return this.adConfigs[key];
+        // 1. 尝试获取该 trigger 的配置
+        let config = this.adConfigs[trigger];
+
+        // 2. 如果没有该 trigger 的配置，回到兜底 (default)
+        if (!config && trigger !== 'default') {
+            config = this.adConfigs['default'];
         }
 
-        // 2. 如果没有精准匹配，则回到兜底(default)配置
-        const defaultKey = `default_${position}`;
-        if (this.adConfigs[defaultKey]) {
-            return this.adConfigs[defaultKey];
-        }
+        if (!config) return null;
 
-        return null;
+        // 3. 根据位置获取图片链接
+        const imageUrl = position === 'left' ? config.leftImageUrl : config.rightImageUrl;
+
+        if (!imageUrl) return null;
+
+        return {
+            imageUrl,
+            appId: config.appId,
+            path: config.path
+        };
     }
 
     /**

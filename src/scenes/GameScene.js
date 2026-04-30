@@ -100,6 +100,9 @@ export default class GameScene extends BaseScene {
     this.gameMode = params.mode || 'pve';
     this.currentLevel = params.level || 1; 
     
+    this.currentBaseTrigger = `round${this.currentLevel % 3 || 3}`; // [新增] 记录基础广告触发器
+    this._goalAdTimer = null; // [新增] 广告恢复计时器
+
     this.matchStats.startTime = Date.now();
     this.matchStats[TeamId.LEFT] = { shots: 0, skills: {} };
     this.matchStats[TeamId.RIGHT] = { shots: 0, skills: {} };
@@ -212,8 +215,7 @@ export default class GameScene extends BaseScene {
         AudioManager.playBGM('crowd_bg_loop'); 
 
         // [修改] 根据当前局数更新广告位
-        const roundTrigger = `round${this.currentLevel % 3 || 3}`;
-        this._updateAdBoards(roundTrigger);
+        this._updateAdBoards(this.currentBaseTrigger);
 
         // 展示场景内广告
         if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
@@ -552,6 +554,18 @@ export default class GameScene extends BaseScene {
     // [修改] 进球后更新广告位
     const trigger = data.scoreTeam === this.myTeamId ? 'goal_us' : 'goal_them';
     this._updateAdBoards(trigger);
+
+    // [新增] 5秒后恢复广告
+    if (this._goalAdTimer) clearTimeout(this._goalAdTimer);
+    this._goalAdTimer = setTimeout(() => {
+        if (!this.isGameOver) {
+            // [优化] 如果还在氛围高潮，恢复到 screaming，否则恢复到普通 round
+            const nextTrigger = (this.atmosphereCtrl && this.atmosphereCtrl.isHighTension) ? 'screaming' : this.currentBaseTrigger;
+            this._updateAdBoards(nextTrigger);
+            // 同步记录高潮状态，防止 update 逻辑冲突
+            this._isScreamingAdActive = !!(this.atmosphereCtrl && this.atmosphereCtrl.isHighTension);
+        }
+    }, 5000);
     
     // 1. 如果是网络对战，委托给 NetworkCtrl 处理权威逻辑
     if (this.networkCtrl) {
@@ -683,7 +697,7 @@ export default class GameScene extends BaseScene {
     } else if (this.atmosphereCtrl && !this.atmosphereCtrl.isHighTension && this._isScreamingAdActive) {
         this._isScreamingAdActive = false;
         // 恢复到当前局数的广告
-        this._updateAdBoards(`round${this.currentLevel % 3 || 3}`);
+        this._updateAdBoards(this.currentBaseTrigger);
     }
   }
 
@@ -1172,6 +1186,12 @@ export default class GameScene extends BaseScene {
   }
 
   onExit() {
+      // [新增] 清理广告定时器
+      if (this._goalAdTimer) {
+          clearTimeout(this._goalAdTimer);
+          this._goalAdTimer = null;
+      }
+
       Platform.hideGameAds();
       AudioManager.stopBGM();
       

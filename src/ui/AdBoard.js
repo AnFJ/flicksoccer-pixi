@@ -18,6 +18,7 @@ export default class AdBoard extends PIXI.Container {
     this.positionTag = index === 0 ? 'left' : 'right';
     
     this.currentAdData = null; // 当前正在展示的广告配置项
+    this.activeTransition = null; // [新增] 记录当前正在进行的渐变动画
 
     this.bgGraphics = null;     // 背景层
     this.imageSprite = null;    // 图片层
@@ -73,9 +74,17 @@ export default class AdBoard extends PIXI.Container {
       // 1. 获取新配置
       const adData = AdManager.getAd(trigger, this.positionTag);
       
-      // 如果没有任何动态配置
+      // 如果没有任何动态配置，且没有 fallback 数据
       if (!AdManager.hasAnyConfig() && !adData) {
-          // 这里可以执行旧的兜底逻辑
+          // 这里可以执行旧的本地配置兜底逻辑
+          const localConfigs = GameConfig.visuals.ui.adBoardConfig || [];
+          const localData = localConfigs[this.index % localConfigs.length];
+          if (localData && localData.imageUrl) {
+              await this.loadRemoteImage(localData.imageUrl);
+              this.currentAdData = localData;
+          }
+          this.initInteraction();
+          return;
       }
 
       // 如果配置没变（图片链接一致），则不需要更新
@@ -87,14 +96,6 @@ export default class AdBoard extends PIXI.Container {
       
       if (adData && adData.imageUrl) {
           await this.loadRemoteImage(adData.imageUrl);
-      } else {
-          // 如果没有动态配置，尝试回退到本地 Config 兜底 (旧逻辑)
-          const localConfigs = GameConfig.visuals.ui.adBoardConfig || [];
-          const localData = localConfigs[this.index % localConfigs.length];
-          if (localData && localData.imageUrl) {
-              await this.loadRemoteImage(localData.imageUrl);
-              this.currentAdData = localData;
-          }
       }
 
       this.initInteraction();
@@ -128,28 +129,74 @@ export default class AdBoard extends PIXI.Container {
         const texture = await PIXI.Texture.fromURL(url);
         if (this._destroyed) return;
 
-        // 清理旧图片
-        if (this.imageSprite) {
-            this.removeChild(this.imageSprite);
-            this.imageSprite.destroy();
+        // 如果有正在进行的动画，停止它
+        if (this.activeTransition) {
+            PIXI.Ticker.shared.remove(this.activeTransition);
+            this.activeTransition = null;
+            
+            // [新增] 如果上一个正在渐入的图片还没完成，直接清理
+            if (this.nextSprite && !this.nextSprite.destroyed) {
+                this.removeChild(this.nextSprite);
+                this.nextSprite.destroy();
+                this.nextSprite = null;
+            }
         }
 
-        const sprite = new PIXI.Sprite(texture);
-        sprite.anchor.set(0.5);
-        sprite.width = this.boardWidth;
-        sprite.height = this.boardHeight;
+        const nextSprite = new PIXI.Sprite(texture);
+        this.nextSprite = nextSprite; // [新增] 记录当前正在加载的 sprite
+        nextSprite.anchor.set(0.5);
+        nextSprite.width = this.boardWidth;
+        nextSprite.height = this.boardHeight;
+        nextSprite.alpha = 0; // 初始透明
 
-        if (this.placeholderText) {
-            this.placeholderText.visible = false;
-        }
-
-        this.imageSprite = sprite;
         const borderIndex = this.getChildIndex(this.borderGraphics);
-        this.addChildAt(sprite, borderIndex);
+        this.addChildAt(nextSprite, borderIndex);
 
-        console.log(`[AdBoard] Updated ad image: ${url}`);
-    } catch (e) {
-        console.warn(`[AdBoard] Failed to load ad: ${url}`, e);
-    }
+        const oldSprite = this.imageSprite;
+        const fadeDuration = 0.5; // 秒
+        let elapsed = 0;
+
+        // 定义渐变函数
+        const fadeFn = (delta) => {
+            // PIXI 6 的 delta 是每帧的时间增量(以1/60s为单位)
+            elapsed += delta / 60;
+            const progress = Math.min(elapsed / fadeDuration, 1);
+            
+            nextSprite.alpha = progress;
+            if (oldSprite && !oldSprite.destroyed) {
+                oldSprite.alpha = 1 - progress;
+            }
+
+            if (progress >= 1) {
+                PIXI.Ticker.shared.remove(fadeFn);
+                this.activeTransition = null;
+                
+                if (oldSprite && !oldSprite.destroyed) {
+                    this.removeChild(oldSprite);
+                    oldSprite.destroy();
+                }
+                this.imageSprite = nextSprite;
+                this.nextSprite = null; // [新增] 完成后清空
+                if (this.placeholderText) {
+                    this.placeholderText.visible = false;
+                }
+            }
+        };
+
+        this.activeTransition = fadeFn;
+        PIXI.Ticker.shared.add(fadeFn);
+
+    console.log(`[AdBoard] Transitions ad image: ${url}`);
+  } catch (e) {
+    console.warn(`[AdBoard] Failed to load ad: ${url}`, e);
   }
+}
+
+destroy(options) {
+  if (this.activeTransition) {
+      PIXI.Ticker.shared.remove(this.activeTransition);
+      this.activeTransition = null;
+  }
+  super.destroy(options);
+}
 }

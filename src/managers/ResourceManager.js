@@ -11,38 +11,22 @@ class ResourceManager {
         login_bg: 'assets/images/main_bg.png', 
     };
 
-    // 2. 游戏主体资源 (主包资源)
+    // 2. 游戏主体资源 (仅限主包内资源)
     this.gameManifest = {
-      half_field: 'assets/images/half_field.png', // [新增] 半场预览图
+      half_field: 'assets/images/half_field.png',
       field_border: 'assets/images/field_border.png',
       bg_grass: 'assets/images/grass_texture.png',
       ball: 'assets/images/ball.png', 
-      
-      // [新增] 通用柔光阴影贴图 (优化 DrawCall 关键)
       shadow: 'assets/images/shadow.png',
 
       // UI
       main_bg: 'assets/images/main_bg.png',
       btn_menu: 'assets/images/btn/btn_menu.png',
       hud_bg: 'assets/images/hud_bg.png',
-      
-      // 德式桌球新入口按钮
       foosball_icon_btn: 'assets/images/icon/foosball_btn.png',
-      
-      // [新增] 实况弹指入口按钮
       live_flick_icon_btn: 'assets/images/icon/liveflick_btn.png',
-      
-      // [新增] 对话框背景 (外部素材)
-      dialog_bg: 'subpackages/static_assets/assets/dialog_bg.png',
-      
-      // [新增] 结果页素材
-      result_bg: 'subpackages/static_assets/assets/result_bg.png', // 金属边框对话框
-      result_content_bg: 'subpackages/static_assets/assets/result_content_bg.png', // 红蓝对战条
-      bg_result_field: 'subpackages/static_assets/assets/pure_field_bg.png', // [保留] 备用通用背景
-      bg_result_victory: 'subpackages/static_assets/assets/victory_field_bg.png', // [新增] 胜利背景
-      bg_result_failed: 'subpackages/static_assets/assets/failed_field_bg.png',   // [新增] 失败背景
 
-      // 结果页按钮与图标
+      // 菜单与HUD
       btn_result_end: 'assets/images/btn/result_end_btn.png',
       btn_result_continue: 'assets/images/btn/result_continue_btn.png',
       icon_star_full: 'assets/images/icon/full_star.png',
@@ -60,12 +44,23 @@ class ResourceManager {
       skill_force_bg: 'assets/images/icon/skill_force_bg.png',
       skill_unstoppable_bg: 'assets/images/icon/skill_unstoppable_bg.png',
 
-      // [新增] AI 头像
+      // AI 头像
       ai_hot: 'assets/images/avatars/ai_hot.png',
       ai_troll: 'assets/images/avatars/ai_troll.png',
       ai_robot: 'assets/images/avatars/ai_robot.png',
       ai_noble: 'assets/images/avatars/ai_noble.png',
       ai_cute: 'assets/images/avatars/ai_cute.png'
+    };
+
+    // 3. [新增] 延迟加载的分包资源 (不纳入初次加载进度条)
+    this.subManifest = {
+      dialog_bg: 'subpackages/static_assets/assets/dialog_bg.png',
+      result_bg: 'subpackages/static_assets/assets/result_bg.png',
+      result_content_bg: 'subpackages/static_assets/assets/result_content_bg.png',
+      bg_result_field: 'subpackages/static_assets/assets/pure_field_bg.png',
+      bg_result_victory: 'subpackages/static_assets/assets/victory_field_bg.png',
+      bg_result_failed: 'subpackages/static_assets/assets/failed_field_bg.png',
+      field_2: 'subpackages/static_assets/assets/field_combined2.png'
     };
 
     // [新增] 桌上足球分包资源清单
@@ -81,7 +76,9 @@ class ResourceManager {
 
     // 动态注册主题资源
     this.gameManifest['field_1'] = `assets/images/fieldtheme/field_combined1.png`;
-    this.gameManifest['field_2'] = `subpackages/static_assets/assets/field_combined2.png`;
+    
+    // 分包资源放入 subManifest
+    this.subManifest['field_2'] = `subpackages/static_assets/assets/field_combined2.png`;
 
     this.gameManifest['ball_texture'] = `assets/images/footballtheme/ball_texture1.png`;
     for (let i = 1; i <= 4; i++) {
@@ -105,6 +102,16 @@ class ResourceManager {
       return this._loadManifest(this.gameManifest, onProgress);
   }
 
+  /**
+   * [新增] 静默加载所有分包资源，不阻塞主流程
+   */
+  async loadBackgroundSubResources() {
+      console.log('[Resource] Background loading sub-resources start...');
+      // 此处不传 onProgress，避免影响界面进度条
+      await this._loadManifest(this.subManifest);
+      console.log('[Resource] Background loading sub-resources complete.');
+  }
+
   loadFoosballResources(onProgress) {
       if (this.get('fb_bg')) {
           if (onProgress) onProgress(100);
@@ -115,20 +122,24 @@ class ResourceManager {
 
   _loadManifest(manifest, onProgress) {
     return new Promise(async (resolve, reject) => {
-      const loader = PIXI.Loader.shared;
+      const loader = new PIXI.Loader(); // [核心修复] 使用独立 Loader 实例，防止与主包加载冲突
       let count = 0;
       const loadQueue = [];
 
       for (const [key, rawUrl] of Object.entries(manifest)) {
-        if (loader.resources[key]) {
-            if (loader.resources[key].texture) {
-                this.resources[key] = loader.resources[key].texture;
-            }
+        // 先检查 ResourceManager 缓存
+        if (this.resources[key]) {
             continue;
         }
+        
+        // 再检查全局纹理缓存 (PIXI 内部缓存)
+        if (PIXI.utils.TextureCache[key] || PIXI.utils.BaseTextureCache[key]) {
+            this.resources[key] = PIXI.utils.TextureCache[key];
+            continue;
+        }
+
         count++;
-        // 所有资源现在都通过分包加载，不再区分远程
-        loadQueue.push({ key, type: 'local', url: rawUrl });
+        loadQueue.push({ key, url: rawUrl });
       }
 
       if (count === 0) {
@@ -141,22 +152,22 @@ class ResourceManager {
           loader.add(item.key, item.url);
       });
 
-      if (onProgress) {
-          loader.onProgress.add((loader) => {
-              onProgress(loader.progress);
-          });
-      }
+      let loadedCount = 0;
+      loader.onProgress.add(() => {
+          loadedCount++;
+          if (onProgress) {
+              onProgress((loadedCount / count) * 100);
+          }
+      });
 
       loader.load((loader, resources) => {
         for (const [key, resource] of Object.entries(resources)) {
           if (resource.texture) {
             this.resources[key] = resource.texture;
           } else if (resource.error) {
-            console.warn(`[Resource] Failed to load ${key}, using fallback.`);
-            this.resources[key] = null;
+            console.warn(`[Resource] Failed to load ${key}:`, resource.error);
           }
         }
-        loader.onProgress.detachAll();
         resolve();
       });
 

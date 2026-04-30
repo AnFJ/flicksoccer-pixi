@@ -212,6 +212,7 @@ export default {
 
       // --- 3. 小游戏登录 (微信/抖音) ---
       if (path === '/api/login/minigame' && request.method === 'POST') {
+        const startTime = Date.now();
         const { platform, code, userInfo, scene } = await request.json();
         if (!code || !platform) return response({ error: 'Missing code or platform' }, 400);
 
@@ -221,10 +222,11 @@ export default {
         } else if (platform === 'douyin') {
           openId = await fetchDouyinSession(code, env);
         }
-
+        const openIdTime = Date.now() - startTime;
         if (!openId) openId = `dev_${platform}_${code}`;
 
         let user = await env.DB.prepare('SELECT * FROM users WHERE user_id = ?').bind(openId).first();
+        const dbTime = Date.now() - startTime - openIdTime;
         let isNewUser = false;
         const newNick = userInfo?.nickName || user?.nickname || generateNickname();
         const newAvatar = userInfo?.avatarUrl || user?.avatar_url || getRandomAvatar();
@@ -333,8 +335,8 @@ export default {
               .bind(openId).run();
           }
         }
-
-        return response({ ...user, is_new_user: isNewUser });
+        const totalTime = Date.now() - startTime;
+        return response({ ...user, is_new_user: isNewUser, debug: { openIdTime, dbTime, totalTime } });
       }
 
       // --- 4. 获取广告配置 (独立接口) ---

@@ -107,10 +107,6 @@ class AccountMgr {
 
       if (userData && !userData.error) {
           this.parseUserData(userData);
-          // [新增] 初始化广告配置
-          if (userData.adConfig) {
-              AdManager.init(userData.adConfig);
-          }
           this.isLoggedIn = true;
           this.isNewUser = !!userData.is_new_user; 
           this.saveToCache();
