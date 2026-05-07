@@ -29,6 +29,8 @@ export default class RoomScene extends BaseScene {
     this.statusText = null;
     this.p1Container = null;
     this.p2Container = null;
+    // [新增] 记录切回前台的时间，用于重连缓冲
+    this._lastForegroundTime = 0;
     // 引用 theme 对象内的 formationId
     this.myFormationId = AccountMgr.userInfo.theme.formationId || 0;
   }
@@ -42,6 +44,9 @@ export default class RoomScene extends BaseScene {
     if (params.roomId) {
         Platform.setStorage('last_room_id', params.roomId);
     }
+
+    // [新增] 监听回到前台事件
+    this._bindVisibilityChange();
 
     // 1. 背景 (使用球场图 + 遮罩)
     const bgTex = ResourceManager.get('bg_result_field');
@@ -117,6 +122,9 @@ export default class RoomScene extends BaseScene {
 
     EventBus.on(Events.NET_MESSAGE, this.onNetMessage, this);
 
+    // [核心新增] 检查并确保连接 (初次进入不强制重连，由外部负责初始连接)
+    this.checkConnection(params, true);
+
     // [核心新增] 如果是从结算页"再来一局"回来的，Socket 还是连接状态
     // 此时不需要重新连接，而是主动请求刷新状态
     if (NetworkMgr.isConnected && NetworkMgr.socket) {
@@ -134,6 +142,15 @@ export default class RoomScene extends BaseScene {
             this.readyBtn.bg.clear().beginFill(0xe67e22).drawRoundedRect(-btnW/2,-btnH/2,btnW,btnH,20);
             this.readyBtn.label.text = '取消准备';
         }
+    }
+    // [新增] 自动触发分享逻辑
+    if (params.triggerShare) {
+        console.log('[RoomScene] Trigger share automatically');
+        setTimeout(() => {
+            if (!this.container || this.container.destroyed) return;
+            Platform.shareRoom(this.roomId);
+            Platform.showToast('分享成功后，请等待好友进入对战');
+        }, 500); // 延迟 0.5s，确保场景显示稳定
     }
 
     // 执行首次布局对齐
@@ -218,6 +235,10 @@ export default class RoomScene extends BaseScene {
   }
 
   openFormationDialog() {
+      // [新增] 连接预判
+      if (!NetworkMgr.isConnected) {
+          this.checkConnection(this.params);
+      }
       const dialog = new FormationSelectionDialog('single_online', (p1Id) => {
           this.myFormationId = p1Id;
           AccountMgr.updateFormation(p1Id);
@@ -228,6 +249,14 @@ export default class RoomScene extends BaseScene {
   }
 
   toggleReady() {
+      // [核心新增] 点击准备时的连接预检：如果未连接，先重连并提示
+      if (!NetworkMgr.isConnected) {
+          console.warn('[RoomScene] Connection lost when clicking ready, auto reconnecting...');
+          this.checkConnection(this.params);
+          Platform.showToast('正在恢复连接，请重试');
+          return;
+      }
+
       this.isReady = !this.isReady;
       this.sendReady();
       const btnW = 300, btnH = 100;
@@ -242,6 +271,7 @@ export default class RoomScene extends BaseScene {
 
   onNetMessage(msg) {
       if (msg.type === NetMsg.PLAYER_JOINED) {
+          this.statusText.text = "等待玩家准备..."; // 连接成功，更新文案
           const players = msg.payload.players; this.players = players;
           this.statusText.text = msg.payload.status === 'PLAYING' ? "对局进行中..." : "等待玩家准备...";
           this.readyBtn.visible = msg.payload.status !== 'PLAYING';
@@ -272,6 +302,18 @@ export default class RoomScene extends BaseScene {
               snapshot: { scores, positions }
           });
       } else if (msg.type === 'ERROR') {
+          // [核心修复] 如果最近 3 秒内刚切回前台，可能是旧的 Socket Error 延迟到达或瞬时抖动
+          // 此时不需要立刻报错弹窗，NetworkMgr 的重连逻辑会接手
+          const now = Date.now();
+          const isReconnectingBuffer = (now - this._lastForegroundTime < 3000);
+          const isAbortError = msg.payload && (msg.payload.errMsg && msg.payload.errMsg.includes('abort'));
+          
+          if (isReconnectingBuffer || isAbortError) {
+              console.warn('[RoomScene] Ignoring error message during reconnect buffer');
+              this.statusText.text = '正在恢复连接...';
+              return;
+          }
+
           Platform.showToast('进入房间失败'); SceneManager.changeScene(LobbyScene);
       } else if (msg.type === NetMsg.PLAYER_LEFT_GAME) {
           // 如果在等待界面有人离开了，更新UI
@@ -286,5 +328,60 @@ export default class RoomScene extends BaseScene {
       }
   }
 
-  onExit() { super.onExit(); EventBus.off(Events.NET_MESSAGE, this.onNetMessage, this); }
+  onExit() { 
+      super.onExit(); 
+      EventBus.off(Events.NET_MESSAGE, this.onNetMessage, this); 
+      this._unbindVisibilityChange();
+  }
+
+  // [核心新增] 绑定回到游戏检测
+  _bindVisibilityChange() {
+      // 使用 Platform.onShow 适配小游戏和 Web
+      this._platformOnShowOff = Platform.onShow(() => {
+          this._lastForegroundTime = Date.now();
+          console.log('[RoomScene] App back to foreground (onShow), checking connection...');
+          // [核心] 无论 Socket 是否还连着，回到前台都主动拉取一次最新同步状态
+          this.checkConnection(this.params);
+      });
+  }
+
+  _unbindVisibilityChange() {
+      if (this._platformOnShowOff) {
+          this._platformOnShowOff();
+      }
+  }
+
+  // [核心优化] 检查连接，断开则重连
+  checkConnection(params, isInitial = false) {
+      const user = AccountMgr.userInfo;
+      
+      // 1. 如果检测到已连接，主动拉一次状态刷新 UI (防止后台期间数据过期)
+      if (NetworkMgr.isConnected) {
+          console.log('[RoomScene] Already connected, requesting state sync...');
+          NetworkMgr.send({ type: NetMsg.GET_STATE });
+          
+          // [新增] 抖音针对性处理：如果是从后台切回，即使显示连接，也额外尝试通过 HTTP 获取房间快照
+          // 确保 UI 上的准备状态、玩家人数绝对同步
+          if (!isInitial && Platform.env === 'douyin') {
+              NetworkMgr.post('/api/room/sync', { roomId: params.roomId }).then(res => {
+                  if (res && res.players && !this.container.destroyed) {
+                      console.log('[RoomScene] Douyin background return: HTTP sync success');
+                      this.onNetMessage({ type: NetMsg.PLAYER_JOINED, payload: res });
+                  }
+              }).catch(() => {});
+          }
+          return;
+      }
+
+      // 2. 如果断开了，或者正在关闭中
+      const needsConnect = !NetworkMgr.socket || 
+                          NetworkMgr.socket.readyState === 2 || 
+                          NetworkMgr.socket.readyState === 3;
+
+      if (needsConnect && !isInitial) {
+          console.log('[RoomScene] Connection lost or closed, reconnecting...');
+          this.statusText.text = '正在重连服务器...';
+          NetworkMgr.connectRoom(this.roomId, user.id, user);
+      }
+  }
 }

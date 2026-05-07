@@ -95,10 +95,14 @@ export default class LobbyScene extends BaseScene {
                   
                   // 弹出确认框
                   this.showRejoinDialog(w, h, lastRoomId);
-              } else {
-                  // 房间已结束或无效，清除缓存
+              } else if (res && res.exists === false) {
+                  // 只有当服务器明确返回 exists: false 时，才认为房间已结束并清除缓存
                   Platform.removeStorage('last_room_id');
-                  console.log('[Lobby] Previous room invalid or ended.');
+                  console.log('[Lobby] Previous room definitely ended.');
+              } else {
+                  // res 为 null (由于 NetworkMgr 拦截了后台错误) 或其他未知情况
+                  // 此时保留 last_room_id，不执行任何操作，后续进入 initNormalLobby
+                  console.log('[Lobby] Previous room status unknown, keeping record.');
               }
           } catch (e) {
               console.warn('[Lobby] Check room failed', e);
@@ -215,6 +219,7 @@ export default class LobbyScene extends BaseScene {
       const quickBtn = new Button({
           text: '快速创建', width: 240, height: 80, color: 0x27ae60,
           onClick: () => {
+              this.roomNumber = ""; // 清空
               const randomRoom = Math.floor(1000 + Math.random() * 9000).toString();
               this.joinRoom(randomRoom);
           }

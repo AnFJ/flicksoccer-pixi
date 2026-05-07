@@ -22,6 +22,7 @@ export class GameRoom {
     this.roomData = {
       players: [], // { id, nickname, avatar, level, theme, formationId, ready, teamId, socket, disconnectedAt, lastSeen }
       status: 'UNUSED', // 内部状态: UNUSED, WAITING, PLAYING
+      ownerId: null, // [新增] 固定房主 ID
       currentTurn: 0,
       scores: { 0: 0, 1: 0 }, // 记录比分
       positions: null, // 记录上一回合结束时的棋子位置 (用于恢复)
@@ -132,10 +133,15 @@ export class GameRoom {
           }
 
           // 如果不活跃：
-          // 1. 如果房间在等待中 (WAITING)，直接踢出 (不占位)
-          if (this.roomData.status === 'WAITING') return false;
+          // 1. 如果房间在等待中 (WAITING)，也保留一段时间 (如 200秒) 等待重连，方便分享
+          if (this.roomData.status === 'WAITING') {
+              if (!p.disconnectedAt) p.disconnectedAt = now;
+              // 超过 200秒 未重连，才视为真走
+              if (now - p.disconnectedAt > 200000) return false;
+              return true;
+          }
 
-          // 2. 如果游戏进行中 (PLAYING)，保留一段时间 (如 60秒) 等待重连
+          // 2. 如果游戏进行中 (PLAYING)，保留一段时间 (如 180秒) 等待重连
           if (this.roomData.status === 'PLAYING') {
               if (!p.disconnectedAt) p.disconnectedAt = now;
               // 超过 180秒 未重连，视为放弃
@@ -168,6 +174,7 @@ export class GameRoom {
       // 保留 matchCount 和 roomId
       this.roomData.players = [];
       this.roomData.status = 'UNUSED';
+      this.roomData.ownerId = null; // [新增]
       this.roomData.scores = { 0: 0, 1: 0 };
       this.roomData.positions = null;
       this.roomData.currentTurn = 0;
@@ -182,6 +189,11 @@ export class GameRoom {
     // 如果房间当前是 UNUSED 状态，说明是新开局/复用，切换为 WAITING
     if (this.roomData.status === 'UNUSED') {
         this.roomData.status = 'WAITING';
+        this.roomData.ownerId = userId; // [核心] 谁第一个开房，谁就是固定房主(主场)
+        console.log(`[GameRoom] Room started by owner: ${userId}`);
+    } else if (this.roomData.players.length === 0 && !this.roomData.ownerId) {
+        // 兜底：如果房主 ID 丢了，由第一个进来的人补位
+        this.roomData.ownerId = userId;
     }
 
     const existingPlayerIndex = this.roomData.players.findIndex(p => p.id === userId);
@@ -209,21 +221,18 @@ export class GameRoom {
     if (existingPlayerIndex !== -1) {
       // --- 重连逻辑 ---
       console.log(`[GameRoom] Player reconnecting: ${userId}`);
-      // 保留原有状态 (teamId, ready, formationId if already set in game)
+      // 保持之前的 teamId
       playerInfo.teamId = this.roomData.players[existingPlayerIndex].teamId;
       playerInfo.ready = this.roomData.players[existingPlayerIndex].ready;
-      // 如果游戏中重连，通常保持原来的 formationId，但如果断线期间改了？
-      // 这里倾向于使用重连时带上来的新参数，或者保留内存中的
-      // 暂时保留内存中的
       playerInfo.formationId = this.roomData.players[existingPlayerIndex].formationId;
       
       // 更新引用
       this.roomData.players[existingPlayerIndex] = { ...playerInfo, socket: webSocket };
     } else {
       // --- 新加入逻辑 ---
-      // 分配队伍：优先填补空缺的 Team ID
-      const takenTeam = this.roomData.players.length > 0 ? this.roomData.players[0].teamId : -1;
-      playerInfo.teamId = (takenTeam === 0) ? 1 : 0;
+      // [核心优化] 房主始终占 0 (主场)，受邀者始终占 1 (客场)
+      playerInfo.teamId = (userId === this.roomData.ownerId) ? 0 : 1;
+      
       this.roomData.players.push({ ...playerInfo, socket: webSocket });
     }
 
@@ -336,6 +345,12 @@ export class GameRoom {
           }, socket);
           break;
 
+      case 'FAIR_PLAY_MOVE':
+          this.broadcast({
+              type: 'FAIR_PLAY_MOVE',
+              payload: msg.payload
+          });
+          break;
         
       case 'RESET_FIELD':
           // [新增] 转发重置球场消息
@@ -527,40 +542,24 @@ export class GameRoom {
         // [新增] 标记断线时间
         player.disconnectedAt = Date.now();
         
-        // 如果是 WAITING 状态，直接清理掉 (防止占位)
-        if (this.roomData.status === 'WAITING') {
-            await this.pruneInactivePlayers();
-            // 广播新的玩家列表
-            this.broadcastState();
-        } else {
-            // PLAYING 状态，广播掉线，保留位置等待重连
-            // [新增] 区分是主动离开(manual) 还是 意外掉线(timeout/error)
-            const reason = session.isManualLeave ? 'manual' : 'disconnect';
-            
-            this.broadcast({
-                type: 'PLAYER_OFFLINE',
-                payload: { 
-                    teamId: player.teamId, 
-                    userId: player.id,
-                    reason: reason // 告诉客户端原因
-                }
-            });
-            await this.saveState();
-        }
+        // 标记掉线，保留位置等待重连 (无论是 WAITING 还是 PLAYING)
+        const reason = session.isManualLeave ? 'manual' : 'disconnect';
+        
+        this.broadcast({
+            type: 'PLAYER_OFFLINE',
+            payload: { 
+                teamId: player.teamId, 
+                userId: player.id,
+                reason: reason // 告诉客户端原因
+            }
+        });
+        await this.saveState();
     }
 
     if (this.sessions.length === 0) {
-      // 房间没人了
-      if (this.roomData.status === 'WAITING') {
-          // 如果是等待状态且没人，立即重置并关闭
-          console.log(`[GameRoom] Room empty (WAITING). Closing immediately.`);
-          await this.resetRoomState();
-          await this.closeRoomInDb(); // [修改]
-      } else {
-          // 如果是游戏状态，设置 3 分钟销毁闹钟 (快速回收，同时给短时重连机会)
-          console.log(`[GameRoom] Room empty (PLAYING). Schedule close in 180s.`);
-          await this.state.storage.setAlarm(Date.now() + 180000);
-      }
+      // 房间没人了，设置 10 分钟销毁闹钟 (给分享中的房主和重连中的玩家留够时间)
+      console.log(`[GameRoom] Room empty. Schedule auto-close in 200s.`);
+      await this.state.storage.setAlarm(Date.now() + 200000);
     }
   }
 

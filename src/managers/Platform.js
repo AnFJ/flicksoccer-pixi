@@ -252,7 +252,7 @@ class Platform {
               return {
                   title: defaultTitle,
                   // 抖音分享通常需要 templateId 才能获得更好效果，这里留空使用默认
-                  // templateId: '' 
+                  templateId: 'gg36e81e9dj6f8ml3s' 
               };
           });
       }
@@ -490,6 +490,85 @@ class Platform {
     }
   }
 
+  /**
+   * [新增] 监听回到前台事件 (适配 微信/抖音/Web)
+   * @param {Function} callback 
+   */
+  onShow(callback) {
+      const provider = this.getProvider();
+      if (provider && provider.onShow) {
+          provider.onShow(callback);
+      } else if (typeof document !== 'undefined') {
+          // Web 环境使用 visibilitychange 模拟
+          const handleVisibilityChange = () => {
+              if (document.visibilityState === 'visible') {
+                  callback();
+              }
+          };
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+          // 返回一个注销函数
+          return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      return null;
+  }
+
+  /**
+   * [新增] 展示 Banner 广告 (适配抖音)
+   */
+  showBannerAd(adUnitId) {
+    const provider = this.getProvider();
+    if (this.env === 'douyin' && provider && provider.createBannerAd) {
+      try {
+        const info = provider.getSystemInfoSync();
+        const bannerAd = provider.createBannerAd({
+          adUnitId: adUnitId,
+          style: {
+            left: 0,
+            top: info.windowHeight - 100, // 初始位置，系统通常会自动调整高度
+            // 不设置 width，使用默认比例
+          }
+        });
+        bannerAd.onLoad(() => {
+          console.log('[Platform] Banner Ad Load Success');
+          bannerAd.show();
+        });
+
+        bannerAd.onError(err => {
+          console.error('[Platform] Banner Ad Error:', err);
+        });
+
+        return bannerAd;
+      } catch (e) {
+        console.error('[Platform] Create Banner Ad Failed:', e);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * [新增] 展示抖音游戏推荐组件 (GridGamePanel)
+   */
+  showGridGamePanel(adUnitId, options = {}) {
+    const provider = this.getProvider();
+    if (this.env === 'douyin' && provider && provider.createGridGamePanel) {
+      try {
+        const gridAd = provider.createGridGamePanel({
+          adUnitId: adUnitId,
+          gridCount: options.gridCount || 'four',
+          size: options.size || 'small',
+          position: options.position || { top: 0, left: 0 },
+          query: options.query || {}
+        });
+        gridAd.show();
+
+        return gridAd;
+      } catch (e) {
+        console.error('[Platform] Create Grid Game Panel Failed:', e);
+      }
+    }
+    return null;
+  }
+
   isMobileWeb() {
     if (this.env !== 'web') return false;
     if (typeof navigator === 'undefined') return false;
@@ -712,6 +791,11 @@ class Platform {
                       finalStyle.left = winW - adW + 10;
                       finalStyle.top = -5;
                       break;
+                  case 'center':
+                      finalStyle.left = (winW - adW) / 2;
+                      // 垂直位置根据模板高度大概估算，通常居中显示
+                      finalStyle.top = (winH - (adW * 0.4)) / 2;
+                      break;
               }
           }
 
@@ -808,7 +892,22 @@ class Platform {
           try {
               let adInstance = null;
 
-              if (provider.createCustomAd) {
+              // [核心适配] 针对抖音平台使用“游戏推荐组件 (GridGamePanel)”
+              if (this.env === 'douyin' && provider.createGridGamePanel) {
+                  console.log(`[Platform] Creating Douyin GridGamePanel for ${adUnitId}`);
+                  // 针对场景内广告位，使用 single grid (one) 模式以便设置位置
+                  adInstance = provider.createGridGamePanel({
+                      adUnitId: adUnitId,
+                      gridCount: "one",
+                      size: "small",
+                      position: {
+                          left: bounds.x,
+                          top: bounds.y - 95
+                      },
+                      query: {} // 可根据需要填入跳转参数
+                  });
+              }
+              else if (provider.createCustomAd) {
                   adInstance = provider.createCustomAd({
                       adUnitId: adUnitId,
                       style: {
@@ -836,11 +935,12 @@ class Platform {
               }
 
               if (adInstance) {
-                  // [优化] 恢复并加强报错日志，方便调试抖音 ID 状态
-                  adInstance.onError(err => {
-                      console.error(`[Platform] Ad load error (${adUnitId}):`, err);
-                      // 抖音环境下如果是 1004 代表无填充，1002 代表 ID 错误
-                  });
+                 if (this.env === 'wechat'){
+                    // [优化] 恢复并加强报错日志，方便调试抖音 ID 状态
+                    adInstance.onError(err => {
+                        console.error(`[Platform] Ad load error (${adUnitId}):`, err);
+                    });
+                 }
                   
                   // show() 返回 Promise，catch 避免未捕获异常
                   const showPromise = adInstance.show();
@@ -850,11 +950,11 @@ class Platform {
                       });
                   }
                   
-                  // [新增] 记录 Banner 广告展示
+                  // [新增] 记录广告展示日志
                   this.logAdAction({
                       adUnitId: adUnitId,
-                      adUnitName: 'banner',
-                      adType: 'banner',
+                      adUnitName: this.env === 'douyin' ? 'more_games_banner' : 'banner',
+                      adType: this.env === 'douyin' ? 'more_games' : 'banner',
                       isCompleted: 1,
                       isClicked: 0,
                       watchTime: 0
@@ -988,11 +1088,11 @@ class Platform {
                   const delay = Math.max(0, this._interstitialMinTime - timeElapsed + 500); // 额外加 500ms 缓冲
                   
                   // [修复] 增加 banner 展示频率控制，避免重复显示
-                  const lastBannerDate = this.getStorage('last_menu_banner_date');
-                  if (lastBannerDate !== todayStr) {
-                      this.showCustomAd(adConfig.custom.menu_banner, { width: 700 }, 'bottom_center');
-                      this.setStorage('last_menu_banner_date', todayStr);
-                  }
+                //   const lastBannerDate = this.getStorage('last_menu_banner_date');
+                //   if (lastBannerDate !== todayStr) {
+                //       this.showCustomAd(adConfig.custom.menu_banner, { width: 700 }, 'bottom_center');
+                //       this.setStorage('last_menu_banner_date', todayStr);
+                //   }
                   
                   if (delay > 0) {
                       console.log(`[Platform] 抖音启动插屏将在 ${Math.ceil(delay/1000)}s 后展示...`);

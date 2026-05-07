@@ -45,12 +45,26 @@ export default class Button extends PIXI.Container {
     this.inner.position.set(width / 2, height / 2);
 
     // 1. 背景层
-    if (texture) {
-        // 使用图片背景
-        this.bg = new PIXI.Sprite(texture);
-        this.bg.anchor.set(0.5); // 图片中心对齐
-        this.bg.width = width;
-        this.bg.height = height;
+    let finalTexture = null;
+    if (typeof texture === 'string') {
+        // 兼容字符串形式，尝试从全局缓存获取
+        finalTexture = PIXI.utils.TextureCache[texture] || PIXI.Texture.from(texture);
+    } else {
+        finalTexture = texture;
+    }
+
+    if (finalTexture && finalTexture.valid) { 
+        try {
+            // 使用图片背景
+            this.bg = new PIXI.Sprite(finalTexture);
+            this.bg.anchor.set(0.5); // 图片中心对齐
+            this.bg.width = width;
+            this.bg.height = height;
+        } catch (e) {
+            console.warn('[Button] Failed to create sprite from texture:', e);
+            this.bg = new PIXI.Graphics();
+            this.drawBg(color);
+        }
     } else {
         // 使用纯色绘图背景
         this.bg = new PIXI.Graphics();

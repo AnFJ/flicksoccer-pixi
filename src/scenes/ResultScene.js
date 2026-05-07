@@ -115,23 +115,21 @@ export default class ResultScene extends BaseScene {
         const adConfig = GameConfig.adConfig[Platform.env];
         const adUnitId = adConfig && adConfig.interstitial ? adConfig.interstitial.game_over : null;
         
-        // [修改] 广告展示逻辑：插屏优先，插屏关闭后或无插屏时再展示 Custom Ad
-        Platform.showInterstitialAd(adUnitId).then(() => {
-            // 插屏关闭后 (或失败后)，延迟 0.5s 展示 Custom Ad
-            setTimeout(() => {
-                if (this.container && !this.container.destroyed) {
-                    if (adConfig && adConfig.custom && Platform.env !== 'douyin') {
-                        Platform.showCustomAd(adConfig.custom.result_left, { width: 300 }, 'left_top');
-                        Platform.showCustomAd(adConfig.custom.result_right, { width: 300 }, 'right_top');
-                    }
-                }
-            }, 50);
-        });
+        // [修改] 广告展示逻辑：仅展示插屏广告，不再自动展示九宫格广告
+        Platform.showInterstitialAd(adUnitId);
     }
 
     onExit() {
         super.onExit();
         Platform.hideGameAds();
+        
+        // [新增] 销毁抖音九宫格广告
+        if (this._douyinNineGrid) {
+            try {
+                this._douyinNineGrid.destroy();
+            } catch (e) {}
+            this._douyinNineGrid = null;
+        }
     }
 
     // --- 视觉构建方法 ---
@@ -778,6 +776,103 @@ export default class ResultScene extends BaseScene {
                 });
             }
         };
+
+        // [修改] 使用图片素材的邀请好友对战按钮 (右下角)
+        const inviteBtnSize = 200; // 图片实际尺寸 200*200
+        const shareTex = ResourceManager.get('share_friend_btn');
+        
+        const inviteBtn = new Button({
+            texture: shareTex, // 传递纹理对象
+            width: inviteBtnSize,
+            height: inviteBtnSize,
+            color: 0xeb4d4b, // 如果纹理还没加载完，先显示这个颜色背景
+            text: '', // 图片自带文字，不需要文本标签
+            onClick: () => {
+                UserBehaviorMgr.log('CLICK', '结果页_邀请好友对战');
+                Platform.showToast('正在创建房间...', 2000);
+                
+                // 1. 生成随机房间号
+                const roomId = Math.floor(1000 + Math.random() * 9000).toString();
+                
+                // 2. 连接服务器并创建房间
+                const user = AccountMgr.userInfo;
+                NetworkMgr.connectRoom(roomId, user.id, user);
+
+                // 3. 进入房间场景，并触发自动准备和自动分享
+                SceneManager.changeScene(RoomScene, { 
+                    roomId: roomId, 
+                    autoReady: true, 
+                    triggerShare: true 
+                });
+            }
+        });
+
+        // 按钮位置：右侧垂直居中，距离右边缘 50
+        const inviteX = w - inviteBtnSize - 50;
+        const inviteY = (h - inviteBtnSize) / 2;
+        inviteBtn.position.set(inviteX, inviteY);
+        this.container.addChild(inviteBtn);
+
+        // [新增] 抖音平台：在“与好友对战”下方添加“精品小游戏”按钮
+        if (Platform.env === 'douyin') {
+            const boutiqueBtnSize = 180;
+            // 尝试获取可能有背景图的资源，如果没有则使用默认按钮样式
+            const boutiqueTex = ResourceManager.get('btn_boutique_games');
+            
+            const boutiqueBtn = new Button({
+                texture: boutiqueTex,
+                width: boutiqueBtnSize,
+                height: boutiqueBtnSize,
+                text: '', // 图片自带文字，不需要文本标签
+                onClick: () => {
+                    // [上报行为]
+                    UserBehaviorMgr.log('CLICK', '结果页_点击精品小游戏');
+                    
+                    console.log('[ResultScene] Manual showing Douyin Nine-Grid Ad...');
+                    // 如果之前已经存在，先销毁
+                    if (this._douyinNineGrid) {
+                        try { this._douyinNineGrid.destroy(); } catch(e) {}
+                    }
+                    // 弹出九宫格广告
+                    this._douyinNineGrid = Platform.showGridGamePanel("6bjmaip4fufcml5m7c", {
+                        gridCount: "nine",
+                        size: "small",
+                        position: {
+                            top: 150, 
+                            left: 10
+                        }
+                    });
+                }
+            });
+
+            // 放在与好友对战按钮下方
+            boutiqueBtn.position.set(inviteX + (inviteBtnSize - boutiqueBtn.width) / 2, inviteY + inviteBtnSize + 30);
+            this.container.addChild(boutiqueBtn);
+        }
+
+        // [新增] 微信平台：在“与好友对战”下方添加“精品小游戏”按钮
+        if (Platform.env === 'wechat') {
+            const boutiqueBtnSize = 180;
+            const boutiqueTex = ResourceManager.get('btn_boutique_games');
+            
+            const boutiqueBtn = new Button({
+                texture: boutiqueTex,
+                width: boutiqueBtnSize,
+                height: boutiqueBtnSize,
+                text: '', // 图片自带文字
+                onClick: () => {
+                    // [上报行为]
+                    UserBehaviorMgr.log('CLICK', '结果页_点击精品小游戏');
+                    console.log('[ResultScene] Showing WeChat Custom Ad...');
+                    // 展示微信模板广告 (居中)
+                    Platform.showCustomAd("adunit-c9a7f9b26d388570", { width: 320 }, 'center');
+                }
+            });
+
+            // 放在与好友对战按钮下方
+            boutiqueBtn.position.set(inviteX + (inviteBtnSize - boutiqueBtn.width) / 2, inviteY + inviteBtnSize + 30);
+            this.container.addChild(boutiqueBtn);
+        }
         
         if (this.params.gameMode === 'pvp_online') {
             leftText = '结束游戏';

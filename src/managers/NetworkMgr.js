@@ -122,7 +122,16 @@ class NetworkMgr {
                   if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.data);
                   else reject(new Error(`HTTP Error: ${res.statusCode}`));
               },
-              fail: (err) => reject(err)
+              fail: (err) => {
+                  // [核心修复] 针对抖音平台屏蔽后台错误，避免切换后台时抛出异常到业务层
+                  const isDouyinBackgroundError = Platform.env === 'douyin' && (err.errNo === 10501 || (err.errMsg && err.errMsg.includes('background')));
+                  if (isDouyinBackgroundError) {
+                      console.warn('[Network] Silence background request error');
+                      resolve(null); // 返回 null 让上层认为由于非异常原因未成功，而不是抛出异常
+                  } else {
+                      reject(err);
+                  }
+              }
           });
       });
   }
@@ -171,15 +180,29 @@ class NetworkMgr {
 
   send(msgObj) {
       if (!this.socket || !this.isConnected) {
-          // console.warn('[Network] Socket not connected, cannot send:', msgObj);
           return;
       }
       const jsonStr = JSON.stringify(msgObj);
       
       if (Platform.env === 'web') {
-          this.socket.send(jsonStr);
+          try {
+              this.socket.send(jsonStr);
+          } catch (e) {
+              console.warn('[Network] Web send failed, closing socket', e);
+              this.close();
+          }
       } else {
-          this.socket.send({ data: jsonStr });
+          this.socket.send({ 
+              data: jsonStr,
+              fail: (err) => {
+                  console.warn('[Network] Minigame send failed:', err);
+                  // 如果发送失败，通常意味着连接已断开
+                  if (this.isConnected) {
+                      this.isConnected = false;
+                      this._onClose(); // 触发关闭逻辑
+                  }
+              }
+          });
       }
   }
 

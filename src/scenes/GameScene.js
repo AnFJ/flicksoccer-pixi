@@ -219,7 +219,7 @@ export default class GameScene extends BaseScene {
 
         // 展示场景内广告
         if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-            // Platform.showGameAds(this.layout.adBoards); 
+            Platform.showGameAds(this.layout.adBoards); 
         }
     };
 

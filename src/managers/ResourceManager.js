@@ -25,7 +25,8 @@ class ResourceManager {
       hud_bg: 'assets/images/hud_bg.png',
       foosball_icon_btn: 'assets/images/icon/foosball_btn.png',
       live_flick_icon_btn: 'assets/images/icon/liveflick_btn.png',
-
+      btn_boutique_games: 'assets/images/icon/btn_boutique_games.png',
+      
       // 菜单与HUD
       btn_result_end: 'assets/images/btn/result_end_btn.png',
       btn_result_continue: 'assets/images/btn/result_continue_btn.png',
@@ -60,7 +61,8 @@ class ResourceManager {
       bg_result_field: 'subpackages/static_assets/assets/pure_field_bg.png',
       bg_result_victory: 'subpackages/static_assets/assets/victory_field_bg.png',
       bg_result_failed: 'subpackages/static_assets/assets/failed_field_bg.png',
-      field_2: 'subpackages/static_assets/assets/field_combined2.png'
+      field_2: 'subpackages/static_assets/assets/field_combined2.png',
+      share_friend_btn: 'subpackages/static_assets/assets/share_friend_btn.png'
     };
 
     // [新增] 桌上足球分包资源清单
