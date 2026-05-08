@@ -343,6 +343,7 @@
                                 style="width: 300px;"
                             ></el-date-picker>
                             <el-button type="primary" @click="fetchBehavior">搜索</el-button>
+                            <el-button type="success" @click="showBehaviorSummary">汇总</el-button>
                         </div>
 
                         <el-table :data="behaviorList" border style="width: 100%" v-loading="behaviorLoading">
@@ -499,6 +500,28 @@
                 </el-table-column>
             </el-table>
         </el-dialog>
+
+        <!-- 行为汇总弹窗 -->
+        <el-dialog v-model="behaviorSummaryVisible" title="用户行为汇总统计" width="800px">
+            <div style="margin-bottom: 20px;">
+                <el-alert
+                    :title="`统计范围: ${behaviorFilter.dateRange && behaviorFilter.dateRange.length === 2 ? behaviorFilter.dateRange.join(' 至 ') : '全部'} (基于当前查询条件下前500条会话汇总)`"
+                    type="info"
+                    :closable="false"
+                ></el-alert>
+            </div>
+            <el-table :data="behaviorSummaryList" border stripe height="500px" v-loading="summaryLoading">
+                <el-table-column prop="name" label="行为名称" sortable></el-table-column>
+                <el-table-column prop="wechat" label="微信" align="center" width="100" sortable></el-table-column>
+                <el-table-column prop="douyin" label="抖音" align="center" width="100" sortable></el-table-column>
+                <el-table-column prop="total" label="合计总量" align="center" width="120" sortable>
+                    <template #default="scope">
+                        <b style="color: #409EFF;">{{ scope.row.total }}</b>
+                    </template>
+                </el-table-column>
+            </el-table>
+        </el-dialog>
+
         <el-dialog v-model="detailVisible" title="用户详情" width="50%">
             <el-descriptions :column="2" border v-if="currentUser">
                 <el-descriptions-item label="用户ID">{{ currentUser.user_id }}</el-descriptions-item>
@@ -614,6 +637,10 @@
                 const behaviorLoading = ref(false);
                 const behaviorDetailVisible = ref(false);
                 const currentBehaviorActions = ref([]);
+
+                const behaviorSummaryVisible = ref(false);
+                const behaviorSummaryList = ref([]);
+                const summaryLoading = ref(false);
 
                 // 广告看板配置项
                 const adConfigList = ref([]);
@@ -874,6 +901,65 @@
                     behaviorDetailVisible.value = true;
                 };
 
+                const showBehaviorSummary = async () => {
+                    behaviorSummaryVisible.value = true;
+                    summaryLoading.value = true;
+                    behaviorSummaryList.value = [];
+
+                    try {
+                        // 为了汇总准确性，尝试获取较多数据（API限制下尽量多取，比如前500条）
+                        const params = new URLSearchParams({
+                            page: 1,
+                            pageSize: 500
+                        });
+                        if (behaviorFilter.userId) params.append('userId', behaviorFilter.userId);
+                        if (behaviorFilter.nickname) params.append('nickname', behaviorFilter.nickname);
+                        if (behaviorFilter.dateRange && behaviorFilter.dateRange.length === 2) {
+                            params.append('startDate', behaviorFilter.dateRange[0]);
+                            params.append('endDate', behaviorFilter.dateRange[1]);
+                        }
+
+                        const res = await fetch(`${API_BASE}/api/admin/user/behavior?${params.toString()}`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            const sessions = data.list || [];
+                            const stats = {};
+
+                            sessions.forEach(session => {
+                                const platform = (session.platform || 'wechat').toLowerCase();
+                                let actions = [];
+                                try {
+                                    actions = JSON.parse(session.actions || '[]');
+                                } catch (e) {}
+
+                                actions.forEach(act => {
+                                    const actName = act.name || '未知行为';
+                                    if (!stats[actName]) {
+                                        stats[actName] = { name: actName, wechat: 0, douyin: 0, total: 0 };
+                                    }
+                                    
+                                    if (platform === 'wechat') {
+                                        stats[actName].wechat++;
+                                    } else if (platform === 'douyin' || platform === 'tt') {
+                                        stats[actName].douyin++;
+                                    }
+                                    stats[actName].total++;
+                                });
+                            });
+
+                            behaviorSummaryList.value = Object.values(stats).sort((a, b) => b.total - a.total);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取汇总数据失败');
+                    } finally {
+                        summaryLoading.value = false;
+                    }
+                };
+
                 const getActionCount = (jsonStr) => {
                     try {
                         const actions = JSON.parse(jsonStr || '[]');
@@ -1094,9 +1180,13 @@
                     behaviorPageSize,
                     behaviorDetailVisible,
                     currentBehaviorActions,
+                    behaviorSummaryVisible,
+                    behaviorSummaryList,
+                    summaryLoading,
                     fetchBehavior,
                     handleBehaviorPageChange,
                     showBehaviorDetails,
+                    showBehaviorSummary,
                     getActionCount,
                     formatDate,
                     adConfigList,
