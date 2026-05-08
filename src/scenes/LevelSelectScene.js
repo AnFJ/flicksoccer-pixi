@@ -44,6 +44,25 @@ export default class LevelSelectScene extends BaseScene {
         super.onEnter();
         const { designWidth, designHeight } = GameConfig;
 
+        this._douyinGridAd = null;
+        // [新增] 针对抖音平台，在关卡选择页添加侧边推荐位
+        if (Platform.env === 'douyin') {
+            setTimeout(() => {
+                const provider = Platform.getProvider();
+                if (!provider) return;
+                const info = provider.getSystemInfoSync();
+                const adW = 100;
+                this._douyinGridAd = Platform.showGridGamePanel("6bjmaip4fufcml5m7c", {
+                    gridCount: "one",
+                    size: "small",
+                    position: {
+                        top: (info.windowHeight - adW) / 2,
+                        left: info.windowWidth - adW + 30
+                    }
+                });
+            }, 100);
+        }
+
         // 1. 背景 (使用球场图 + 遮罩)
         const bgTex = ResourceManager.get('bg_result_field'); // 复用已有的纯净球场背景资源
         if (bgTex) {
@@ -110,6 +129,15 @@ export default class LevelSelectScene extends BaseScene {
         // 8. 执行首次布局对齐和渲染
         this.alignUI();
         this.renderPage(this.currentPage);
+    }
+
+    onExit() {
+        super.onExit();
+        if (this._douyinGridAd) {
+            console.log('[LevelSelectScene] Destroying Douyin Grid Ad');
+            this._douyinGridAd.destroy();
+            this._douyinGridAd = null;
+        }
     }
 
     // [新增] 响应屏幕尺寸变化

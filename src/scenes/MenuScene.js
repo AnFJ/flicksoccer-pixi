@@ -342,7 +342,7 @@ export default class MenuScene extends BaseScene {
     const socialLabel = Platform.env === 'douyin' ? '打开侧边栏' : (Platform.env === 'wechat' ? '游戏圈' : '意见反馈');
     const socialBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_social', socialLabel, 0x00AABB, () => {
         UserBehaviorMgr.log('SOCIAL', `点击${socialLabel}`);
-        // Platform.handleSocialAction();return;
+        Platform.handleSocialAction();return;
         SceneManager.changeScene(ResultScene,  {
             winner: 0,
             gameMode: "pvp_local",
@@ -358,39 +358,6 @@ export default class MenuScene extends BaseScene {
     });
     container.addChild(socialBtn);
     currentY += btnDiameter + btnGap;
-
-    // [新增] 微信平台：在游戏圈下方添加“精品小游戏”图标按钮
-    if (Platform.env === 'wechat') {
-        const boutiqueIconBtn = this.createIconBtn(btnRadius, btnX, currentY, 'btn_boutique_games', '', 0xF1C40F, () => {
-             // [上报行为]
-             UserBehaviorMgr.log('CLICK', '菜单页_点击精品小游戏');
-             console.log('[MenuScene] Showing WeChat Custom Ad...');
-             // 展示微信模板广告 (居中)
-             Platform.showCustomAd("adunit-c9a7f9b26d388570", { width: 320 }, 'center');
-        });
-        container.addChild(boutiqueIconBtn);
-        currentY += btnDiameter + btnGap - 30;
-    }
-
-    // [新增] 抖音平台：添加“精品小游戏”图标按钮
-    if (Platform.env === 'douyin') {
-        const boutiqueIconBtn = this.createIconBtn(btnRadius, btnX, currentY, 'btn_boutique_games', '', 0xF1C40F, () => {
-             // [上报行为]
-             UserBehaviorMgr.log('CLICK', '菜单页_点击精品小游戏');
-             console.log('[MenuScene] Showing Douyin Nine-Grid Ad...');
-             // 展示抖音九宫格广告
-             Platform.showGridGamePanel("6bjmaip4fufcml5m7c", {
-                 gridCount: "nine",
-                 size: "small",
-                 position: {
-                     top: 150, 
-                     left: 10
-                 }
-             });
-        });
-        container.addChild(boutiqueIconBtn);
-        currentY += btnDiameter + btnGap - 30;
-    }
 
     const bagBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_bag', '我的背包', 0x8E44AD, () => {
         UserBehaviorMgr.log('INVENTORY', '点击背包');
@@ -413,7 +380,40 @@ export default class MenuScene extends BaseScene {
     container.addChild(themeBtn);
     currentY += btnDiameter + btnGap;
 
-    if (!AccountMgr.isCheckedInToday()) {
+    // [新增] 微信平台：在游戏圈下方添加“精品小游戏”图标按钮
+    if (Platform.env === 'wechat') {
+        const boutiqueIconBtn = this.createIconBtn(btnRadius, btnX, currentY, 'btn_boutique_games', '更多游戏', 0xF1C40F, () => {
+             // [上报行为]
+             UserBehaviorMgr.log('CLICK', '菜单页_点击精品小游戏');
+             console.log('[MenuScene] Showing WeChat Custom Ad...');
+             // 展示微信模板广告 (居中)
+             Platform.showCustomAd("adunit-c9a7f9b26d388570", { width: 320 }, 'center');
+        });
+        container.addChild(boutiqueIconBtn);
+        currentY += btnDiameter + btnGap;
+    }
+
+    // [新增] 抖音平台：添加“精品小游戏”图标按钮
+    if (Platform.env === 'douyin') {
+        const boutiqueIconBtn = this.createIconBtn(btnRadius, btnX, currentY, 'btn_boutique_games', '更多游戏', 0xF1C40F, () => {
+             // [上报行为]
+             UserBehaviorMgr.log('CLICK', '菜单页_点击精品小游戏');
+             console.log('[MenuScene] Showing Douyin Nine-Grid Ad...');
+             // 展示抖音九宫格广告
+             Platform.showGridGamePanel("6bjmaip4fufcml5m7c", {
+                 gridCount: "nine",
+                 size: "small",
+                 position: {
+                     top: 150, 
+                     left: 10
+                 }
+             });
+        });
+        container.addChild(boutiqueIconBtn);
+        currentY += btnDiameter + btnGap;
+    }
+
+    if (Platform.env !== 'douyin' && !AccountMgr.isCheckedInToday()) {
         this.checkInBtn = this.createIconBtn(btnRadius, btnX, currentY, 'icon_checkin', '每日一抽', 0xFF5722, () => {
             UserBehaviorMgr.log('CHECKIN', '点击每日一抽');
             this.handleDailyCheckIn(this.checkInBtn);

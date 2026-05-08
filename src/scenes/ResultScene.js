@@ -823,7 +823,7 @@ export default class ResultScene extends BaseScene {
                 texture: boutiqueTex,
                 width: boutiqueBtnSize,
                 height: boutiqueBtnSize,
-                text: '', // 图片自带文字，不需要文本标签
+                text: '更多游戏', // 图片自带文字，不需要文本标签
                 onClick: () => {
                     // [上报行为]
                     UserBehaviorMgr.log('CLICK', '结果页_点击精品小游戏');
@@ -859,7 +859,7 @@ export default class ResultScene extends BaseScene {
                 texture: boutiqueTex,
                 width: boutiqueBtnSize,
                 height: boutiqueBtnSize,
-                text: '', // 图片自带文字
+                text: '更多游戏', // 图片自带文字
                 onClick: () => {
                     // [上报行为]
                     UserBehaviorMgr.log('CLICK', '结果页_点击精品小游戏');

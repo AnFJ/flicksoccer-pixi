@@ -219,7 +219,10 @@ export default class GameScene extends BaseScene {
 
         // 展示场景内广告
         if (this.layout && this.layout.adBoards && this.layout.adBoards.length > 0) {
-            Platform.showGameAds(this.layout.adBoards); 
+            // [修改] 抖音平台在此场景不展示推荐格子
+            if (Platform.env !== 'douyin') {
+                Platform.showGameAds(this.layout.adBoards); 
+            }
         }
     };
 
