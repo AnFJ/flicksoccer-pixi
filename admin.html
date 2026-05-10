@@ -584,38 +584,92 @@
                     </el-table-column>
                 </el-table>
 
-                <h3 style="margin: 20px 10px;"><el-icon><medal /></el-icon> 巅峰玩家排行榜 (按等级 Top 10)</h3>
-                <el-table :data="topPlayers" border stripe style="width: 100%">
-                    <el-table-column type="index" label="排名" width="65" align="center">
-                        <template #default="s">
-                             <el-tag v-if="s.$index === 0" effect="dark" type="warning">冠</el-tag>
-                             <el-tag v-else-if="s.$index === 1" effect="dark" type="info">亚</el-tag>
-                             <el-tag v-else-if="s.$index === 2" effect="dark" style="background:#E6A23C; border-color:#E6A23C; color:white;">季</el-tag>
-                             <span v-else>{{ s.$index + 1 }}</span>
-                        </template>
-                    </el-table-column>
-                    <el-table-column label="玩家画像" width="260">
-                        <template #default="scope">
-                            <div style="display: flex; align-items: center;">
-                                <el-avatar :size="36" :src="scope.row.avatar_url" style="margin-right: 12px; border: 2px solid #ebeef5;"></el-avatar>
-                                <div style="display: flex; flex-direction: column;">
-                                    <span style="font-weight: bold; color: #303133;">{{ scope.row.nickname }}</span>
-                                    <small style="color: #909399;">ID: {{ scope.row.user_id }}</small>
-                                </div>
-                            </div>
-                        </template>
-                    </el-table-column>
-                    <el-table-column prop="platform" label="平台" width="90" align="center">
-                         <template #default="s"><el-tag size="small" type="info">{{ s.row.platform }}</el-tag></template>
-                    </el-table-column>
-                    <el-table-column prop="level" label="等级" width="90" align="center">
-                         <template #default="s"><el-tag color="#f0f2f5" style="color: #606266;" size="small">Lv.{{ s.row.level }}</el-tag></template>
-                    </el-table-column>
-                    <el-table-column prop="total_matches" label="累计完赛场次" width="140" align="center" sortable>
-                         <template #default="s"><b style="color: #F56C6C; font-size: 16px;">{{ s.row.total_matches }}</b></template>
-                    </el-table-column>
-                    <el-table-column prop="register_time" label="加入社区时间" align="center" sortable></el-table-column>
-                </el-table>
+                <h3 style="margin: 20px 10px;"><el-icon><medal /></el-icon> 英雄榜：生涯累积完赛统计 (Top 10)</h3>
+                <el-tabs type="border-card">
+                    <el-tab-pane label="人机闯关王">
+                        <el-table :data="topRankings.pve" border stripe style="width: 100%">
+                            <el-table-column type="index" label="排名" width="65" align="center"></el-table-column>
+                            <el-table-column label="玩家画像" width="280">
+                                <template #default="scope">
+                                    <div style="display: flex; align-items: center;">
+                                        <el-avatar :size="32" :src="scope.row.avatar_url" style="margin-right: 10px;"></el-avatar>
+                                        <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                            <span style="font-weight: bold; font-size: 13px;" class="text-truncate">{{ scope.row.nickname }}</span>
+                                            <small style="color: #999; font-size: 11px;">ID: {{ scope.row.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="level" label="等级" width="80" align="center">
+                                <template #default="s"><el-tag size="small" type="info">Lv.{{ s.row.level }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="win_count" label="累计完赛" width="100" align="center">
+                                <template #default="s"><b style="color: #409EFF;">{{ s.row.win_count }}</b></template>
+                            </el-table-column>
+                            <el-table-column label="平台" width="90" align="center">
+                                 <template #default="s"><el-tag size="small" type="info">{{ s.row.platform }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="last_login_time" label="最后活跃" width="140" align="center"></el-table-column>
+                            <el-table-column prop="register_time" label="注册时间" align="center"></el-table-column>
+                        </el-table>
+                    </el-tab-pane>
+                    
+                    <el-tab-pane label="本地对战王">
+                        <el-table :data="topRankings.local" border stripe style="width: 100%">
+                            <el-table-column type="index" label="排名" width="65" align="center"></el-table-column>
+                            <el-table-column label="玩家画像" width="280">
+                                <template #default="scope">
+                                    <div style="display: flex; align-items: center;">
+                                        <el-avatar :size="32" :src="scope.row.avatar_url" style="margin-right: 10px;"></el-avatar>
+                                        <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                            <span style="font-weight: bold; font-size: 13px;" class="text-truncate">{{ scope.row.nickname }}</span>
+                                            <small style="color: #999; font-size: 11px;">ID: {{ scope.row.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="level" label="等级" width="80" align="center">
+                                <template #default="s"><el-tag size="small" type="info">Lv.{{ s.row.level }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="win_count" label="累计完赛" width="100" align="center">
+                                <template #default="s"><b style="color: #67C23A;">{{ s.row.win_count }}</b></template>
+                            </el-table-column>
+                            <el-table-column label="平台" width="90" align="center">
+                                 <template #default="s"><el-tag size="small" type="info">{{ s.row.platform }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="last_login_time" label="最后活跃" width="140" align="center"></el-table-column>
+                            <el-table-column prop="register_time" label="注册时间" align="center"></el-table-column>
+                        </el-table>
+                    </el-tab-pane>
+
+                    <el-tab-pane label="网络竞技王">
+                        <el-table :data="topRankings.online" border stripe style="width: 100%">
+                            <el-table-column type="index" label="排名" width="65" align="center"></el-table-column>
+                            <el-table-column label="玩家画像" width="280">
+                                <template #default="scope">
+                                    <div style="display: flex; align-items: center;">
+                                        <el-avatar :size="32" :src="scope.row.avatar_url" style="margin-right: 10px;"></el-avatar>
+                                        <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                            <span style="font-weight: bold; font-size: 13px;" class="text-truncate">{{ scope.row.nickname }}</span>
+                                            <small style="color: #999; font-size: 11px;">ID: {{ scope.row.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="level" label="等级" width="80" align="center">
+                                <template #default="s"><el-tag size="small" type="info">Lv.{{ s.row.level }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="win_count" label="累计完赛" width="100" align="center">
+                                <template #default="s"><b style="color: #F56C6C;">{{ s.row.win_count }}</b></template>
+                            </el-table-column>
+                            <el-table-column label="平台" width="90" align="center">
+                                 <template #default="s"><el-tag size="small" type="info">{{ s.row.platform }}</el-tag></template>
+                            </el-table-column>
+                            <el-table-column prop="last_login_time" label="最后活跃" width="140" align="center"></el-table-column>
+                            <el-table-column prop="register_time" label="注册时间" align="center"></el-table-column>
+                        </el-table>
+                    </el-tab-pane>
+                </el-tabs>
             </div>
             <template #footer>
                 <el-button type="primary" @click="matchSummaryVisible = false">关闭统计看板</el-button>
@@ -797,7 +851,7 @@
                 const matchSummaryVisible = ref(false);
                 const matchSummaryData = ref([]);
                 const matchSummaryLoading = ref(false);
-                const topPlayers = ref([]);
+                const topRankings = ref({ pve: [], local: [], online: [] });
 
                 const mapType = (type) => {
                     const dict = {
@@ -1189,7 +1243,7 @@
                         if (res.ok) {
                             const data = await res.json();
                             matchSummaryData.value = data.summary;
-                            topPlayers.value = data.topPlayers;
+                            topRankings.value = data.topRankings;
                         }
                     } catch (e) {
                         console.error(e);
@@ -1425,7 +1479,7 @@
                     matchSummaryVisible,
                     matchSummaryData,
                     matchSummaryLoading,
-                    topPlayers,
+                    topRankings,
                     fetchBehavior,
                     handleBehaviorPageChange,
                     showBehaviorDetails,

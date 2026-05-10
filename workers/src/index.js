@@ -613,22 +613,50 @@ export default {
               summaryResults.push(stats);
           }
 
-          // 2. 获取等级前 10 玩家
-          const topPlayers = await env.DB.prepare(`
-              SELECT 
-                u.user_id, u.nickname, u.avatar_url, u.level, u.platform,
-                COUNT(m.id) as total_matches,
-                strftime('%Y-%m-%d %H:%M', u.created_at) as register_time
-              FROM users u
-              LEFT JOIN match_history m ON u.user_id = m.user_id
-              GROUP BY u.user_id
-              ORDER BY u.level DESC, total_matches DESC
+          // 2. 获取分类排行榜 (从用户生涯数据 match_stats 中提取)
+          // 人机闯关排行
+          const topPve = await env.DB.prepare(`
+              SELECT user_id, nickname, avatar_url, level, platform,
+              CAST(json_extract(match_stats, '$.total_pve') AS INTEGER) as win_count,
+              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
+              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
+              FROM users 
+              WHERE match_stats IS NOT NULL
+              ORDER BY win_count DESC
+              LIMIT 10
+          `).all();
+
+          // 本地双人排行
+          const topLocal = await env.DB.prepare(`
+              SELECT user_id, nickname, avatar_url, level, platform,
+              CAST(json_extract(match_stats, '$.total_local') AS INTEGER) as win_count,
+              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
+              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
+              FROM users 
+              WHERE match_stats IS NOT NULL
+              ORDER BY win_count DESC
+              LIMIT 10
+          `).all();
+
+          // 网络对战排行
+          const topOnline = await env.DB.prepare(`
+              SELECT user_id, nickname, avatar_url, level, platform,
+              CAST(json_extract(match_stats, '$.total_online') AS INTEGER) as win_count,
+              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
+              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
+              FROM users 
+              WHERE match_stats IS NOT NULL
+              ORDER BY win_count DESC
               LIMIT 10
           `).all();
 
           return response({ 
               summary: summaryResults,
-              topPlayers: topPlayers.results
+              topRankings: {
+                  pve: topPve.results,
+                  local: topLocal.results,
+                  online: topOnline.results
+              }
           });
       }
 
