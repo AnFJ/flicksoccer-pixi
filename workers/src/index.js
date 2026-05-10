@@ -561,6 +561,76 @@ export default {
               sceneStats: (await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all()).results
           });
       }
+      
+      // 6.4 获取对局汇总统计
+      if (path === '/api/admin/match/summary' && request.method === 'GET') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          // 1. 定义时间维度
+          const periods = [
+              { label: '本日', cond: "date(m.created_at) = date('now', '+8 hours')" },
+              { label: '昨日', cond: "date(m.created_at) = date('now', '+8 hours', '-1 day')" },
+              { label: '本月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours')" },
+              { label: '上月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours', '-1 month')" },
+              { label: '上上月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours', '-2 month')" },
+              { label: '累计', cond: "1=1" }
+          ];
+
+          const summaryResults = [];
+          for (const p of periods) {
+              const res = await env.DB.prepare(`
+                  SELECT 
+                    u.platform,
+                    m.match_type,
+                    COUNT(*) as count
+                  FROM match_history m
+                  LEFT JOIN users u ON m.user_id = u.user_id
+                  WHERE ${p.cond}
+                  GROUP BY u.platform, m.match_type
+              `).all();
+              
+              const stats = {
+                  label: p.label,
+                  total: 0,
+                  wechat: { total: 0, pve: 0, pvp_online: 0, pvp_local: 0, live_flick: 0 },
+                  douyin: { total: 0, pve: 0, pvp_online: 0, pvp_local: 0, live_flick: 0 },
+                  other: { total: 0, pve: 0, pvp_online: 0, pvp_local: 0, live_flick: 0 }
+              };
+
+              res.results.forEach(row => {
+                  let plat = 'other';
+                  if (row.platform === 'wechat') plat = 'wechat';
+                  else if (row.platform === 'douyin' || row.platform === 'tt') plat = 'douyin';
+
+                  stats[plat].total += row.count;
+                  stats.total += row.count;
+
+                  const type = row.match_type || 'pve';
+                  if (stats[plat][type] !== undefined) {
+                      stats[plat][type] += row.count;
+                  }
+              });
+              summaryResults.push(stats);
+          }
+
+          // 2. 获取等级前 10 玩家
+          const topPlayers = await env.DB.prepare(`
+              SELECT 
+                u.user_id, u.nickname, u.avatar_url, u.level, u.platform,
+                COUNT(m.id) as total_matches,
+                strftime('%Y-%m-%d %H:%M', u.created_at) as register_time
+              FROM users u
+              LEFT JOIN match_history m ON u.user_id = m.user_id
+              GROUP BY u.user_id
+              ORDER BY u.level DESC, total_matches DESC
+              LIMIT 10
+          `).all();
+
+          return response({ 
+              summary: summaryResults,
+              topPlayers: topPlayers.results
+          });
+      }
 
       // --- 7. 广告上报与统计 ---
       

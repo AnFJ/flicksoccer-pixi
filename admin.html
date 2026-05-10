@@ -342,8 +342,11 @@
                                 value-format="YYYY-MM-DD"
                                 style="width: 300px;"
                             ></el-date-picker>
-                            <el-button type="primary" @click="fetchBehavior">搜索</el-button>
-                            <el-button type="success" @click="showBehaviorSummary">汇总</el-button>
+                            <el-button type="primary" @click="fetchBehavior">
+                                <el-icon><search /></el-icon> 搜索
+                            </el-button>
+                            <el-button type="success" @click="showBehaviorSummary">分布汇总报告</el-button>
+                            <el-button type="warning" @click="showMatchSummary">对局全局概况</el-button>
                         </div>
 
                         <el-table :data="behaviorList" border style="width: 100%" v-loading="behaviorLoading">
@@ -481,24 +484,142 @@
         </el-dialog>
 
         <!-- 行为详情弹窗 -->
-        <el-dialog v-model="behaviorDetailVisible" title="行为详情" width="70%">
-            <el-table :data="currentBehaviorActions" border style="width: 100%" height="500">
-                <el-table-column prop="seq" label="序号" width="80"></el-table-column>
-                <el-table-column prop="type" label="类型" width="120">
+        <el-dialog v-model="behaviorDetailVisible" title="玩家轨迹深度解析" width="80%">
+            <el-table :data="currentBehaviorActions" border style="width: 100%" height="600">
+                <el-table-column prop="seq" label="序" width="60" align="center"></el-table-column>
+                <el-table-column prop="type" label="映射类别" width="100">
                     <template #default="scope">
-                        <el-tag>{{ scope.row.type }}</el-tag>
+                        <el-tag :type="getActionTypeColor(scope.row.type)" size="small">{{ mapType(scope.row.type) }}</el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column prop="name" label="操作内容" width="180"></el-table-column>
-                <el-table-column label="详情">
-                    <template #default="scope">
-                        <div class="json-viewer" style="max-height: 100px;">{{ formatJson(scope.row.details) }}</div>
+                <el-table-column prop="name" label="动作意图" width="180">
+                    <template #default="s">
+                        <span :style="{ fontWeight: s.row.type === 'GAME' ? 'bold' : 'normal' }">{{ mapActionName(s.row.name) }}</span>
                     </template>
                 </el-table-column>
-                <el-table-column label="时间" width="180">
+                <el-table-column label="会话数据载荷 (Payload Mapping)">
+                    <template #default="scope">
+                        <div class="match-detail-box" v-if="scope.row.type === 'GAME'">
+                             <el-descriptions :column="2" size="small" border>
+                                 <template v-for="(val, key) in scope.row.details" :key="key">
+                                     <el-descriptions-item :label="mapDetailKey(key)">
+                                         <template v-if="key === 'winner'">
+                                             <el-tag :type="val === -1 ? 'info' : (val === scope.row.details.myTeam ? 'success' : 'danger')">
+                                                 {{ val === -1 ? '平局' : (val === scope.row.details.myTeam ? '获胜' : '失败') }}
+                                             </el-tag>
+                                         </template>
+                                         <template v-else-if="key === 'score'">
+                                             <b style="color: #409EFF;">{{ val[0] }} : {{ val[1] }}</b>
+                                         </template>
+                                         <template v-else-if="key === 'skills' || key === 'myStats' || key === 'oppStats'">
+                                             <div v-for="(sV, sK) in val" :key="sK" style="font-size: 11px;">
+                                                 <span><b>{{ mapDetailKey(sK) }}</b>: </span>
+                                                 <template v-if="sK === 'skills'">
+                                                     <span v-for="(skV, skK) in sV" :key="skK" style="margin-right:5px;">{{ mapDetailKey(skK) }}x{{ skV }}</span>
+                                                 </template>
+                                                 <template v-else>{{ sV }}</template>
+                                             </div>
+                                         </template>
+                                         <template v-else>{{ val }}</template>
+                                     </el-descriptions-item>
+                                 </template>
+                             </el-descriptions>
+                        </div>
+                        <div class="json-viewer" v-else>{{ formatJson(scope.row.details) }}</div>
+                    </template>
+                </el-table-column>
+                <el-table-column label="触发时间" width="180">
                     <template #default="scope">{{ formatDate(scope.row.timestamp) }}</template>
                 </el-table-column>
             </el-table>
+        </el-dialog>
+
+        <!-- 对局汇总弹窗 -->
+        <el-dialog v-model="matchSummaryVisible" title="全平台对局统计概况" width="1100px">
+            <div v-loading="matchSummaryLoading">
+                <el-alert title="统计数据包含单人模式、本地双人、网络对战及弹指实况" type="info" center show-icon style="margin-bottom: 20px;"></el-alert>
+                
+                <el-table :data="matchSummaryData" border stripe style="width: 100%; margin-bottom: 30px;">
+                    <el-table-column prop="label" label="时间跨度" width="100" fixed align="center">
+                        <template #default="s"><b>{{ s.row.label }}</b></template>
+                    </el-table-column>
+                    <el-table-column label="微信 (Wechat)">
+                        <el-table-column label="单人" align="center" width="70">
+                            <template #default="s">{{ s.row.wechat.pve }}</template> 
+                        </el-table-column>
+                        <el-table-column label="实况" align="center" width="70">
+                            <template #default="s">{{ s.row.wechat.live_flick }}</template>
+                        </el-table-column>
+                        <el-table-column label="网战" align="center" width="70">
+                            <template #default="s">{{ s.row.wechat.pvp_online }}</template>
+                        </el-table-column>
+                        <el-table-column label="双人" align="center" width="70">
+                            <template #default="s">{{ s.row.wechat.pvp_local }}</template>
+                        </el-table-column>
+                        <el-table-column label="小计" align="center" width="80">
+                            <template #default="s"><b style="color: #67C23A">{{ s.row.wechat.total }}</b></template>
+                        </el-table-column>
+                    </el-table-column>
+                    <el-table-column label="抖音 (Douyin/TT)">
+                        <el-table-column label="单人" align="center" width="70">
+                            <template #default="s">{{ s.row.douyin.pve }}</template>
+                        </el-table-column>
+                        <el-table-column label="实况" align="center" width="70">
+                            <template #default="s">{{ s.row.douyin.live_flick }}</template>
+                        </el-table-column>
+                        <el-table-column label="网战" align="center" width="70">
+                            <template #default="s">{{ s.row.douyin.pvp_online }}</template>
+                        </el-table-column>
+                        <el-table-column label="双人" align="center" width="70">
+                            <template #default="s">{{ s.row.douyin.pvp_local }}</template>
+                        </el-table-column>
+                        <el-table-column label="小计" align="center" width="80">
+                            <template #default="s"><b style="color: #E6A23C">{{ s.row.douyin.total }}</b></template>
+                        </el-table-column>
+                    </el-table-column>
+                    <el-table-column label="对局总量" align="center" width="110" fixed="right">
+                        <template #default="s">
+                            <el-tag effect="dark" type="danger" style="font-weight: bold;">{{ s.row.total }}</el-tag>
+                        </template>
+                    </el-table-column>
+                </el-table>
+
+                <h3 style="margin: 20px 10px;"><el-icon><medal /></el-icon> 巅峰玩家排行榜 (按等级 Top 10)</h3>
+                <el-table :data="topPlayers" border stripe style="width: 100%">
+                    <el-table-column type="index" label="排名" width="65" align="center">
+                        <template #default="s">
+                             <el-tag v-if="s.$index === 0" effect="dark" type="warning">冠</el-tag>
+                             <el-tag v-else-if="s.$index === 1" effect="dark" type="info">亚</el-tag>
+                             <el-tag v-else-if="s.$index === 2" effect="dark" style="background:#E6A23C; border-color:#E6A23C; color:white;">季</el-tag>
+                             <span v-else>{{ s.$index + 1 }}</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="玩家画像" width="260">
+                        <template #default="scope">
+                            <div style="display: flex; align-items: center;">
+                                <el-avatar :size="36" :src="scope.row.avatar_url" style="margin-right: 12px; border: 2px solid #ebeef5;"></el-avatar>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: bold; color: #303133;">{{ scope.row.nickname }}</span>
+                                    <small style="color: #909399;">ID: {{ scope.row.user_id }}</small>
+                                </div>
+                            </div>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="platform" label="平台" width="90" align="center">
+                         <template #default="s"><el-tag size="small" type="info">{{ s.row.platform }}</el-tag></template>
+                    </el-table-column>
+                    <el-table-column prop="level" label="等级" width="90" align="center">
+                         <template #default="s"><el-tag color="#f0f2f5" style="color: #606266;" size="small">Lv.{{ s.row.level }}</el-tag></template>
+                    </el-table-column>
+                    <el-table-column prop="total_matches" label="累计完赛场次" width="140" align="center" sortable>
+                         <template #default="s"><b style="color: #F56C6C; font-size: 16px;">{{ s.row.total_matches }}</b></template>
+                    </el-table-column>
+                    <el-table-column prop="register_time" label="加入社区时间" align="center" sortable></el-table-column>
+                </el-table>
+            </div>
+            <template #footer>
+                <el-button type="primary" @click="matchSummaryVisible = false">关闭统计看板</el-button>
+            </template>
         </el-dialog>
 
         <!-- 行为汇总弹窗 -->
@@ -554,9 +675,40 @@
                         <el-tag v-else>{{ scope.row.match_type }}</el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="详情">
+                <el-table-column label="对战数据详情 (Mapped)">
                     <template #default="scope">
-                        <div class="json-viewer" style="max-height: 100px;">{{ formatJson(scope.row.match_data) }}</div>
+                        <div class="match-detail-box">
+                             <el-descriptions :column="2" size="small" border>
+                                 <template v-for="(val, key) in parseJson(scope.row.match_data)" :key="key">
+                                     <el-descriptions-item :label="mapDetailKey(key)">
+                                         <!-- 胜者映射 -->
+                                         <template v-if="key === 'winner'">
+                                             <el-tag :type="val === -1 ? 'info' : (val === parseJson(scope.row.match_data).myTeam ? 'success' : 'danger')">
+                                                 {{ val === -1 ? '平局' : (val === parseJson(scope.row.match_data).myTeam ? '获胜' : '失败') }}
+                                             </el-tag>
+                                         </template>
+                                         <!-- 比分映射 -->
+                                         <template v-else-if="key === 'score'">
+                                             <b style="color: #409EFF;">{{ val[0] }} : {{ val[1] }}</b>
+                                         </template>
+                                         <!-- 统计与技能映射 -->
+                                         <template v-else-if="key === 'skills' || key === 'myStats' || key === 'oppStats' || key === 'stats'">
+                                             <div v-for="(sV, sK) in val" :key="sK" style="font-size: 11px;">
+                                                 <span><b>{{ mapDetailKey(sK) }}</b>: </span>
+                                                 <template v-if="sK === 'skills' || sK === '0' || sK === '1'">
+                                                     <div v-if="typeof sV === 'object'">
+                                                        <span v-for="(skV, skK) in sV" :key="skK" style="margin-right:5px;">{{ mapDetailKey(skK) }}x{{ skV }}</span>
+                                                     </div>
+                                                     <template v-else>{{ sV }}</template>
+                                                 </template>
+                                                 <template v-else>{{ sV }}</template>
+                                             </div>
+                                         </template>
+                                         <template v-else>{{ val }}</template>
+                                     </el-descriptions-item>
+                                 </template>
+                             </el-descriptions>
+                        </div>
                     </template>
                 </el-table-column>
             </el-table>
@@ -641,6 +793,64 @@
                 const behaviorSummaryVisible = ref(false);
                 const behaviorSummaryList = ref([]);
                 const summaryLoading = ref(false);
+
+                const matchSummaryVisible = ref(false);
+                const matchSummaryData = ref([]);
+                const matchSummaryLoading = ref(false);
+                const topPlayers = ref([]);
+
+                const mapType = (type) => {
+                    const dict = {
+                        'GAME': '对局',
+                        'SYSTEM': '系统',
+                        'CLICK': '点击',
+                        'PROFILE': '个人',
+                        'INVENTORY': '背包',
+                        'THEME': '主题',
+                        'CHECKIN': '签到',
+                        'SOCIAL': '社交'
+                    };
+                    return dict[type] || type;
+                };
+
+                const mapActionName = (name) => {
+                    if (name.includes('游戏结束')) return '🏁 比赛结束';
+                    if (name.includes('游戏开始')) return '⚽ 比赛开始';
+                    if (name.includes('实况弹指开始')) return '🎮 实况开始';
+                    if (name.includes('实况弹指结束')) return '🏁 实况结束';
+                    if (name.includes('进入')) return '➔ ' + name.replace('进入', '切入');
+                    return name;
+                };
+
+                const mapDetailKey = (key) => {
+                    const dict = {
+                        'winner': '胜者',
+                        'myTeam': '本方队伍',
+                        'score': '最终比分',
+                        'duration': '游玩时间(秒)',
+                        'shots': '射门次数',
+                        'skills': '技能详情',
+                        'super_force': '大力水手',
+                        'super_aim': '超级瞄准',
+                        'unstoppable': '无敌战车',
+                        'level': '关卡/等级',
+                        'mode': '模式码',
+                        'isLevelMode': '关卡模式',
+                        'prizeType': '奖励类型',
+                        'prizeValue': '奖励面值',
+                        'reason': '触发原因',
+                        'myStats': '本方统计',
+                        'oppStats': '对方统计'
+                    };
+                    return dict[key] || key;
+                };
+
+                const getActionTypeColor = (type) => {
+                    if (type === 'GAME') return 'success';
+                    if (type === 'SYSTEM') return 'info';
+                    if (type === 'CLICK') return '';
+                    return 'warning';
+                };
 
                 // 广告看板配置项
                 const adConfigList = ref([]);
@@ -969,6 +1179,26 @@
                     }
                 };
 
+                const showMatchSummary = async () => {
+                    matchSummaryVisible.value = true;
+                    matchSummaryLoading.value = true;
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/match/summary`, {
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            matchSummaryData.value = data.summary;
+                            topPlayers.value = data.topPlayers;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('获取对局汇总失败');
+                    } finally {
+                        matchSummaryLoading.value = false;
+                    }
+                };
+
                 const formatDate = (timestamp) => {
                     if (!timestamp) return '-';
                     return new Date(timestamp).toLocaleString();
@@ -1042,6 +1272,15 @@
                         return JSON.stringify(jsonStr, null, 2);
                     } catch (e) {
                         return jsonStr;
+                    }
+                };
+
+                const parseJson = (jsonStr) => {
+                    try {
+                        if (typeof jsonStr === 'string') return JSON.parse(jsonStr || '{}');
+                        return jsonStr || {};
+                    } catch (e) {
+                        return {};
                     }
                 };
 
@@ -1183,11 +1422,21 @@
                     behaviorSummaryVisible,
                     behaviorSummaryList,
                     summaryLoading,
+                    matchSummaryVisible,
+                    matchSummaryData,
+                    matchSummaryLoading,
+                    topPlayers,
                     fetchBehavior,
                     handleBehaviorPageChange,
                     showBehaviorDetails,
                     showBehaviorSummary,
+                    showMatchSummary,
+                    mapType,
+                    mapActionName,
+                    mapDetailKey,
+                    getActionTypeColor,
                     getActionCount,
+                    parseJson,
                     formatDate,
                     adConfigList,
                     adConfigDialogVisible,
