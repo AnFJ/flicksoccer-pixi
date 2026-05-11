@@ -13,10 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT DEFAULT (datetime('now', '+8 hours')),         -- 注册时间戳
     last_login TEXT DEFAULT (datetime('now', '+8 hours')),          -- 最后登录时间戳
     checkin_history TEXT DEFAULT '[]',  -- 签到历史 (JSON 字符串)
-    match_stats TEXT DEFAULT '{"totalMatches":0,"wins":0,"losses":0}', -- 比赛统计 (JSON 字符串)
+    match_stats TEXT DEFAULT '{"total_pve":0,"total_local":0,"total_online":0,"wins":0,"losses":0}', -- 比赛统计 (JSON 字符串)
     daily_unlocks TEXT DEFAULT '{}',  -- 每日解锁记录 (JSON 字符串)
-    scene TEXT                  -- [新增] 场景值 (注册时)
+    scene TEXT                  -- 场景值 (注册时)
 );
+
 -- 对战记录
 CREATE TABLE IF NOT EXISTS match_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS match_history (
     match_data TEXT,
     created_at DATETIME DEFAULT (datetime('now', '+8 hours'))
 );
+
 -- 房间记录
 CREATE TABLE IF NOT EXISTS room_records (
     room_id TEXT PRIMARY KEY,
@@ -35,7 +37,6 @@ CREATE TABLE IF NOT EXISTS room_records (
     created_at INTEGER,
     updated_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
 
 -- 广告观看记录
 CREATE TABLE IF NOT EXISTS ad_records (
@@ -50,8 +51,6 @@ CREATE TABLE IF NOT EXISTS ad_records (
     watch_time INTEGER,         -- 观看时长 (秒)
     created_at DATETIME DEFAULT (datetime('now', '+8 hours')) -- 观看时间
 );
-CREATE INDEX IF NOT EXISTS idx_ad_user_created ON ad_records(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ad_created ON ad_records(created_at DESC);
 
 -- 用户行为记录
 CREATE TABLE IF NOT EXISTS user_behavior (
@@ -63,15 +62,28 @@ CREATE TABLE IF NOT EXISTS user_behavior (
     actions TEXT,               -- 行为列表 (JSON 字符串)
     created_at DATETIME DEFAULT (datetime('now', '+8 hours')) -- 记录创建时间
 );
-CREATE INDEX IF NOT EXISTS idx_behavior_user_created ON user_behavior(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_behavior_created ON user_behavior(created_at DESC);
 
--- 创建索引优化查询
-CREATE INDEX IF NOT EXISTS idx_platform ON users(platform);
-ALTER TABLE users ADD COLUMN match_stats TEXT;
--- 删除用户
-DELETE FROM users WHERE user_id = "oCQN01z3Mhnbmfjt46QnkVz1jw5g";
--- 更新用户信息
-UPDATE users SET nickname = "edge笔记本用户" WHERE user_id = "acc7564a-0a69-4137-88b5-754a56d8dbe9";
-DELETE FROM users WHERE nickname = "edge笔记本用户";
-- [{"id":"super_aim","count":500},{"id":"super_force","count":500},{"id":"unstoppable","count":500}]
+-- === 性能优化：核心索引 ===
+
+-- 1. match_history (对战记录：优化关联查询与时间段统计)
+CREATE INDEX IF NOT EXISTS idx_match_history_user_id ON match_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_match_history_type ON match_history(match_type);
+
+-- 2. users (用户：优化搜索、等级排序与活跃统计)
+CREATE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname);
+CREATE INDEX IF NOT EXISTS idx_users_level ON users(level DESC);
+CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login DESC);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+CREATE INDEX IF NOT EXISTS idx_users_platform ON users(platform);
+
+-- 3. users (排行榜专用：针对 JSON 字段的表达式索引)
+-- 极大优化 Top 10 逻辑，避免全表动态解析 JSON
+CREATE INDEX IF NOT EXISTS idx_users_ranking_pve ON users(CAST(json_extract(match_stats, '$.total_pve') AS INTEGER) DESC);
+CREATE INDEX IF NOT EXISTS idx_users_ranking_local ON users(CAST(json_extract(match_stats, '$.total_local') AS INTEGER) DESC);
+CREATE INDEX IF NOT EXISTS idx_users_ranking_online ON users(CAST(json_extract(match_stats, '$.total_online') AS INTEGER) DESC);
+
+-- 4. 其他辅助索引
+CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_user_created ON ad_records(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_behavior_user_created ON user_behavior(user_id, created_at DESC);

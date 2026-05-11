@@ -517,80 +517,108 @@ export default {
           return response({ list: matches.results });
       }
 
-      // 6.3 获取统计数据
+      // 6.3 获取统计数据 - [优化] 减少数据库查询次数与扫描行数
       if (path === '/api/admin/stats' && request.method === 'GET') {
           if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
 
-          // 总用户数
-          const totalUsers = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
-          
-          // 各平台用户数
-          const platformStats = (await env.DB.prepare('SELECT platform, COUNT(*) as count FROM users GROUP BY platform').all()).results;
-          
-          // 获取明细的辅助函数
-          const getDailyStats = async (dateModifier, field = 'created_at') => {
-              const res = await env.DB.prepare(`
-                  SELECT platform, COUNT(*) as count 
-                  FROM users 
-                  WHERE date(${field}) = date('now', '+8 hours'${dateModifier})
-                  GROUP BY platform
-              `).all();
-              return res.results;
-          };
+          // 1. 计算时间边界
+          const now = new Date(Date.now() + 8 * 3600000);
+          const todayStart = now.toISOString().split('T')[0] + ' 00:00:00';
+          const yesterday = new Date(now.getTime() - 86400000);
+          const yesterdayStart = yesterday.toISOString().split('T')[0] + ' 00:00:00';
 
-          const [todayRegByPlat, yesterdayRegByPlat, todayActiveByPlat, yesterdayActiveByPlat] = await Promise.all([
-              getDailyStats(''),
-              getDailyStats(", '-1 day'"),
-              getDailyStats('', 'last_login'),
-              getDailyStats(", '-1 day'", 'last_login')
-          ]);
+          // 2. 核心统计：合并查询
+          // 一次性获取：总数、各平台分布、今日/昨日 注册与活跃
+          const statsRes = await env.DB.prepare(`
+              SELECT 
+                COUNT(*) as total_users,
+                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_reg,
+                SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) as yesterday_reg,
+                SUM(CASE WHEN last_login >= ? THEN 1 ELSE 0 END) as today_active,
+                SUM(CASE WHEN last_login >= ? AND last_login < ? THEN 1 ELSE 0 END) as yesterday_active
+              FROM users
+          `).bind(todayStart, yesterdayStart, todayStart, todayStart, yesterdayStart, todayStart).first();
 
-          const sumPlat = (list) => list.reduce((a, b) => a + b.count, 0);
+          // 3. 各平台明细 (注册与活跃)
+          const platformStats = await env.DB.prepare(`
+              SELECT 
+                platform, 
+                COUNT(*) as count,
+                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_reg,
+                SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) as yesterday_reg,
+                SUM(CASE WHEN last_login >= ? THEN 1 ELSE 0 END) as today_active,
+                SUM(CASE WHEN last_login >= ? AND last_login < ? THEN 1 ELSE 0 END) as yesterday_active
+              FROM users
+              GROUP BY platform
+          `).bind(todayStart, yesterdayStart, todayStart, todayStart, yesterdayStart, todayStart).all();
+
+          const sceneStats = await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all();
 
           return response({
-              totalUsers: totalUsers.count,
-              platformStats,
-              todayReg: sumPlat(todayRegByPlat),
-              todayRegByPlat,
-              yesterdayReg: sumPlat(yesterdayRegByPlat),
-              yesterdayRegByPlat,
-              todayActive: sumPlat(todayActiveByPlat),
-              todayActiveByPlat,
-              yesterdayActive: sumPlat(yesterdayActiveByPlat),
-              yesterdayActiveByPlat,
-              sceneStats: (await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all()).results
+              totalUsers: statsRes.total_users,
+              platformStats: platformStats.results,
+              todayReg: statsRes.today_reg,
+              yesterdayReg: statsRes.yesterday_reg,
+              todayActive: statsRes.today_active,
+              yesterdayActive: statsRes.yesterday_active,
+              // 补充前端需要的明细格式
+              todayRegByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.today_reg })),
+              yesterdayRegByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.yesterday_reg })),
+              todayActiveByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.today_active })),
+              yesterdayActiveByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.yesterday_active })),
+              sceneStats: sceneStats.results
           });
       }
       
-      // 6.4 获取对局汇总统计
+      // 6.4 获取对局汇总统计 - [优化] 单次扫描全表完成所有维度统计，大幅减少读行数
       if (path === '/api/admin/match/summary' && request.method === 'GET') {
           if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
 
-          // 1. 定义时间维度
-          const periods = [
-              { label: '本日', cond: "date(m.created_at) = date('now', '+8 hours')" },
-              { label: '昨日', cond: "date(m.created_at) = date('now', '+8 hours', '-1 day')" },
-              { label: '本月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours')" },
-              { label: '上月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours', '-1 month')" },
-              { label: '上上月', cond: "strftime('%Y-%m', m.created_at) = strftime('%Y-%m', 'now', '+8 hours', '-2 month')" },
-              { label: '累计', cond: "1=1" }
-          ];
+          // 1. 计算时间边界 (北京时间)
+          const now = new Date(Date.now() + 8 * 3600000);
+          const getStartStr = (d) => d.toISOString().split('T')[0] + ' 00:00:00';
+          
+          const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const todayStart = getStartStr(new Date(t0.getTime()));
+          const yesterdayStart = getStartStr(new Date(t0.getTime() - 86400000));
+          const thisMonthStart = now.toISOString().slice(0, 7) + '-01 00:00:00';
+          
+          const lastM = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastMonthStart = lastM.toISOString().slice(0, 7) + '-01 00:00:00';
+          
+          const last2M = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+          const last2MonthStart = last2M.toISOString().slice(0, 7) + '-01 00:00:00';
 
-          const summaryResults = [];
-          for (const p of periods) {
-              const res = await env.DB.prepare(`
-                  SELECT 
-                    u.platform,
-                    m.match_type,
-                    COUNT(*) as count
-                  FROM match_history m
-                  LEFT JOIN users u ON m.user_id = u.user_id
-                  WHERE ${p.cond}
-                  GROUP BY u.platform, m.match_type
-              `).all();
-              
+          // 2. 执行核心统计查询：一次扫描，多维聚合
+          const res = await env.DB.prepare(`
+              SELECT 
+                u.platform,
+                m.match_type,
+                SUM(CASE WHEN m.created_at >= ? THEN 1 ELSE 0 END) as v_today,
+                SUM(CASE WHEN m.created_at >= ? AND m.created_at < ? THEN 1 ELSE 0 END) as v_yesterday,
+                SUM(CASE WHEN m.created_at >= ? THEN 1 ELSE 0 END) as v_this_month,
+                SUM(CASE WHEN m.created_at >= ? AND m.created_at < ? THEN 1 ELSE 0 END) as v_last_month,
+                SUM(CASE WHEN m.created_at >= ? AND m.created_at < ? THEN 1 ELSE 0 END) as v_last2_month,
+                COUNT(*) as v_total
+              FROM match_history m
+              LEFT JOIN users u ON m.user_id = u.user_id
+              GROUP BY u.platform, m.match_type
+          `).bind(
+              todayStart, 
+              yesterdayStart, todayStart, 
+              thisMonthStart, 
+              lastMonthStart, thisMonthStart, 
+              last2MonthStart, lastMonthStart
+          ).all();
+
+          // 3. 将结果映射到前端所需的 periods 结构
+          const labels = ['本日', '昨日', '本月', '上月', '上上月', '累计'];
+          const keys = ['v_today', 'v_yesterday', 'v_this_month', 'v_last_month', 'v_last2_month', 'v_total'];
+          
+          const summaryResults = labels.map((label, idx) => {
+              const key = keys[idx];
               const stats = {
-                  label: p.label,
+                  label: label,
                   total: 0,
                   wechat: { total: 0, pve: 0, pvp_online: 0, pvp_local: 0, live_flick: 0 },
                   douyin: { total: 0, pve: 0, pvp_online: 0, pvp_local: 0, live_flick: 0 },
@@ -598,20 +626,23 @@ export default {
               };
 
               res.results.forEach(row => {
+                  const count = row[key] || 0;
+                  if (count === 0) return;
+
                   let plat = 'other';
                   if (row.platform === 'wechat') plat = 'wechat';
                   else if (row.platform === 'douyin' || row.platform === 'tt') plat = 'douyin';
 
-                  stats[plat].total += row.count;
-                  stats.total += row.count;
+                  stats[plat].total += count;
+                  stats.total += count;
 
                   const type = row.match_type || 'pve';
                   if (stats[plat][type] !== undefined) {
-                      stats[plat][type] += row.count;
+                      stats[plat][type] += count;
                   }
               });
-              summaryResults.push(stats);
-          }
+              return stats;
+          });
 
           // 2. 获取分类排行榜 (从用户生涯数据 match_stats 中提取)
           // 人机闯关排行
