@@ -63,27 +63,49 @@ CREATE TABLE IF NOT EXISTS user_behavior (
     created_at DATETIME DEFAULT (datetime('now', '+8 hours')) -- 记录创建时间
 );
 
--- === 性能优化：核心索引 ===
+-- 5. 统计与缓存优化表
 
--- 1. match_history (对战记录：优化关联查询与时间段统计)
+-- 全局概况统计 (多列并行，减少写入行数)
+-- key 格式: 'reg:{date}', 'active:{date}', 'cumulative', 'scene:{scene_id}'
+CREATE TABLE IF NOT EXISTS global_stats (
+    stat_key TEXT PRIMARY KEY,
+    wechat_val INTEGER DEFAULT 0,
+    douyin_val INTEGER DEFAULT 0,
+    web_val INTEGER DEFAULT 0,
+    total_val INTEGER DEFAULT 0,
+    updated_at DATETIME DEFAULT (datetime('now', '+8 hours'))
+);
+
+-- 排行榜缓存 (手动刷新)
+-- ranking_type: 'pve', 'local', 'online'
+CREATE TABLE IF NOT EXISTS leaderboard_cache (
+    ranking_type TEXT,
+    rank_index INTEGER,
+    data TEXT, -- JSON 存储玩家详细信息
+    updated_at DATETIME DEFAULT (datetime('now', '+8 hours')),
+    PRIMARY KEY (ranking_type, rank_index)
+);
+
+-- === 性能优化：核心索引 (精简版，以节省写入额度) ===
+
+-- 1. match_history (仅保留用户ID索引，用于客户端查询自己的战绩)
 CREATE INDEX IF NOT EXISTS idx_match_history_user_id ON match_history(user_id);
-CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at);
-CREATE INDEX IF NOT EXISTS idx_match_history_type ON match_history(match_type);
 
--- 2. users (用户：优化搜索、等级排序与活跃统计)
+-- 2. users (仅保留昵称索引，用于后台搜索用户)
 CREATE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname);
-CREATE INDEX IF NOT EXISTS idx_users_level ON users(level DESC);
-CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login DESC);
-CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
-CREATE INDEX IF NOT EXISTS idx_users_platform ON users(platform);
 
--- 3. users (排行榜专用：针对 JSON 字段的表达式索引)
--- 极大优化 Top 10 逻辑，避免全表动态解析 JSON
-CREATE INDEX IF NOT EXISTS idx_users_ranking_pve ON users(CAST(json_extract(match_stats, '$.total_pve') AS INTEGER) DESC);
-CREATE INDEX IF NOT EXISTS idx_users_ranking_local ON users(CAST(json_extract(match_stats, '$.total_local') AS INTEGER) DESC);
-CREATE INDEX IF NOT EXISTS idx_users_ranking_online ON users(CAST(json_extract(match_stats, '$.total_online') AS INTEGER) DESC);
-
--- 4. 其他辅助索引
+-- 3. 其他辅助索引 (保留状态索引，用于匹配房间查询)
 CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ad_user_created ON ad_records(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_behavior_user_created ON user_behavior(user_id, created_at DESC);
+
+
+DROP INDEX IF EXISTS idx_users_level;
+DROP INDEX IF EXISTS idx_users_last_login;
+DROP INDEX IF EXISTS idx_users_created_at;
+DROP INDEX IF EXISTS idx_users_platform;
+DROP INDEX IF EXISTS idx_users_ranking_pve;
+DROP INDEX IF EXISTS idx_users_ranking_local;
+DROP INDEX IF EXISTS idx_users_ranking_online;
+DROP INDEX IF EXISTS idx_match_history_created_at;
+DROP INDEX IF EXISTS idx_match_history_type;
+DROP INDEX IF EXISTS idx_ad_user_created;
+DROP INDEX IF EXISTS idx_behavior_user_created;

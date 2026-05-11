@@ -166,17 +166,6 @@
                                 </el-card>
                             </el-col>
                         </el-row>
-
-                        <h3>场景值分布</h3>
-                        <el-row :gutter="20">
-                            <el-col :span="6" v-for="(item, idx) in statsData.sceneStats" :key="idx">
-                                <el-card class="stat-card">
-                                    <div class="stat-label">{{ item.platform === 'wechat' ? '微信' : '抖音' }}: {{ item.scene }}</div>
-                                    <div class="stat-value">{{ item.count }}</div>
-                                    <div style="font-size: 12px; color: #909399; margin-top: 5px;">{{ getSceneDesc(item.scene, item.platform) }}</div>
-                                </el-card>
-                            </el-col>
-                        </el-row>
                     </div>
 
                     <!-- 账号统计 Tab -->
@@ -584,7 +573,12 @@
                     </el-table-column>
                 </el-table>
 
-                <h3 style="margin: 20px 10px;"><el-icon><medal /></el-icon> 英雄榜：生涯累积完赛统计 (Top 10)</h3>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin: 20px 10px;">
+                    <h3 style="margin: 0;"><el-icon><medal /></el-icon> 英雄榜：生涯累积完赛统计 (Top 10)</h3>
+                    <el-button type="warning" size="small" :loading="refreshingLeaderboard" @click="refreshLeaderboard" plain>
+                        刷新实时排行榜
+                    </el-button>
+                </div>
                 <el-tabs type="border-card">
                     <el-tab-pane label="人机闯关王">
                         <el-table :data="topRankings.pve" border stripe style="width: 100%">
@@ -790,7 +784,6 @@
                 const statsData = reactive({
                     totalUsers: 0,
                     platformStats: [],
-                    sceneStats: [],
                     todayReg: 0,
                     yesterdayReg: 0,
                     todayActive: 0,
@@ -851,6 +844,7 @@
                 const matchSummaryVisible = ref(false);
                 const matchSummaryData = ref([]);
                 const matchSummaryLoading = ref(false);
+                const refreshingLeaderboard = ref(false);
                 const topRankings = ref({ pve: [], local: [], online: [] });
 
                 const mapType = (type) => {
@@ -1253,6 +1247,25 @@
                     }
                 };
 
+                const refreshLeaderboard = async () => {
+                    refreshingLeaderboard.value = true;
+                    try {
+                        const res = await fetch(`${API_BASE}/api/admin/leaderboard/refresh`, {
+                            method: 'POST',
+                            headers: { 'x-admin-auth': 'admin-secret-token' }
+                        });
+                        if (res.ok) {
+                            ElMessage.success('排行榜已刷新');
+                            showMatchSummary(); // 刷新后再拉取一次数据展示
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('刷新排行榜失败');
+                    } finally {
+                        refreshingLeaderboard.value = false;
+                    }
+                };
+
                 const formatDate = (timestamp) => {
                     if (!timestamp) return '-';
                     return new Date(timestamp).toLocaleString();
@@ -1479,12 +1492,14 @@
                     matchSummaryVisible,
                     matchSummaryData,
                     matchSummaryLoading,
+                    refreshingLeaderboard,
                     topRankings,
                     fetchBehavior,
                     handleBehaviorPageChange,
                     showBehaviorDetails,
                     showBehaviorSummary,
                     showMatchSummary,
+                    refreshLeaderboard,
                     mapType,
                     mapActionName,
                     mapDetailKey,

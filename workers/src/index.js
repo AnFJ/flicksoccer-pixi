@@ -336,6 +336,58 @@ export default {
           }
         }
         const totalTime = Date.now() - startTime;
+
+        // [落地优化] 统计数据延迟更新 (使用 UPSERT 模式，单次写入完成多维统计)
+        ctx.waitUntil((async () => {
+             try {
+                const nowBj = new Date(Date.now() + 8*3600000);
+                const today = nowBj.toISOString().split('T')[0];
+                const platform = user.platform || 'web';
+                
+                // 平台字段映射
+                let col = 'web_val';
+                if (platform === 'wechat') col = 'wechat_val';
+                else if (platform === 'douyin' || platform === 'tt') col = 'douyin_val';
+
+                // 1. 更新活跃统计
+                const lastLoginDay = user.last_login ? user.last_login.split(' ')[0] : '';
+                if (lastLoginDay !== today) {
+                    const activeKey = `active:${today}`;
+                    await env.DB.prepare(`
+                        INSERT INTO global_stats (stat_key, ${col}, total_val) VALUES (?, 1, 1)
+                        ON CONFLICT(stat_key) DO UPDATE SET ${col} = ${col} + 1, total_val = total_val + 1, updated_at = datetime('now', '+8 hours')
+                    `).bind(activeKey).run();
+                }
+
+                // 2. 更新注册/总量统计
+                if (isNewUser) {
+                    const regKey = `reg:${today}`;
+                    const cumulativeKey = `cumulative`;
+                    
+                    const updateStats = async (key) => {
+                        await env.DB.prepare(`
+                            INSERT INTO global_stats (stat_key, ${col}, total_val) VALUES (?, 1, 1)
+                            ON CONFLICT(stat_key) DO UPDATE SET ${col} = ${col} + 1, total_val = total_val + 1
+                        `).bind(key).run();
+                    };
+
+                    await updateStats(regKey);
+                    await updateStats(cumulativeKey);
+                }
+
+                // 3. 概率清理 (1% 几率清理前天之前的数据)
+                if (Math.random() < 0.01) {
+                    const yesterdayDate = new Date(nowBj.getTime() - 86400000);
+                    const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
+                    await env.DB.prepare(`
+                        DELETE FROM global_stats 
+                        WHERE (stat_key LIKE 'reg:%' OR stat_key LIKE 'active:%')
+                        AND stat_key NOT LIKE ? AND stat_key NOT LIKE ?
+                    `).bind(`%:${today}`, `%:${yesterdayStr}`).run();
+                }
+             } catch(e) { console.error('Stats Update Error:', e); }
+        })());
+
         return response({ ...user, is_new_user: isNewUser, debug: { openIdTime, dbTime, totalTime } });
       }
 
@@ -517,57 +569,61 @@ export default {
           return response({ list: matches.results });
       }
 
-      // 6.3 获取统计数据 - [优化] 减少数据库查询次数与扫描行数
+      // 6.3 获取统计数据 - [优化] 优先从缓存表读取 (多列模式)
       if (path === '/api/admin/stats' && request.method === 'GET') {
           if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
 
-          // 1. 计算时间边界
-          const now = new Date(Date.now() + 8 * 3600000);
-          const todayStart = now.toISOString().split('T')[0] + ' 00:00:00';
-          const yesterday = new Date(now.getTime() - 86400000);
-          const yesterdayStart = yesterday.toISOString().split('T')[0] + ' 00:00:00';
+          const today = new Date(Date.now() + 8*3600000).toISOString().split('T')[0];
+          const yesterday = new Date(Date.now() + 8*3600000 - 86400000).toISOString().split('T')[0];
+          
+          // 一次性取出所有统计行
+          const statsList = await env.DB.prepare("SELECT * FROM global_stats").all();
+          const statsMap = Object.fromEntries(statsList.results.map(r => [r.stat_key, r]));
 
-          // 2. 核心统计：合并查询
-          // 一次性获取：总数、各平台分布、今日/昨日 注册与活跃
-          const statsRes = await env.DB.prepare(`
-              SELECT 
-                COUNT(*) as total_users,
-                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_reg,
-                SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) as yesterday_reg,
-                SUM(CASE WHEN last_login >= ? THEN 1 ELSE 0 END) as today_active,
-                SUM(CASE WHEN last_login >= ? AND last_login < ? THEN 1 ELSE 0 END) as yesterday_active
-              FROM users
-          `).bind(todayStart, yesterdayStart, todayStart, todayStart, yesterdayStart, todayStart).first();
+          const getRow = (key) => statsMap[key] || { wechat_val: 0, douyin_val: 0, web_val: 0, total_val: 0 };
+          
+          const regToday = getRow(`reg:${today}`);
+          const regYesterday = getRow(`reg:${yesterday}`);
+          const activeToday = getRow(`active:${today}`);
+          const activeYesterday = getRow(`active:${yesterday}`);
+          const cumulative = getRow(`cumulative`);
+          
+          const resData = {
+              totalUsers: cumulative.total_val,
+              todayReg: regToday.total_val,
+              yesterdayReg: regYesterday.total_val,
+              todayActive: activeToday.total_val,
+              yesterdayActive: activeYesterday.total_val,
+              
+              platformStats: [
+                  { platform: 'wechat', count: cumulative.wechat_val },
+                  { platform: 'douyin', count: cumulative.douyin_val },
+                  { platform: 'web', count: cumulative.web_val }
+              ],
+              
+              todayRegByPlat: [
+                  { platform: 'wechat', count: regToday.wechat_val },
+                  { platform: 'douyin', count: regToday.douyin_val },
+                  { platform: 'web', count: regToday.web_val }
+              ],
+              yesterdayRegByPlat: [
+                  { platform: 'wechat', count: regYesterday.wechat_val },
+                  { platform: 'douyin', count: regYesterday.douyin_val },
+                  { platform: 'web', count: regYesterday.web_val }
+              ],
+              todayActiveByPlat: [
+                  { platform: 'wechat', count: activeToday.wechat_val },
+                  { platform: 'douyin', count: activeToday.douyin_val },
+                  { platform: 'web', count: activeToday.web_val }
+              ],
+              yesterdayActiveByPlat: [
+                  { platform: 'wechat', count: activeYesterday.wechat_val },
+                  { platform: 'douyin', count: activeYesterday.douyin_val },
+                  { platform: 'web', count: activeYesterday.web_val }
+              ]
+          };
 
-          // 3. 各平台明细 (注册与活跃)
-          const platformStats = await env.DB.prepare(`
-              SELECT 
-                platform, 
-                COUNT(*) as count,
-                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_reg,
-                SUM(CASE WHEN created_at >= ? AND created_at < ? THEN 1 ELSE 0 END) as yesterday_reg,
-                SUM(CASE WHEN last_login >= ? THEN 1 ELSE 0 END) as today_active,
-                SUM(CASE WHEN last_login >= ? AND last_login < ? THEN 1 ELSE 0 END) as yesterday_active
-              FROM users
-              GROUP BY platform
-          `).bind(todayStart, yesterdayStart, todayStart, todayStart, yesterdayStart, todayStart).all();
-
-          const sceneStats = await env.DB.prepare('SELECT platform, scene, COUNT(*) as count FROM users WHERE scene IS NOT NULL GROUP BY platform, scene ORDER BY count DESC').all();
-
-          return response({
-              totalUsers: statsRes.total_users,
-              platformStats: platformStats.results,
-              todayReg: statsRes.today_reg,
-              yesterdayReg: statsRes.yesterday_reg,
-              todayActive: statsRes.today_active,
-              yesterdayActive: statsRes.yesterday_active,
-              // 补充前端需要的明细格式
-              todayRegByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.today_reg })),
-              yesterdayRegByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.yesterday_reg })),
-              todayActiveByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.today_active })),
-              yesterdayActiveByPlat: platformStats.results.map(r => ({ platform: r.platform, count: r.yesterday_active })),
-              sceneStats: sceneStats.results
-          });
+          return response(resData);
       }
       
       // 6.4 获取对局汇总统计 - [优化] 单次扫描全表完成所有维度统计，大幅减少读行数
@@ -644,51 +700,46 @@ export default {
               return stats;
           });
 
-          // 2. 获取分类排行榜 (从用户生涯数据 match_stats 中提取)
-          // 人机闯关排行
-          const topPve = await env.DB.prepare(`
-              SELECT user_id, nickname, avatar_url, level, platform,
-              CAST(json_extract(match_stats, '$.total_pve') AS INTEGER) as win_count,
-              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
-              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
-              FROM users 
-              WHERE match_stats IS NOT NULL
-              ORDER BY win_count DESC
-              LIMIT 10
-          `).all();
-
-          // 本地双人排行
-          const topLocal = await env.DB.prepare(`
-              SELECT user_id, nickname, avatar_url, level, platform,
-              CAST(json_extract(match_stats, '$.total_local') AS INTEGER) as win_count,
-              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
-              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
-              FROM users 
-              WHERE match_stats IS NOT NULL
-              ORDER BY win_count DESC
-              LIMIT 10
-          `).all();
-
-          // 网络对战排行
-          const topOnline = await env.DB.prepare(`
-              SELECT user_id, nickname, avatar_url, level, platform,
-              CAST(json_extract(match_stats, '$.total_online') AS INTEGER) as win_count,
-              strftime('%Y-%m-%d %H:%M', created_at) as register_time,
-              strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
-              FROM users 
-              WHERE match_stats IS NOT NULL
-              ORDER BY win_count DESC
-              LIMIT 10
-          `).all();
-
-          return response({ 
-              summary: summaryResults,
-              topRankings: {
-                  pve: topPve.results,
-                  local: topLocal.results,
-                  online: topOnline.results
+          // 2. 从缓存中获取排行榜
+          const cache = await env.DB.prepare("SELECT * FROM leaderboard_cache ORDER BY rank_index ASC").all();
+          const topRankings = { pve: [], local: [], online: [] };
+          cache.results.forEach(r => {
+              if (topRankings[r.ranking_type]) {
+                  topRankings[r.ranking_type].push(JSON.parse(r.data));
               }
           });
+
+          return response({ summary: summaryResults, topRankings });
+      }
+
+      // 6.5 刷新排行榜缓存
+      if (path === '/api/admin/leaderboard/refresh' && request.method === 'POST') {
+          if (!checkAdminAuth(request)) return response({ error: 'Unauthorized' }, 401);
+
+          const types = ['pve', 'local', 'online'];
+          for (const type of types) {
+              const top = await env.DB.prepare(`
+                  SELECT user_id, nickname, avatar_url, level, platform,
+                  CAST(json_extract(match_stats, '$.total_${type}') AS INTEGER) as win_count,
+                  strftime('%Y-%m-%d %H:%M', created_at) as register_time,
+                  strftime('%Y-%m-%d %H:%M', last_login) as last_login_time
+                  FROM users 
+                  WHERE match_stats IS NOT NULL
+                  ORDER BY win_count DESC
+                  LIMIT 10
+              `).all();
+
+              // 清除旧缓存
+              await env.DB.prepare("DELETE FROM leaderboard_cache WHERE ranking_type = ?").bind(type).run();
+              
+              // 写入新缓存
+              for (let i = 0; i < top.results.length; i++) {
+                  await env.DB.prepare("INSERT INTO leaderboard_cache (ranking_type, rank_index, data, updated_at) VALUES (?, ?, ?, datetime('now', '+8 hours'))")
+                    .bind(type, i, JSON.stringify(top.results[i])).run();
+              }
+          }
+
+          return response({ success: true, message: '排行榜缓存已更新' });
       }
 
       // --- 7. 广告上报与统计 ---

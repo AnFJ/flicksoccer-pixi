@@ -290,6 +290,11 @@ export default class RoomScene extends BaseScene {
           const hasP2 = players.some(p => p.teamId === 1);
           if (this.inviteBtn) this.inviteBtn.visible = !hasP2;
 
+      } else if (msg.type === 'WS_OPEN') {
+          // [新增] 在房间场景重连成功后，同步房间信息
+          console.log('[RoomScene] WebSocket reconnected, syncing room info...');
+          this.statusText.text = "连接已恢复，正在同步...";
+          NetworkMgr.send({ type: NetMsg.GET_STATE });
       } else if (msg.type === NetMsg.START) {
           SceneManager.changeScene(GameScene, { mode: 'pvp_online', players: this.players, startTurn: msg.payload.currentTurn });
       } else if (msg.type === NetMsg.GAME_RESUME) {
