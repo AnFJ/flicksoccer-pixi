@@ -81,79 +81,30 @@ CREATE TABLE IF NOT EXISTS global_stats (
 CREATE TABLE IF NOT EXISTS leaderboard_cache (
     ranking_type TEXT,
     rank_index INTEGER,
-    data TEXT,
+    data TEXT, -- JSON 存储玩家详细信息
     updated_at DATETIME DEFAULT (datetime('now', '+8 hours')),
     PRIMARY KEY (ranking_type, rank_index)
 );
 
--- === 性能优化：核心索引 (精简版，以节省写入额度) ===
+-- === 性能优化：核心索引 (精简版，专注减少读行数) ===
 
--- 1. match_history (仅保留用户ID索引，用于客户端查询自己的战绩)
+-- 1. match_history (增加时间索引，用于后台倒序查询，避免全表扫描排序)
 CREATE INDEX IF NOT EXISTS idx_match_history_user_id ON match_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_match_history_created_at ON match_history(created_at DESC);
 
--- 2. users (仅保留昵称索引，用于后台搜索用户)
+-- 2. users (保留昵称索引供搜索)
 CREATE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname);
 
--- 3. 其他辅助索引 (保留状态索引，用于匹配房间查询)
+-- 3. 其他辅助索引 (增加时间索引，优化后台列表展示)
 CREATE INDEX IF NOT EXISTS idx_status_created ON room_records(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_created_at ON ad_records(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_behavior_created_at ON user_behavior(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login DESC);
 
 
-DROP INDEX IF EXISTS idx_users_level;
-DROP INDEX IF EXISTS idx_users_last_login;
-DROP INDEX IF EXISTS idx_users_created_at;
-DROP INDEX IF EXISTS idx_users_platform;
-DROP INDEX IF EXISTS idx_users_ranking_pve;
-DROP INDEX IF EXISTS idx_users_ranking_local;
-DROP INDEX IF EXISTS idx_users_ranking_online;
-DROP INDEX IF EXISTS idx_match_history_created_at;
-DROP INDEX IF EXISTS idx_match_history_type;
-DROP INDEX IF EXISTS idx_ad_user_created;
-DROP INDEX IF EXISTS idx_behavior_user_created;
-
-
+-- 测试数据
 DELETE FROM users WHERE user_id = "oCQN01z3Mhnbmfjt46QnkVz1jw5g";
 -- 更新用户信息
 UPDATE users SET nickname = "edge笔记本用户" WHERE user_id = "acc7564a-0a69-4137-88b5-754a56d8dbe9";
 DELETE FROM users WHERE nickname = "edge笔记本用户";
 - [{"id":"super_aim","count":500},{"id":"super_force","count":500},{"id":"unstoppable","count":500}]
-
--- 1. 累计注册用户总数 (cumulative)
-INSERT INTO global_stats (stat_key, wechat_val, douyin_val, web_val, total_val) 
-VALUES ('cumulative', 1428, 1895, 8, 3329)
-ON CONFLICT(stat_key) DO UPDATE SET 
-    wechat_val=excluded.wechat_val, 
-    douyin_val=excluded.douyin_val, 
-    web_val=excluded.web_val, 
-    total_val=excluded.total_val;
-
-INSERT INTO global_stats (stat_key, wechat_val, douyin_val, web_val, total_val) 
-VALUES ('reg:2026-05-11', 5, 269, 0, 272)
-ON CONFLICT(stat_key) DO UPDATE SET 
-    wechat_val=excluded.wechat_val, 
-    douyin_val=excluded.douyin_val, 
-    web_val=excluded.web_val, 
-    total_val=excluded.total_val;
-
-INSERT INTO global_stats (stat_key, wechat_val, douyin_val, web_val, total_val) 
-VALUES ('active:2026-05-11', 10, 280, 0, 288)
-ON CONFLICT(stat_key) DO UPDATE SET 
-    wechat_val=excluded.wechat_val, 
-    douyin_val=excluded.douyin_val, 
-    web_val=excluded.web_val, 
-    total_val=excluded.total_val;
-
-INSERT INTO global_stats (stat_key, wechat_val, douyin_val, web_val, total_val) 
-VALUES ('reg:2026-05-10', 12, 146, 0, 158)
-ON CONFLICT(stat_key) DO UPDATE SET 
-    wechat_val=excluded.wechat_val, 
-    douyin_val=excluded.douyin_val, 
-    web_val=excluded.web_val, 
-    total_val=excluded.total_val;
-
-INSERT INTO global_stats (stat_key, wechat_val, douyin_val, web_val, total_val) 
-VALUES ('active:2026-05-10', 16, 164, 1, 181)
-ON CONFLICT(stat_key) DO UPDATE SET 
-    wechat_val=excluded.wechat_val, 
-    douyin_val=excluded.douyin_val, 
-    web_val=excluded.web_val, 
-    total_val=excluded.total_val;

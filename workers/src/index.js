@@ -466,22 +466,9 @@ export default {
                   .bind(JSON.stringify(stats), userId).run();
           }
 
-          // B. 插入对战历史 (只保留最近10条)
-          // 1. 插入新记录
+          // B. 插入对战历史 (按需记录，不再强制物理删除历史记录以节省写入/读行计费)
           await env.DB.prepare('INSERT INTO match_history (user_id, match_type, match_data) VALUES (?, ?, ?)')
               .bind(userId, matchType, JSON.stringify(matchData)).run();
-          
-          // 2. 删除旧记录 (保留最新的10条)
-          // SQLite 不支持直接 DELETE ... LIMIT，需要子查询
-          await env.DB.prepare(`
-              DELETE FROM match_history 
-              WHERE id NOT IN (
-                  SELECT id FROM match_history 
-                  WHERE user_id = ? 
-                  ORDER BY created_at DESC 
-                  LIMIT 10
-              ) AND user_id = ?
-          `).bind(userId, userId).run();
 
           return response({ success: true });
       }
@@ -539,21 +526,17 @@ export default {
 
           const offset = (page - 1) * pageSize;
           
-          let orderClause = 'ORDER BY created_at DESC';
-          if (orderBy === 'last_login_desc') {
-              orderClause = 'ORDER BY last_login DESC';
+          let orderClause = 'ORDER BY last_login DESC';
+          if (orderBy === 'created_at_desc') {
+              orderClause = 'ORDER BY created_at DESC';
           }
 
-          // 查询总数
-          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM users WHERE ${whereClause}`).bind(...args).first();
-          const total = countResult.total;
-
-          // 查询列表
+          // 查询列表 (不再查询总数，避免 D1 全表扫描产生的读计费)
           const users = await env.DB.prepare(`SELECT * FROM users WHERE ${whereClause} ${orderClause} LIMIT ? OFFSET ?`)
               .bind(...args, pageSize, offset).all();
 
           return response({
-              total,
+              total: -1, // -1 表示未知总数
               list: users.results
           });
       }
@@ -870,12 +853,11 @@ export default {
           }
 
           const offset = (page - 1) * pageSize;
-          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM ad_records WHERE ${whereClause}`).bind(...args).first();
           const listResult = await env.DB.prepare(`SELECT * FROM ad_records WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
               .bind(...args, pageSize, offset).all();
 
           return response({
-              total: countResult.total,
+              total: -1,
               list: listResult.results
           });
       }
@@ -936,12 +918,11 @@ export default {
 
           const offset = (page - 1) * pageSize;
           
-          const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM user_behavior WHERE ${whereClause}`).bind(...args).first();
           const listResult = await env.DB.prepare(`SELECT * FROM user_behavior WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
               .bind(...args, pageSize, offset).all();
 
           return response({
-              total: countResult.total,
+              total: -1,
               list: listResult.results
           });
       }

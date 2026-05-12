@@ -27,7 +27,8 @@
         .stat-value { font-size: 24px; font-weight: bold; color: #409EFF; }
         .stat-label { font-size: 14px; color: #909399; }
         .filter-container { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .pagination-container { margin-top: 20px; display: flex; justify-content: flex-end; }
+        .pagination-container { margin-top: 20px; display: flex; justify-content: flex-end; align-items: center; }
+        .pager-info { margin: 0 15px; color: #606266; font-size: 14px; }
         .json-viewer { background: #f4f4f5; padding: 10px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow: auto; }
     </style>
 </head>
@@ -86,7 +87,7 @@
                         <span>用户行为</span>
                     </el-menu-item>
                     <el-menu-item index="ad_config">
-                        <el-icon><user /></el-icon>
+                        <el-icon><picture /></el-icon>
                         <span>看板配置</span>
                     </el-menu-item>
                 </el-menu>
@@ -179,9 +180,9 @@
                             </el-select>
                             <el-input v-model="userFilter.scene" placeholder="场景值" style="width: 120px;" clearable @clear="fetchUsers"></el-input>
                             <el-input v-model="userFilter.level" placeholder="等级" style="width: 100px;" clearable @clear="fetchUsers"></el-input>
-                            <el-select v-model="userFilter.orderBy" placeholder="排序" style="width: 150px;" clearable @clear="fetchUsers">
-                                <el-option label="默认排序" value=""></el-option>
-                                <el-option label="最后登录时间倒序" value="last_login_desc"></el-option>
+                            <el-select v-model="userFilter.orderBy" placeholder="排序" style="width: 170px;" @change="fetchUsers">
+                                <el-option label="登录倒序 (默认)" value="last_login_desc"></el-option>
+                                <el-option label="注册时间倒序" value="created_at_desc"></el-option>
                             </el-select>
                             <el-date-picker
                                 v-model="userFilter.dateRange"
@@ -211,10 +212,33 @@
                                     </el-tooltip>
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="level" label="等级" width="80"></el-table-column>
-                            <el-table-column prop="coins" label="金币" width="100"></el-table-column>
-                            <el-table-column prop="created_at" label="注册时间" width="180"></el-table-column>
-                            <el-table-column prop="last_login" label="最后登录" width="180"></el-table-column>
+                            <el-table-column label="时间 / 状态" width="220">
+                                <template #default="scope">
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <el-tag :type="isNewUser(scope.row) ? 'danger' : 'success'" size="small">
+                                                {{ isNewUser(scope.row) ? '新用户' : '老用户' }}
+                                            </el-tag>
+                                            <span style="font-size: 11px; color: #909399;">Lv.{{ scope.row.level }}</span>
+                                        </div>
+                                        <div style="font-size: 12px; color: #606266;">
+                                            <el-icon style="vertical-align: middle; margin-right: 4px;"><calendar /></el-icon>
+                                            <span>注: {{ scope.row.created_at }}</span>
+                                        </div>
+                                        <div style="font-size: 12px; color: #409EFF;">
+                                            <el-icon style="vertical-align: middle; margin-right: 4px;"><timer /></el-icon>
+                                            <span>登: {{ scope.row.last_login }}</span>
+                                        </div>
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="财富" width="100">
+                                <template #default="scope">
+                                    <div style="font-size: 13px;">
+                                        <el-icon color="#E6A23C"><coin /></el-icon> {{ scope.row.coins }}
+                                    </div>
+                                </template>
+                            </el-table-column>
                             <el-table-column label="操作" fixed="right" width="180">
                                 <template #default="scope">
                                     <el-button size="small" @click="showDetails(scope.row)">详情</el-button>
@@ -226,12 +250,14 @@
                         <div class="pagination-container">
                             <el-pagination
                                 background
-                                layout="prev, pager, next"
+                                layout="prev, slot, next"
                                 :total="totalUsers"
                                 :page-size="pageSize"
                                 :current-page="currentPage"
                                 @current-change="handlePageChange"
-                            ></el-pagination>
+                            >
+                                <span class="pager-info">第 {{ currentPage }} 页</span>
+                            </el-pagination>
                         </div>
                     </div>
 
@@ -309,12 +335,14 @@
                         <div class="pagination-container">
                             <el-pagination
                                 background
-                                layout="prev, pager, next"
+                                layout="prev, slot, next"
                                 :total="totalAds"
                                 :page-size="adPageSize"
                                 :current-page="adCurrentPage"
                                 @current-change="handleAdPageChange"
-                            ></el-pagination>
+                            >
+                                <span class="pager-info">第 {{ adCurrentPage }} 页</span>
+                            </el-pagination>
                         </div>
                     </div>
                     <!-- 用户行为 Tab -->
@@ -362,12 +390,14 @@
                         <div class="pagination-container">
                             <el-pagination
                                 background
-                                layout="prev, pager, next"
+                                layout="prev, slot, next"
                                 :total="totalBehavior"
                                 :page-size="behaviorPageSize"
                                 :current-page="behaviorCurrentPage"
                                 @current-change="handleBehaviorPageChange"
-                            ></el-pagination>
+                            >
+                                <span class="pager-info">第 {{ behaviorCurrentPage }} 页</span>
+                            </el-pagination>
                         </div>
                     </div>
 
@@ -799,7 +829,7 @@
                     platform: '',
                     scene: '',
                     level: '',
-                    orderBy: '',
+                    orderBy: 'last_login_desc',
                     dateRange: []
                 });
 
@@ -1074,7 +1104,16 @@
                         if (res.ok) {
                             const data = await res.json();
                             userList.value = data.list;
-                            totalUsers.value = data.total;
+                            // 动态调整 total 以支持流式翻页
+                            if (data.total === -1) {
+                                if (data.list.length === pageSize.value) {
+                                    totalUsers.value = currentPage.value * pageSize.value + 1;
+                                } else {
+                                    totalUsers.value = (currentPage.value - 1) * pageSize.value + data.list.length;
+                                }
+                            } else {
+                                totalUsers.value = data.total;
+                            }
                         }
                     } catch (e) {
                         console.error(e);
@@ -1135,7 +1174,15 @@
                         if (res.ok) {
                             const data = await res.json();
                             behaviorList.value = data.list;
-                            totalBehavior.value = data.total;
+                            if (data.total === -1) {
+                                if (data.list.length === behaviorPageSize.value) {
+                                    totalBehavior.value = behaviorCurrentPage.value * behaviorPageSize.value + 1;
+                                } else {
+                                    totalBehavior.value = (behaviorCurrentPage.value - 1) * behaviorPageSize.value + data.list.length;
+                                }
+                            } else {
+                                totalBehavior.value = data.total;
+                            }
                         }
                     } catch (e) {
                         console.error(e);
@@ -1315,7 +1362,15 @@
                         if (res.ok) {
                             const data = await res.json();
                             adList.value = data.list;
-                            totalAds.value = data.total;
+                            if (data.total === -1) {
+                                if (data.list.length === adPageSize.value) {
+                                    totalAds.value = adCurrentPage.value * adPageSize.value + 1;
+                                } else {
+                                    totalAds.value = (adCurrentPage.value - 1) * adPageSize.value + data.list.length;
+                                }
+                            } else {
+                                totalAds.value = data.total;
+                            }
                         }
                     } catch (e) {
                         console.error(e);
@@ -1434,6 +1489,14 @@
                     return '场景 ' + s;
                 };
 
+                const isNewUser = (user) => {
+                    if (!user || !user.created_at || !user.last_login) return false;
+                    // 比较日期部分 (格式通常为 YYYY-MM-DD HH:mm:ss)
+                    const regDate = user.created_at.split(' ')[0];
+                    const loginDate = user.last_login.split(' ')[0];
+                    return regDate === loginDate;
+                };
+
                 onMounted(() => {
                     if (localStorage.getItem('admin_logged_in') === 'true') {
                         isLoggedIn.value = true;
@@ -1517,7 +1580,8 @@
                     confirmAdConfig,
                     handleDeleteAdConfig,
                     saveAdConfigs,
-                    getTriggerDesc
+                    getTriggerDesc,
+                    isNewUser
                 };
             }
         });
